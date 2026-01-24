@@ -1,0 +1,96 @@
+//! Core types and data structures
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+use rdev::{Key, Button};
+
+/// Represents a single input event captured during recording
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "PascalCase")]
+pub enum InputEvent {
+    KeyPress {
+        key: String,
+        timestamp: i64,
+    },
+    KeyRelease {
+        key: String,
+        timestamp: i64,
+    },
+    KeyCombo {
+        char: String,
+        key: String,
+        modifiers: Vec<String>,
+        timestamp: i64,
+    },
+    ButtonPress {
+        button: String,
+        x: f64,
+        y: f64,
+        timestamp: i64,
+    },
+    ButtonRelease {
+        button: String,
+        x: f64,
+        y: f64,
+        timestamp: i64,
+    },
+    MouseMove {
+        x: f64,
+        y: f64,
+        timestamp: i64,
+    },
+}
+
+/// A saved recording containing a sequence of input events
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Recording {
+    pub id: String,
+    pub name: String,
+    pub events: Vec<InputEvent>,
+    pub created_at: i64,
+}
+
+/// Shared application state for recording and playback
+pub struct RecordingState {
+    pub is_recording: Arc<Mutex<bool>>,
+    pub current_events: Arc<Mutex<Vec<InputEvent>>>,
+    pub last_mouse_position: Arc<Mutex<Option<(f64, f64)>>>,
+    pub pressed_modifiers: Arc<Mutex<HashSet<Key>>>,
+    pub pressed_buttons: Arc<Mutex<HashSet<Button>>>,
+    pub is_playing: Arc<Mutex<bool>>,
+    pub playback_position: Arc<Mutex<Option<usize>>>,
+}
+
+impl Default for RecordingState {
+    fn default() -> Self {
+        Self {
+            is_recording: Arc::new(Mutex::new(false)),
+            current_events: Arc::new(Mutex::new(Vec::new())),
+            last_mouse_position: Arc::new(Mutex::new(None)),
+            pressed_modifiers: Arc::new(Mutex::new(HashSet::new())),
+            pressed_buttons: Arc::new(Mutex::new(HashSet::new())),
+            is_playing: Arc::new(Mutex::new(false)),
+            playback_position: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+/// Trait for extracting timestamps from input events
+pub trait InputEventTimestamp {
+    fn timestamp(&self) -> i64;
+}
+
+impl InputEventTimestamp for InputEvent {
+    fn timestamp(&self) -> i64 {
+        match self {
+            InputEvent::KeyPress { timestamp, .. } => *timestamp,
+            InputEvent::KeyRelease { timestamp, .. } => *timestamp,
+            InputEvent::KeyCombo { timestamp, .. } => *timestamp,
+            InputEvent::ButtonPress { timestamp, .. } => *timestamp,
+            InputEvent::ButtonRelease { timestamp, .. } => *timestamp,
+            InputEvent::MouseMove { timestamp, .. } => *timestamp,
+        }
+    }
+}
+

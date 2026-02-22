@@ -22,9 +22,14 @@ export const usePlaybackPosition = (
       onComplete?.();
     });
 
+    const unlistenLoopRestart = listen("playback-loop-restart", () => {
+      setCurrentPosition(0);
+    });
+
     return () => {
       unlistenPosition.then((fn) => fn());
       unlistenComplete.then((fn) => fn());
+      unlistenLoopRestart.then((fn) => fn());
     };
   }, [isPlaying, onComplete]);
 

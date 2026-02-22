@@ -74,6 +74,7 @@ pub struct RecordingState {
     pressed_buttons: Arc<Mutex<HashSet<Button>>>,
     is_playing: Arc<Mutex<bool>>,
     playback_position: Arc<Mutex<Option<usize>>>,
+    loop_count: Arc<Mutex<usize>>,
 }
 
 impl Default for RecordingState {
@@ -86,6 +87,7 @@ impl Default for RecordingState {
             pressed_buttons: Arc::new(Mutex::new(HashSet::new())),
             is_playing: Arc::new(Mutex::new(false)),
             playback_position: Arc::new(Mutex::new(None)),
+            loop_count: Arc::new(Mutex::new(0)),
         }
     }
 }
@@ -663,20 +665,23 @@ fn play_recording(
     app_handle: AppHandle,
     state: State<RecordingState>,
     events: Vec<InputEvent>,
+    loop_forever: Option<bool>,
 ) -> Result<(), String> {
     let mut is_playing = state.is_playing.lock().map_err(|e| e.to_string())?;
-    
+
     if *is_playing {
         return Err("Already playing".to_string());
     }
-    
+
     if events.is_empty() {
         return Err("No events to play".to_string());
     }
-    
+
     *is_playing = true;
     drop(is_playing);
-    
+
+    let loop_forever = loop_forever.unwrap_or(true);
+
     // Check if there are any playable events (non-KeyCombo)
     let has_playable_events = events.iter().any(|e| !matches!(e, InputEvent::KeyCombo { .. }));
     if !has_playable_events {
@@ -684,158 +689,200 @@ fn play_recording(
         *is_playing = false;
         return Err("No playable events found".to_string());
     }
-    
-    // Reset playback position
+
+    // Reset playback position and loop count
     {
         let mut position = state.playback_position.lock().map_err(|e| e.to_string())?;
         *position = None;
     }
-    
+    {
+        let mut count = state.loop_count.lock().map_err(|e| e.to_string())?;
+        *count = 0;
+    }
+
     let is_playing_clone = Arc::clone(&state.is_playing);
     let playback_position_clone = Arc::clone(&state.playback_position);
+    let loop_count_clone = Arc::clone(&state.loop_count);
     let events_clone = events.clone();
-    
+
     // Spawn playback in a separate thread
     thread::spawn(move || {
         // Small initial delay to ensure UI listeners are ready
         thread::sleep(Duration::from_millis(100));
-        
-        // Emit initial position for first event
-        if !events_clone.is_empty() {
-            if let Ok(mut position) = playback_position_clone.lock() {
-                *position = Some(0);
-            }
-            let _ = app_handle.emit("playback-position", 0);
-            thread::sleep(Duration::from_millis(50));
-        }
-        
-        // Iterate through ALL events to show progress through everything
-        for (index, event) in events_clone.iter().enumerate() {
-            // Check if playback was stopped
+
+        let mut is_first_iteration = true;
+
+        loop {
+            // Check if playback was stopped before starting iteration
             if let Ok(playing) = is_playing_clone.lock() {
                 if !*playing {
                     break;
                 }
             }
-            
-            // Update playback position for ALL events (including KeyCombo)
-            // Throttle UI updates for MouseMove events to avoid choppiness
-            let should_update_ui = match event {
-                InputEvent::MouseMove { .. } => {
-                    // Only update UI every 3rd MouseMove event or if it's been >50ms since last update
-                    if index == 0 {
-                        true
-                    } else if index % 3 == 0 {
-                        true
-                    } else {
-                        // Check if enough time has passed since the last UI update
-                        let event_time = event.timestamp();
-                        let check_index = (index.saturating_sub(3)).max(0);
-                        let prev_time = events_clone[check_index].timestamp();
-                        (event_time - prev_time) > 50
-                    }
-                },
-                _ => true, // Always update UI for non-MouseMove events
-            };
-            
-            if should_update_ui {
+
+            // Emit loop restart event (not on first iteration)
+            if !is_first_iteration {
+                // Increment loop count
+                if let Ok(mut count) = loop_count_clone.lock() {
+                    *count += 1;
+                }
+
+                // Reset position to 0
                 if let Ok(mut position) = playback_position_clone.lock() {
-                    *position = Some(index);
+                    *position = Some(0);
                 }
-                // Emit playback position event
-                let _ = app_handle.emit("playback-position", index);
-                // Small delay to ensure UI has time to update (only when we update)
-                thread::sleep(Duration::from_millis(10));
-            }
-            
-            // Calculate delay from previous event
-            let delay = if index == 0 {
-                0
-            } else {
-                let event_time = event.timestamp();
-                let prev_time = events_clone[index - 1].timestamp();
-                (event_time - prev_time).max(0) as u64
-            };
-            
-            // Determine minimum delay based on event type
-            let min_delay = match event {
-                InputEvent::MouseMove { .. } => 5, // Minimum 5ms between mouse moves for smoothness
-                _ => 1, // Minimum 1ms for other events
-            };
-            
-            // Wait for the delay (but ensure minimum delay)
-            if index == 0 {
-                // First event: small delay to ensure UI is ready
+                let _ = app_handle.emit("playback-loop-restart", ());
+
+                // Brief gap between loops
                 thread::sleep(Duration::from_millis(50));
-            } else {
-                let actual_delay = delay.max(min_delay);
-                if actual_delay > 0 {
-                    thread::sleep(Duration::from_millis(actual_delay));
-                }
             }
-            
-            // Only simulate non-KeyCombo events
-            if !matches!(event, InputEvent::KeyCombo { .. }) {
-                // Simulate the event
-                let event_type = match event {
-                    InputEvent::KeyPress { key, .. } => {
-                        if let Some(k) = string_to_key(key) {
-                            Some(EventType::KeyPress(k))
-                        } else {
-                            eprintln!("Unknown key: {}", key);
-                            None
-                        }
-                    },
-                    InputEvent::KeyRelease { key, .. } => {
-                        if let Some(k) = string_to_key(key) {
-                            Some(EventType::KeyRelease(k))
-                        } else {
-                            eprintln!("Unknown key: {}", key);
-                            None
-                        }
-                    },
-                    InputEvent::ButtonPress { button, x, y, .. } => {
-                        if let Some(b) = string_to_button(button) {
-                            // Move mouse first, then press
-                            if let Err(e) = simulate(&EventType::MouseMove { x: *x, y: *y }) {
-                                eprintln!("Failed to move mouse: {:?}", e);
-                            }
-                            thread::sleep(Duration::from_millis(10));
-                            Some(EventType::ButtonPress(b))
-                        } else {
-                            eprintln!("Unknown button: {}", button);
-                            None
-                        }
-                    },
-                    InputEvent::ButtonRelease { button, x, y, .. } => {
-                        if let Some(b) = string_to_button(button) {
-                            // Move mouse first, then release
-                            if let Err(e) = simulate(&EventType::MouseMove { x: *x, y: *y }) {
-                                eprintln!("Failed to move mouse: {:?}", e);
-                            }
-                            thread::sleep(Duration::from_millis(10));
-                            Some(EventType::ButtonRelease(b))
-                        } else {
-                            eprintln!("Unknown button: {}", button);
-                            None
-                        }
-                    },
-                    InputEvent::MouseMove { x, y, .. } => {
-                        Some(EventType::MouseMove { x: *x, y: *y })
-                    },
-                    InputEvent::KeyCombo { .. } => None, // Should not reach here due to check above
-                };
-                
-                if let Some(et) = event_type {
-                    if let Err(e) = simulate(&et) {
-                        eprintln!("Failed to simulate event: {:?}", e);
+
+            // Emit initial position for first event
+            if is_first_iteration && !events_clone.is_empty() {
+                if let Ok(mut position) = playback_position_clone.lock() {
+                    *position = Some(0);
+                }
+                let _ = app_handle.emit("playback-position", 0);
+                thread::sleep(Duration::from_millis(50));
+            }
+
+            is_first_iteration = false;
+            let mut was_stopped = false;
+
+            // Iterate through ALL events to show progress through everything
+            for (index, event) in events_clone.iter().enumerate() {
+                // Check if playback was stopped
+                if let Ok(playing) = is_playing_clone.lock() {
+                    if !*playing {
+                        was_stopped = true;
+                        break;
                     }
-                    // Small delay after each event
+                }
+
+                // Update playback position for ALL events (including KeyCombo)
+                // Throttle UI updates for MouseMove events to avoid choppiness
+                let should_update_ui = match event {
+                    InputEvent::MouseMove { .. } => {
+                        // Only update UI every 3rd MouseMove event or if it's been >50ms since last update
+                        if index == 0 {
+                            true
+                        } else if index % 3 == 0 {
+                            true
+                        } else {
+                            // Check if enough time has passed since the last UI update
+                            let event_time = event.timestamp();
+                            let check_index = (index.saturating_sub(3)).max(0);
+                            let prev_time = events_clone[check_index].timestamp();
+                            (event_time - prev_time) > 50
+                        }
+                    },
+                    _ => true, // Always update UI for non-MouseMove events
+                };
+
+                if should_update_ui {
+                    if let Ok(mut position) = playback_position_clone.lock() {
+                        *position = Some(index);
+                    }
+                    // Emit playback position event
+                    let _ = app_handle.emit("playback-position", index);
+                    // Small delay to ensure UI has time to update (only when we update)
                     thread::sleep(Duration::from_millis(10));
                 }
+
+                // Calculate delay from previous event
+                let delay = if index == 0 {
+                    0
+                } else {
+                    let event_time = event.timestamp();
+                    let prev_time = events_clone[index - 1].timestamp();
+                    (event_time - prev_time).max(0) as u64
+                };
+
+                // Determine minimum delay based on event type
+                let min_delay = match event {
+                    InputEvent::MouseMove { .. } => 5, // Minimum 5ms between mouse moves for smoothness
+                    _ => 1, // Minimum 1ms for other events
+                };
+
+                // Wait for the delay (but ensure minimum delay)
+                if index == 0 {
+                    // First event: small delay to ensure UI is ready
+                    thread::sleep(Duration::from_millis(50));
+                } else {
+                    let actual_delay = delay.max(min_delay);
+                    if actual_delay > 0 {
+                        thread::sleep(Duration::from_millis(actual_delay));
+                    }
+                }
+
+                // Only simulate non-KeyCombo events
+                if !matches!(event, InputEvent::KeyCombo { .. }) {
+                    // Simulate the event
+                    let event_type = match event {
+                        InputEvent::KeyPress { key, .. } => {
+                            if let Some(k) = string_to_key(key) {
+                                Some(EventType::KeyPress(k))
+                            } else {
+                                eprintln!("Unknown key: {}", key);
+                                None
+                            }
+                        },
+                        InputEvent::KeyRelease { key, .. } => {
+                            if let Some(k) = string_to_key(key) {
+                                Some(EventType::KeyRelease(k))
+                            } else {
+                                eprintln!("Unknown key: {}", key);
+                                None
+                            }
+                        },
+                        InputEvent::ButtonPress { button, x, y, .. } => {
+                            if let Some(b) = string_to_button(button) {
+                                // Move mouse first, then press
+                                if let Err(e) = simulate(&EventType::MouseMove { x: *x, y: *y }) {
+                                    eprintln!("Failed to move mouse: {:?}", e);
+                                }
+                                thread::sleep(Duration::from_millis(10));
+                                Some(EventType::ButtonPress(b))
+                            } else {
+                                eprintln!("Unknown button: {}", button);
+                                None
+                            }
+                        },
+                        InputEvent::ButtonRelease { button, x, y, .. } => {
+                            if let Some(b) = string_to_button(button) {
+                                // Move mouse first, then release
+                                if let Err(e) = simulate(&EventType::MouseMove { x: *x, y: *y }) {
+                                    eprintln!("Failed to move mouse: {:?}", e);
+                                }
+                                thread::sleep(Duration::from_millis(10));
+                                Some(EventType::ButtonRelease(b))
+                            } else {
+                                eprintln!("Unknown button: {}", button);
+                                None
+                            }
+                        },
+                        InputEvent::MouseMove { x, y, .. } => {
+                            Some(EventType::MouseMove { x: *x, y: *y })
+                        },
+                        InputEvent::KeyCombo { .. } => None, // Should not reach here due to check above
+                    };
+
+                    if let Some(et) = event_type {
+                        if let Err(e) = simulate(&et) {
+                            eprintln!("Failed to simulate event: {:?}", e);
+                        }
+                        // Small delay after each event
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                }
+            }
+
+            // If stopped or not looping, exit the loop
+            if was_stopped || !loop_forever {
+                break;
             }
         }
-        
+
         // Mark playback as complete
         if let Ok(mut playing) = is_playing_clone.lock() {
             *playing = false;
@@ -843,10 +890,13 @@ fn play_recording(
         if let Ok(mut position) = playback_position_clone.lock() {
             *position = None;
         }
+        if let Ok(mut count) = loop_count_clone.lock() {
+            *count = 0;
+        }
         // Emit completion event
         let _ = app_handle.emit("playback-complete", ());
     });
-    
+
     Ok(())
 }
 
@@ -854,8 +904,12 @@ fn play_recording(
 fn stop_playback(state: State<RecordingState>) -> Result<(), String> {
     let mut is_playing = state.is_playing.lock().map_err(|e| e.to_string())?;
     *is_playing = false;
+    drop(is_playing);
     let mut position = state.playback_position.lock().map_err(|e| e.to_string())?;
     *position = None;
+    drop(position);
+    let mut count = state.loop_count.lock().map_err(|e| e.to_string())?;
+    *count = 0;
     Ok(())
 }
 
@@ -970,12 +1024,25 @@ pub fn run() {
     
     builder
         .plugin(tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(|app, _shortcut, event| {
+            .with_handler(|app, shortcut, event| {
                 use tauri_plugin_global_shortcut::ShortcutState;
-                
+
                 // Only trigger on key press, not release
-                if event.state() == ShortcutState::Pressed {
-                    let _ = toggle_visibility(app.clone());
+                if event.state() != ShortcutState::Pressed {
+                    return;
+                }
+
+                let shortcut_str = shortcut.to_string().to_lowercase();
+
+                match shortcut_str.as_str() {
+                    "cmd+m" | "ctrl+m" | "super+m" => {
+                        let _ = toggle_visibility(app.clone());
+                    }
+                    "cmd+r" | "ctrl+r" | "super+r" => {
+                        // Emit toggle-playback event to frontend
+                        let _ = app.emit("toggle-playback", ());
+                    }
+                    _ => {}
                 }
             })
             .build()
@@ -986,9 +1053,19 @@ pub fn run() {
             let shortcut_str = "cmd+m";
             #[cfg(not(target_os = "macos"))]
             let shortcut_str = "ctrl+m";
-            
+
             if let Err(e) = app.global_shortcut().register(shortcut_str) {
                 eprintln!("Failed to register global shortcut: {}", e);
+            }
+
+            // Register Cmd+R (macOS) or Ctrl+R (Windows/Linux) to toggle playback
+            #[cfg(target_os = "macos")]
+            let play_shortcut_str = "cmd+r";
+            #[cfg(not(target_os = "macos"))]
+            let play_shortcut_str = "ctrl+r";
+
+            if let Err(e) = app.global_shortcut().register(play_shortcut_str) {
+                eprintln!("Failed to register playback shortcut: {}", e);
             }
             
             // Initialize macOS NSPanel configuration

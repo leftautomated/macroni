@@ -60,6 +60,7 @@ pub struct RecordingState {
     pub pressed_buttons: Arc<Mutex<HashSet<Button>>>,
     pub is_playing: Arc<Mutex<bool>>,
     pub playback_position: Arc<Mutex<Option<usize>>>,
+    pub loop_count: Arc<Mutex<usize>>,
 }
 
 impl Default for RecordingState {
@@ -72,6 +73,7 @@ impl Default for RecordingState {
             pressed_buttons: Arc::new(Mutex::new(HashSet::new())),
             is_playing: Arc::new(Mutex::new(false)),
             playback_position: Arc::new(Mutex::new(None)),
+            loop_count: Arc::new(Mutex::new(0)),
         }
     }
 }

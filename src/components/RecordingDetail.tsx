@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { usePlaybackPosition } from "@/hooks/usePlaybackPosition";
 import { usePlaybackStatus } from "@/hooks/usePlaybackStatus";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
@@ -77,24 +78,46 @@ export const RecordingDetail = ({ recording, onClose, onUpdateName }: RecordingD
   usePlaybackStatus(isPlaying, handleStatusChange);
   useAutoScroll(currentPosition, rowRefs);
 
-  const handlePlay = async () => {
+  const handlePlay = useCallback(async () => {
+    if (!recording) return;
     try {
       setIsPlaying(true);
-      await invoke("play_recording", { events: recording.events });
+      await invoke("play_recording", { events: recording.events, loopForever: true });
     } catch (error) {
       console.error("Failed to play recording:", error);
       setIsPlaying(false);
     }
-  };
+  }, [recording]);
 
-  const handleStop = async () => {
+  const handleStop = useCallback(async () => {
     try {
       await invoke("stop_playback");
       setIsPlaying(false);
     } catch (error) {
       console.error("Failed to stop playback:", error);
     }
-  };
+  }, []);
+
+  // Track isPlaying in a ref so the toggle-playback listener always has current state
+  const isPlayingRef = useRef(isPlaying);
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  // Listen for global Cmd+R toggle-playback shortcut
+  useEffect(() => {
+    const unlisten = listen("toggle-playback", () => {
+      if (isPlayingRef.current) {
+        handleStop();
+      } else {
+        handlePlay();
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [handlePlay, handleStop]);
 
   const formatTimestamp = (timestamp: number) => {
     const date = new Date(timestamp);

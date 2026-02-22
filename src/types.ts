@@ -13,24 +13,6 @@ export enum InputEventType {
   MouseMove = "MouseMove",
 }
 
-export interface Keystroke {
-  key: string;
-  timestamp: number;
-}
-
-export interface MouseClick {
-  button: string;
-  x: number;
-  y: number;
-  timestamp: number;
-}
-
-export interface MousePosition {
-  x: number;
-  y: number;
-  timestamp: number;
-}
-
 export type InputEvent = 
   | { type: InputEventType.KeyPress; key: string; timestamp: number }
   | { type: InputEventType.KeyRelease; key: string; timestamp: number }

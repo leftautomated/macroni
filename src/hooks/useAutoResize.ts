@@ -89,6 +89,7 @@ export const useAutoResize = ({
     return () => {
       observer.disconnect();
     };
-  }, [isExpanded, resizeWindow, ...dependencies]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isExpanded, resizeWindow, JSON.stringify(dependencies)]);
 };
 

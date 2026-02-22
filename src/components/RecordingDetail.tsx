@@ -2,13 +2,13 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { usePlaybackPosition } from "@/hooks/usePlaybackPosition";
-import { usePlaybackStatus } from "@/hooks/usePlaybackStatus";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
 import { useRecordingTitle } from "@/hooks/useRecordingTitle";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Recording, InputEventType } from "@/types";
-import { X, Keyboard, MousePointer, Play, Square, Zap } from "lucide-react";
+import { getEventDetails, formatTimestamp } from "@/lib/event-utils";
+import { X, Play, Square, Zap } from "lucide-react";
 
 const SPEED_PRESETS = [0.5, 1, 2, 5, 10] as const;
 const MAX_SPEED = 1000;
@@ -43,13 +43,6 @@ export const RecordingDetail = ({ recording, onClose, onUpdateName, onUpdateSpee
 
   const currentPosition = usePlaybackPosition(isPlaying, handlePlaybackComplete);
 
-  const handleStatusChange = useCallback((playing: boolean) => {
-    if (!playing) {
-      setIsPlaying(false);
-    }
-  }, []);
-
-  usePlaybackStatus(isPlaying, handleStatusChange);
   useAutoScroll(currentPosition, rowRefs);
 
   const handlePlay = useCallback(async () => {
@@ -134,18 +127,6 @@ export const RecordingDetail = ({ recording, onClose, onUpdateName, onUpdateSpee
     }
   };
 
-  const formatTimestamp = (timestamp: number) => {
-    const date = new Date(timestamp);
-    const time = date.toLocaleTimeString('en-US', {
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-    const ms = String(date.getMilliseconds()).padStart(3, '0');
-    return `${time}.${ms}`;
-  };
-
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp);
     return date.toLocaleDateString('en-US', {
@@ -155,53 +136,6 @@ export const RecordingDetail = ({ recording, onClose, onUpdateName, onUpdateSpee
       hour: '2-digit',
       minute: '2-digit',
     });
-  };
-
-  const getEventDetails = (event: typeof recording.events[0]) => {
-    switch (event.type) {
-      case InputEventType.KeyPress:
-        return {
-          icon: <Keyboard className="h-3 w-3" />,
-          action: "Key Press",
-          value: event.key,
-          position: "",
-        };
-      case InputEventType.KeyRelease:
-        return {
-          icon: <Keyboard className="h-3 w-3" />,
-          action: "Key Release",
-          value: event.key,
-          position: "",
-        };
-      case InputEventType.KeyCombo:
-        return {
-          icon: <Keyboard className="h-3 w-3" />,
-          action: "Key Combo",
-          value: event.char,
-          position: `${event.modifiers.join(" + ")} + ${event.key}`,
-        };
-      case InputEventType.ButtonPress:
-        return {
-          icon: <MousePointer className="h-3 w-3" />,
-          action: "Mouse Press",
-          value: event.button,
-          position: `(${Math.round(event.x)}, ${Math.round(event.y)})`,
-        };
-      case InputEventType.ButtonRelease:
-        return {
-          icon: <MousePointer className="h-3 w-3" />,
-          action: "Mouse Release",
-          value: event.button,
-          position: `(${Math.round(event.x)}, ${Math.round(event.y)})`,
-        };
-      case InputEventType.MouseMove:
-        return {
-          icon: <MousePointer className="h-3 w-3" />,
-          action: "Mouse Move",
-          value: "",
-          position: `(${Math.round(event.x)}, ${Math.round(event.y)})`,
-        };
-    }
   };
 
   return (
@@ -333,7 +267,7 @@ export const RecordingDetail = ({ recording, onClose, onUpdateName, onUpdateSpee
                     {isNestedCombo ? '' : formatTimestamp(event.timestamp)}
                   </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
-                    {details.position}
+                    {details.detail}
                   </TableCell>
                 </TableRow>
               );

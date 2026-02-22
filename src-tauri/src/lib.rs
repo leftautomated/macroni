@@ -7,7 +7,6 @@ use rdev::{listen, simulate, Event, EventType, Key, Button};
 use serde::{Deserialize, Serialize};
 use chrono::Utc;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
-use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 #[cfg(target_os = "macos")]
 use tauri_nspanel::{tauri_panel, ManagerExt, WebviewWindowExt};
@@ -58,12 +57,18 @@ pub enum InputEvent {
     },
 }
 
+fn default_playback_speed() -> f64 {
+    1.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Recording {
     id: String,
     name: String,
     events: Vec<InputEvent>,
     created_at: i64,
+    #[serde(default = "default_playback_speed")]
+    playback_speed: f64,
 }
 
 pub struct RecordingState {
@@ -577,6 +582,7 @@ fn save_recording(
         name,
         events,
         created_at: Utc::now().timestamp_millis(),
+        playback_speed: 1.0,
     };
     
     recordings.push(recording.clone());
@@ -661,11 +667,46 @@ fn update_recording_name(app_handle: AppHandle, id: String, name: String) -> Res
 }
 
 #[tauri::command]
+fn update_recording_speed(app_handle: AppHandle, id: String, speed: f64) -> Result<Recording, String> {
+    if !speed.is_finite() || speed <= 0.0 || speed > 1000.0 {
+        return Err("Speed must be between 0.01 and 1000".to_string());
+    }
+
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+
+    let recordings_file = app_data_dir.join("recordings.json");
+
+    if !recordings_file.exists() {
+        return Err("No recordings found".to_string());
+    }
+
+    let content = std::fs::read_to_string(&recordings_file).map_err(|e| e.to_string())?;
+    let mut recordings: Vec<Recording> = serde_json::from_str(&content).unwrap_or_default();
+
+    let recording = recordings
+        .iter_mut()
+        .find(|r| r.id == id)
+        .ok_or_else(|| "Recording not found".to_string())?;
+
+    recording.playback_speed = speed;
+    let updated_recording = recording.clone();
+
+    let content = serde_json::to_string_pretty(&recordings).map_err(|e| e.to_string())?;
+    std::fs::write(&recordings_file, content).map_err(|e| e.to_string())?;
+
+    Ok(updated_recording)
+}
+
+#[tauri::command]
 fn play_recording(
     app_handle: AppHandle,
     state: State<RecordingState>,
     events: Vec<InputEvent>,
     loop_forever: Option<bool>,
+    speed: Option<f64>,
 ) -> Result<(), String> {
     let mut is_playing = state.is_playing.lock().map_err(|e| e.to_string())?;
 
@@ -681,6 +722,8 @@ fn play_recording(
     drop(is_playing);
 
     let loop_forever = loop_forever.unwrap_or(true);
+    let speed = speed.unwrap_or(1.0);
+    let speed = if speed.is_nan() || speed <= 0.0 { 1.0 } else { speed.max(0.01) };
 
     // Check if there are any playable events (non-KeyCombo)
     let has_playable_events = events.iter().any(|e| !matches!(e, InputEvent::KeyCombo { .. }));
@@ -779,14 +822,17 @@ fn play_recording(
                     _ => true, // Always update UI for non-MouseMove events
                 };
 
+                // At high speeds, skip UI update sleeps to avoid inflating delays
+                let mut overhead_ms: u64 = 0;
                 if should_update_ui {
                     if let Ok(mut position) = playback_position_clone.lock() {
                         *position = Some(index);
                     }
-                    // Emit playback position event
                     let _ = app_handle.emit("playback-position", index);
-                    // Small delay to ensure UI has time to update (only when we update)
-                    thread::sleep(Duration::from_millis(10));
+                    if speed <= 2.0 {
+                        thread::sleep(Duration::from_millis(10));
+                        overhead_ms += 10;
+                    }
                 }
 
                 // Calculate delay from previous event
@@ -804,12 +850,12 @@ fn play_recording(
                     _ => 1, // Minimum 1ms for other events
                 };
 
-                // Wait for the delay (but ensure minimum delay)
+                // Wait for the delay (scaled by speed), subtracting overhead already incurred
                 if index == 0 {
-                    // First event: small delay to ensure UI is ready
                     thread::sleep(Duration::from_millis(50));
                 } else {
-                    let actual_delay = delay.max(min_delay);
+                    let scaled_delay = (delay as f64 / speed) as u64;
+                    let actual_delay = scaled_delay.saturating_sub(overhead_ms).max(min_delay);
                     if actual_delay > 0 {
                         thread::sleep(Duration::from_millis(actual_delay));
                     }
@@ -871,8 +917,12 @@ fn play_recording(
                         if let Err(e) = simulate(&et) {
                             eprintln!("Failed to simulate event: {:?}", e);
                         }
-                        // Small delay after each event
-                        thread::sleep(Duration::from_millis(10));
+                        // Small delay after each event (reduced at high speeds)
+                        if speed <= 2.0 {
+                            thread::sleep(Duration::from_millis(10));
+                        } else {
+                            thread::sleep(Duration::from_millis(1));
+                        }
                     }
                 }
             }
@@ -1023,63 +1073,35 @@ pub fn run() {
     }
     
     builder
-        .plugin(tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(|app, shortcut, event| {
-                use tauri_plugin_global_shortcut::ShortcutState;
-
-                // Only trigger on key press, not release
-                if event.state() != ShortcutState::Pressed {
-                    return;
-                }
-
-                let shortcut_str = shortcut.to_string().to_lowercase();
-
-                match shortcut_str.as_str() {
-                    "cmd+m" | "ctrl+m" | "super+m" => {
-                        let _ = toggle_visibility(app.clone());
-                    }
-                    "cmd+r" | "ctrl+r" | "super+r" => {
-                        // Emit toggle-playback event to frontend
-                        let _ = app.emit("toggle-playback", ());
-                    }
-                    "cmd+shift+r" | "ctrl+shift+r" | "super+shift+r" => {
-                        // Emit toggle-recording event to frontend
-                        let _ = app.emit("toggle-recording", ());
-                    }
-                    _ => {}
-                }
-            })
-            .build()
-        )
         .setup(move |app| {
-            // Register Cmd+M (macOS) or Ctrl+M (Windows/Linux) to toggle visibility
-            #[cfg(target_os = "macos")]
-            let shortcut_str = "cmd+m";
-            #[cfg(not(target_os = "macos"))]
-            let shortcut_str = "ctrl+m";
+            // Register global shortcuts inside setup using the correct Tauri v2 pattern
+            #[cfg(desktop)]
+            {
+                app.handle().plugin(
+                    tauri_plugin_global_shortcut::Builder::new()
+                        .with_shortcuts(["super+m", "super+r", "super+shift+r"])?
+                        .with_handler(|app, shortcut, event| {
+                            use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
-            if let Err(e) = app.global_shortcut().register(shortcut_str) {
-                eprintln!("Failed to register global shortcut: {}", e);
-            }
+                            if event.state() != ShortcutState::Pressed {
+                                return;
+                            }
 
-            // Register Cmd+R (macOS) or Ctrl+R (Windows/Linux) to toggle playback
-            #[cfg(target_os = "macos")]
-            let play_shortcut_str = "cmd+r";
-            #[cfg(not(target_os = "macos"))]
-            let play_shortcut_str = "ctrl+r";
-
-            if let Err(e) = app.global_shortcut().register(play_shortcut_str) {
-                eprintln!("Failed to register playback shortcut: {}", e);
-            }
-
-            // Register Cmd+Shift+R (macOS) or Ctrl+Shift+R (Windows/Linux) to toggle recording
-            #[cfg(target_os = "macos")]
-            let record_shortcut_str = "cmd+shift+r";
-            #[cfg(not(target_os = "macos"))]
-            let record_shortcut_str = "ctrl+shift+r";
-
-            if let Err(e) = app.global_shortcut().register(record_shortcut_str) {
-                eprintln!("Failed to register recording shortcut: {}", e);
+                            // Cmd+M / Ctrl+M — toggle visibility
+                            if shortcut.matches(Modifiers::SUPER, Code::KeyM) {
+                                let _ = toggle_visibility(app.clone());
+                            }
+                            // Cmd+R / Ctrl+R — toggle playback
+                            else if shortcut.matches(Modifiers::SUPER, Code::KeyR) {
+                                let _ = app.emit("toggle-playback", ());
+                            }
+                            // Cmd+Shift+R / Ctrl+Shift+R — toggle recording
+                            else if shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::KeyR) {
+                                let _ = app.emit("toggle-recording", ());
+                            }
+                        })
+                        .build()
+                )?;
             }
 
             // Initialize macOS NSPanel configuration
@@ -1238,6 +1260,7 @@ pub fn run() {
             load_recordings,
             delete_recording,
             update_recording_name,
+            update_recording_speed,
             play_recording,
             stop_playback,
             is_playing,

@@ -42,6 +42,10 @@ pub enum InputEvent {
     },
 }
 
+fn default_playback_speed() -> f64 {
+    1.0
+}
+
 /// A saved recording containing a sequence of input events
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Recording {
@@ -49,6 +53,8 @@ pub struct Recording {
     pub name: String,
     pub events: Vec<InputEvent>,
     pub created_at: i64,
+    #[serde(default = "default_playback_speed")]
+    pub playback_speed: f64,
 }
 
 /// Shared application state for recording and playback

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useRecorder } from "@/hooks/useRecorder";
 import { useRecordings } from "@/hooks/useRecordings";
@@ -20,10 +21,18 @@ const App = () => {
   const recordingsManager = useRecordings();
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<"live" | "recordings" | "settings">("live");
+  const [lastViewedRecordingId, setLastViewedRecordingId] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
   useInputEventListener(recorder.addEvent);
+
+  // Track the last-viewed recording so we can highlight it in the list
+  useEffect(() => {
+    if (recordingsManager.selectedRecording) {
+      setLastViewedRecordingId(recordingsManager.selectedRecording.id);
+    }
+  }, [recordingsManager.selectedRecording]);
   
   useAutoResize({
     isExpanded,
@@ -34,6 +43,12 @@ const App = () => {
 
   const handleStartRecording = useCallback(async () => {
     try {
+      // Stop any active playback before starting a new recording
+      try {
+        await invoke("stop_playback");
+      } catch {
+        // Ignore — playback may not be active
+      }
       await recorder.startRecording();
       recordingsManager.setSelectedRecording(null);
     } catch (error) {
@@ -112,6 +127,7 @@ const App = () => {
                   recording={recordingsManager.selectedRecording}
                   onClose={() => recordingsManager.setSelectedRecording(null)}
                   onUpdateName={recordingsManager.updateRecordingName}
+                  onUpdateSpeed={recordingsManager.updateRecordingSpeed}
                 />
               </Card>
             ) : (
@@ -128,6 +144,7 @@ const App = () => {
                   <TabsContent value="recordings" className="mt-4">
                     <RecordingsList
                       recordings={recordingsManager.recordings}
+                      selectedRecordingId={lastViewedRecordingId}
                       onViewRecording={recordingsManager.setSelectedRecording}
                       onDeleteRecording={recordingsManager.deleteRecording}
                     />

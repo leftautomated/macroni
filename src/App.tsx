@@ -92,6 +92,7 @@ const App = () => {
                   recording={recordingsManager.selectedRecording}
                   onClose={() => recordingsManager.setSelectedRecording(null)}
                   onUpdateName={recordingsManager.updateRecordingName}
+                  onUpdateSpeed={recordingsManager.updateRecordingSpeed}
                 />
               </Card>
             ) : (

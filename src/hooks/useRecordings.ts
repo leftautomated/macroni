@@ -27,9 +27,18 @@ export const useRecordings = () => {
   const updateRecordingName = useCallback(async (id: string, name: string): Promise<Recording> => {
     const recording = await invoke<Recording>("update_recording_name", { id, name });
     await loadRecordings();
-    
+
     setSelectedRecording((current) => (current?.id === id ? recording : current));
-    
+
+    return recording;
+  }, [loadRecordings]);
+
+  const updateRecordingSpeed = useCallback(async (id: string, speed: number): Promise<Recording> => {
+    const recording = await invoke<Recording>("update_recording_speed", { id, speed });
+    await loadRecordings();
+
+    setSelectedRecording((current) => (current?.id === id ? recording : current));
+
     return recording;
   }, [loadRecordings]);
 
@@ -44,6 +53,7 @@ export const useRecordings = () => {
     saveRecording,
     deleteRecording,
     updateRecordingName,
+    updateRecordingSpeed,
     loadRecordings,
   } as const;
 };

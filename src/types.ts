@@ -44,4 +44,5 @@ export interface Recording {
   name: string;
   events: InputEvent[];
   created_at: number;
+  playback_speed: number;
 }

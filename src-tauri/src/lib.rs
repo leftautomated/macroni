@@ -1042,6 +1042,10 @@ pub fn run() {
                         // Emit toggle-playback event to frontend
                         let _ = app.emit("toggle-playback", ());
                     }
+                    "cmd+shift+r" | "ctrl+shift+r" | "super+shift+r" => {
+                        // Emit toggle-recording event to frontend
+                        let _ = app.emit("toggle-recording", ());
+                    }
                     _ => {}
                 }
             })
@@ -1067,7 +1071,17 @@ pub fn run() {
             if let Err(e) = app.global_shortcut().register(play_shortcut_str) {
                 eprintln!("Failed to register playback shortcut: {}", e);
             }
-            
+
+            // Register Cmd+Shift+R (macOS) or Ctrl+Shift+R (Windows/Linux) to toggle recording
+            #[cfg(target_os = "macos")]
+            let record_shortcut_str = "cmd+shift+r";
+            #[cfg(not(target_os = "macos"))]
+            let record_shortcut_str = "ctrl+shift+r";
+
+            if let Err(e) = app.global_shortcut().register(record_shortcut_str) {
+                eprintln!("Failed to register recording shortcut: {}", e);
+            }
+
             // Initialize macOS NSPanel configuration
             #[cfg(target_os = "macos")]
             init_macos_panel(app.app_handle());

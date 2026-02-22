@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { useRecorder } from "@/hooks/useRecorder";
 import { useRecordings } from "@/hooks/useRecordings";
 import { useInputEventListener } from "@/hooks/useInputEventListener";
@@ -31,33 +32,52 @@ const App = () => {
     dependencies: [recordingsManager.selectedRecording, activeTab],
   });
 
-  const handleStartRecording = async () => {
+  const handleStartRecording = useCallback(async () => {
     try {
       await recorder.startRecording();
       recordingsManager.setSelectedRecording(null);
     } catch (error) {
       console.error("Failed to start recording:", error);
     }
-  };
+  }, [recorder, recordingsManager]);
 
-  const handleStopRecording = async () => {
+  const handleStopRecording = useCallback(async () => {
     try {
       const events = await recorder.stopRecording();
-      
+
       if (events.length > 0) {
-        const newRecording = await recordingsManager.saveRecording("Untitled", recorder.currentEvents);
+        const newRecording = await recordingsManager.saveRecording("Untitled", events);
         recorder.clearEvents();
-        
+
         // Auto-open the recording detail view
         recordingsManager.setSelectedRecording(newRecording);
-        if (!isExpanded) {
-          setIsExpanded(true);
-        }
+        setIsExpanded(true);
       }
     } catch (error) {
       console.error("Failed to stop recording:", error);
     }
-  };
+  }, [recorder, recordingsManager]);
+
+  // Track isRecording in a ref so the toggle-recording listener always has current state
+  const isRecordingRef = useRef(recorder.isRecording);
+  useEffect(() => {
+    isRecordingRef.current = recorder.isRecording;
+  }, [recorder.isRecording]);
+
+  // Listen for global Cmd+Shift+R toggle-recording shortcut
+  useEffect(() => {
+    const unlisten = listen("toggle-recording", () => {
+      if (isRecordingRef.current) {
+        handleStopRecording();
+      } else {
+        handleStartRecording();
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [handleStartRecording, handleStopRecording]);
 
   const handleToggleExpand = () => {
     setIsExpanded(!isExpanded);

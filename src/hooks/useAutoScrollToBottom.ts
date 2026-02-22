@@ -8,6 +8,7 @@ export const useAutoScrollToBottom = <T,>(
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [scrollRef, dependencies]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollRef, dependencies.length]);
 };
 

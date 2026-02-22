@@ -60,7 +60,7 @@ pub fn key_to_string(key: Key) -> String {
         Key::LeftBracket => "[".to_string(),
         Key::RightBracket => "]".to_string(),
         Key::BackSlash => "\\".to_string(),
-        Key::Semicolon => ";".to_string(),
+        Key::SemiColon => ";".to_string(),
         Key::Quote => "'".to_string(),
         Key::Comma => ",".to_string(),
         Key::Dot => ".".to_string(),
@@ -91,7 +91,6 @@ pub fn key_to_string(key: Key) -> String {
         Key::KeyX => "X".to_string(),
         Key::KeyY => "Y".to_string(),
         Key::KeyZ => "Z".to_string(),
-        Key::SemiColon => ";".to_string(),
         Key::IntlBackslash => "\\".to_string(),
         Key::Insert => "Ins".to_string(),
         Key::KpReturn => "Enter".to_string(),
@@ -169,7 +168,7 @@ pub fn string_to_key(key_str: &str) -> Option<Key> {
         "[" => Some(Key::LeftBracket),
         "]" => Some(Key::RightBracket),
         "\\" => Some(Key::BackSlash),
-        ";" => Some(Key::Semicolon),
+        ";" => Some(Key::SemiColon),
         "'" => Some(Key::Quote),
         "," => Some(Key::Comma),
         "." => Some(Key::Dot),
@@ -239,5 +238,113 @@ pub fn is_modifier_key(key: Key) -> bool {
             | Key::MetaLeft
             | Key::MetaRight
     )
+}
+
+/// Attempts to produce a human-readable string for a key pressed with modifiers.
+/// Returns `None` when no modifiers are active.
+pub fn get_character_with_modifiers(key: Key, modifiers: &std::collections::HashSet<Key>) -> Option<String> {
+    if modifiers.is_empty() {
+        return None;
+    }
+
+    let has_shift = modifiers.contains(&Key::ShiftLeft) || modifiers.contains(&Key::ShiftRight);
+    let has_ctrl = modifiers.contains(&Key::ControlLeft) || modifiers.contains(&Key::ControlRight);
+    let has_alt = modifiers.contains(&Key::Alt) || modifiers.contains(&Key::AltGr);
+    let has_cmd = modifiers.contains(&Key::MetaLeft) || modifiers.contains(&Key::MetaRight);
+
+    // Single-modifier combinations
+    if has_shift && !has_ctrl && !has_alt && !has_cmd {
+        return shift_combo(key);
+    }
+    if has_ctrl && !has_shift && !has_alt && !has_cmd {
+        return single_modifier_combo("Ctrl", key);
+    }
+    if has_alt && !has_shift && !has_ctrl && !has_cmd {
+        return single_modifier_combo("Alt", key);
+    }
+    if has_cmd && !has_shift && !has_ctrl && !has_alt {
+        return single_modifier_combo("Cmd", key);
+    }
+
+    // Multiple modifier combinations
+    let mut modifier_names = Vec::new();
+    if has_shift { modifier_names.push("Shift"); }
+    if has_ctrl { modifier_names.push("Ctrl"); }
+    if has_alt { modifier_names.push("Alt"); }
+    if has_cmd { modifier_names.push("Cmd"); }
+
+    if modifier_names.len() > 1 {
+        let key_str = key_to_string(key);
+        Some(format!("{}+{}", modifier_names.join("+"), key_str))
+    } else {
+        None
+    }
+}
+
+fn shift_combo(key: Key) -> Option<String> {
+    match key {
+        Key::Num1 => Some("!".to_string()),
+        Key::Num2 => Some("@".to_string()),
+        Key::Num3 => Some("#".to_string()),
+        Key::Num4 => Some("$".to_string()),
+        Key::Num5 => Some("%".to_string()),
+        Key::Num6 => Some("^".to_string()),
+        Key::Num7 => Some("&".to_string()),
+        Key::Num8 => Some("*".to_string()),
+        Key::Num9 => Some("(".to_string()),
+        Key::Num0 => Some(")".to_string()),
+        Key::Minus => Some("_".to_string()),
+        Key::Equal => Some("+".to_string()),
+        Key::LeftBracket => Some("{".to_string()),
+        Key::RightBracket => Some("}".to_string()),
+        Key::BackSlash | Key::IntlBackslash => Some("|".to_string()),
+        Key::SemiColon => Some(":".to_string()),
+        Key::Quote => Some("\"".to_string()),
+        Key::BackQuote => Some("~".to_string()),
+        Key::Comma => Some("<".to_string()),
+        Key::Dot => Some(">".to_string()),
+        Key::Slash => Some("?".to_string()),
+        Key::KeyA => Some("A".to_string()),
+        Key::KeyB => Some("B".to_string()),
+        Key::KeyC => Some("C".to_string()),
+        Key::KeyD => Some("D".to_string()),
+        Key::KeyE => Some("E".to_string()),
+        Key::KeyF => Some("F".to_string()),
+        Key::KeyG => Some("G".to_string()),
+        Key::KeyH => Some("H".to_string()),
+        Key::KeyI => Some("I".to_string()),
+        Key::KeyJ => Some("J".to_string()),
+        Key::KeyK => Some("K".to_string()),
+        Key::KeyL => Some("L".to_string()),
+        Key::KeyM => Some("M".to_string()),
+        Key::KeyN => Some("N".to_string()),
+        Key::KeyO => Some("O".to_string()),
+        Key::KeyP => Some("P".to_string()),
+        Key::KeyQ => Some("Q".to_string()),
+        Key::KeyR => Some("R".to_string()),
+        Key::KeyS => Some("S".to_string()),
+        Key::KeyT => Some("T".to_string()),
+        Key::KeyU => Some("U".to_string()),
+        Key::KeyV => Some("V".to_string()),
+        Key::KeyW => Some("W".to_string()),
+        Key::KeyX => Some("X".to_string()),
+        Key::KeyY => Some("Y".to_string()),
+        Key::KeyZ => Some("Z".to_string()),
+        _ => None,
+    }
+}
+
+fn single_modifier_combo(modifier: &str, key: Key) -> Option<String> {
+    let key_str = key_to_string(key);
+    // Only produce combo strings for letter keys and common targets
+    match key {
+        Key::KeyA | Key::KeyB | Key::KeyC | Key::KeyD | Key::KeyE |
+        Key::KeyF | Key::KeyG | Key::KeyH | Key::KeyI | Key::KeyJ |
+        Key::KeyK | Key::KeyL | Key::KeyM | Key::KeyN | Key::KeyO |
+        Key::KeyP | Key::KeyQ | Key::KeyR | Key::KeyS | Key::KeyT |
+        Key::KeyU | Key::KeyV | Key::KeyW | Key::KeyX | Key::KeyY |
+        Key::KeyZ => Some(format!("{}+{}", modifier, key_str)),
+        _ => None,
+    }
 }
 

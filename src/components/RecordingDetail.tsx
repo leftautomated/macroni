@@ -76,20 +76,24 @@ export const RecordingDetail = ({ recording, onClose, onUpdateName, onUpdateSpee
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
-  // Listen for global Cmd+R toggle-playback shortcut
+  // Listen for global Cmd+R shortcut events
+  // "toggle-playback" = start (only emitted when not playing)
+  // "playback-stopped" = backend stopped playback directly (bypasses frontend)
   useEffect(() => {
-    const unlisten = listen("toggle-playback", () => {
-      if (isPlayingRef.current) {
-        handleStop();
-      } else {
+    const unlistenToggle = listen("toggle-playback", () => {
+      if (!isPlayingRef.current) {
         handlePlay();
       }
     });
+    const unlistenStopped = listen("playback-stopped", () => {
+      setIsPlaying(false);
+    });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlistenToggle.then((fn) => fn());
+      unlistenStopped.then((fn) => fn());
     };
-  }, [handlePlay, handleStop]);
+  }, [handlePlay]);
 
   if (!recording) return null;
 

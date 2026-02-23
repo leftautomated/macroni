@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Recording, InputEventType } from "@/types";
 import { getEventDetails, formatTimestamp } from "@/lib/event-utils";
-import { X, Play, Square, Zap } from "lucide-react";
+import { X, Play, Square, Zap, Repeat } from "lucide-react";
 
 const SPEED_PRESETS = [0.5, 1, 2, 5, 10] as const;
 const MAX_SPEED = 1000;
@@ -22,6 +22,7 @@ interface RecordingDetailProps {
 
 export const RecordingDetail = ({ recording, onClose, onUpdateName, onUpdateSpeed }: RecordingDetailProps) => {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [loopForever, setLoopForever] = useState(true);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const { titleValue, setTitleValue } = useRecordingTitle(recording, isEditingTitle);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -51,14 +52,14 @@ export const RecordingDetail = ({ recording, onClose, onUpdateName, onUpdateSpee
       setIsPlaying(true);
       await invoke("play_recording", {
         events: recording.events,
-        loopForever: true,
+        loopForever,
         speed: recording.playback_speed,
       });
     } catch (error) {
       console.error("Failed to play recording:", error);
       setIsPlaying(false);
     }
-  }, [recording]);
+  }, [recording, loopForever]);
 
   const handleStop = useCallback(async () => {
     try {
@@ -209,6 +210,17 @@ export const RecordingDetail = ({ recording, onClose, onUpdateName, onUpdateSpee
           >
             <Zap className="h-3 w-3 mr-0.5" />
             MAX
+          </Button>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <Button
+            variant={loopForever ? "default" : "outline"}
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => setLoopForever((prev) => !prev)}
+            disabled={isPlaying}
+            title={loopForever ? "Loop: on" : "Loop: off"}
+          >
+            <Repeat className="h-3 w-3" />
           </Button>
         </div>
       <div className="h-[376px] w-full rounded-lg border bg-muted/20 overflow-auto" ref={scrollAreaRef}>

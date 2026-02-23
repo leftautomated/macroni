@@ -557,7 +557,8 @@ pub fn run() {
     let last_pos = Arc::clone(&state.last_mouse_position);
     let pressed_modifiers = Arc::clone(&state.pressed_modifiers);
     let pressed_buttons = Arc::clone(&state.pressed_buttons);
-    
+    let shortcut_is_playing = Arc::clone(&state.is_playing);
+
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init());
     
@@ -575,24 +576,39 @@ pub fn run() {
                 app.handle().plugin(
                     tauri_plugin_global_shortcut::Builder::new()
                         .with_shortcuts(["super+m", "super+r", "super+shift+r"])?
-                        .with_handler(|app, shortcut, event| {
-                            use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+                        .with_handler({
+                            let is_playing = Arc::clone(&shortcut_is_playing);
+                            move |app, shortcut, event| {
+                                use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
-                            if event.state() != ShortcutState::Pressed {
-                                return;
-                            }
+                                if event.state() != ShortcutState::Pressed {
+                                    return;
+                                }
 
-                            // Cmd+M / Ctrl+M — toggle visibility
-                            if shortcut.matches(Modifiers::SUPER, Code::KeyM) {
-                                let _ = toggle_visibility(app.clone());
-                            }
-                            // Cmd+R / Ctrl+R — toggle playback
-                            else if shortcut.matches(Modifiers::SUPER, Code::KeyR) {
-                                let _ = app.emit("toggle-playback", ());
-                            }
-                            // Cmd+Shift+R / Ctrl+Shift+R — toggle recording
-                            else if shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::KeyR) {
-                                let _ = app.emit("toggle-recording", ());
+                                // Cmd+M / Ctrl+M — toggle visibility
+                                if shortcut.matches(Modifiers::SUPER, Code::KeyM) {
+                                    let _ = toggle_visibility(app.clone());
+                                }
+                                // Cmd+R / Ctrl+R — toggle playback
+                                // Stop directly in Rust to avoid frontend round-trip latency
+                                // and simulated keystrokes interfering with the shortcut
+                                else if shortcut.matches(Modifiers::SUPER, Code::KeyR) {
+                                    let currently_playing = is_playing.lock()
+                                        .map(|p| *p)
+                                        .unwrap_or(false);
+                                    if currently_playing {
+                                        if let Ok(mut p) = is_playing.lock() {
+                                            *p = false;
+                                        }
+                                        let _ = app.emit("playback-stopped", ());
+                                    } else {
+                                        let _ = app.emit("toggle-playback", ());
+                                    }
+                                }
+                                // Cmd+Shift+R / Ctrl+Shift+R — toggle recording
+                                else if shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::KeyR) {
+                                    let _ = app.emit("toggle-recording", ());
+                                }
                             }
                         })
                         .build()

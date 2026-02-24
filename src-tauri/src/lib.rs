@@ -497,33 +497,39 @@ fn set_window_size(window: WebviewWindow, width: u32, height: u32) -> Result<(),
 
 #[tauri::command]
 fn toggle_visibility(app_handle: AppHandle) -> Result<bool, String> {
-    if let Some(window) = app_handle.get_webview_window("main") {
-        let is_visible = window.is_visible().map_err(|e| e.to_string())?;
-        
-        if is_visible {
-            #[cfg(target_os = "macos")]
-            {
-                if let Ok(panel) = app_handle.get_webview_panel("main") {
-                    panel.hide();
-                }
-            }
-            window.hide().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::PanelLevel;
+
+        // Use NSPanel's is_visible() as source of truth — Tauri's window.is_visible()
+        // can get out of sync when macOS hides the panel (sleep, space switch, etc.)
+        let panel = app_handle.get_webview_panel("main").map_err(|e| format!("{:?}", e))?;
+        if panel.is_visible() {
+            panel.hide();
             Ok(false)
         } else {
-            window.show().map_err(|e| e.to_string())?;
-            // Don't call set_focus() - this allows clicks without requiring double-click
-            // The non-activating panel style allows receiving events without activation
-            
-            #[cfg(target_os = "macos")]
-            {
-                if let Ok(panel) = app_handle.get_webview_panel("main") {
-                    panel.show();
-                }
-            }
+            // Re-assert floating level — macOS can reset it after display sleep or
+            // Mission Control transitions
+            panel.set_level(PanelLevel::Floating.value());
+            panel.show();
             Ok(true)
         }
-    } else {
-        Err("Window not found".to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let is_visible = window.is_visible().map_err(|e| e.to_string())?;
+            if is_visible {
+                window.hide().map_err(|e| e.to_string())?;
+                Ok(false)
+            } else {
+                window.show().map_err(|e| e.to_string())?;
+                Ok(true)
+            }
+        } else {
+            Err("Window not found".to_string())
+        }
     }
 }
 
@@ -547,6 +553,11 @@ fn init_macos_panel(app_handle: &AppHandle) {
             .can_join_all_spaces()
             .into(),
     );
+
+    // Prevent macOS from hiding the panel when the app deactivates.
+    // Since this is a non-activating panel (can_become_key_window: false),
+    // macOS considers it always "deactivated" and will hide it by default.
+    panel.set_hides_on_deactivate(false);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -20,6 +20,11 @@
   ::file-selector-button {
     border-color: rgba(255, 255, 255, 0.1);
   }
+
+  a,
+  button {
+    cursor: pointer;
+  }
 }
 
 @layer utilities {

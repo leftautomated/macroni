@@ -9,9 +9,27 @@ const inter = Inter({
   variable: "--font-inter",
 });
 
+const title = "Macroni - Desktop Automation";
+const description =
+  "Record your workflows once. Let Macroni AI handle the rest. Build, share, and monetize your macros securely.";
+const url = "https://macroni.app";
+
 export const metadata: Metadata = {
-  title: "Macroni - Desktop Automation",
-  description: "Record your workflows once. Let Macroni's AI handle the rest.",
+  title,
+  description,
+  metadataBase: new URL(url),
+  openGraph: {
+    title,
+    description,
+    url,
+    siteName: "Macroni",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+  },
 };
 
 export default function RootLayout({

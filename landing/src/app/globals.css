@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-yellow: #F0CD78;
+  --color-brand-dark: #000000;
+  --color-brand-gray: #171717;
+}
+
+/*
+  The default border color has changed to `currentColor` in Tailwind CSS v4,
+  so we've added these base styles back for backward compatibility.
+  https://github.com/tailwindlabs/tailwindcss/discussions/14352
+*/
+@layer base {
+
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+@layer utilities {
+  body {
+    background-color: var(--color-brand-dark);
+    color: white;
+  }
+
+  /* Custom Scrollbar styled for dark/glass theme */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+    border: 3px solid var(--color-brand-dark);
+    /* Creates padding effect around thumb */
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.4);
+  }
+}

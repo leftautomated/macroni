@@ -1,12 +1,121 @@
 "use client";
 
 import { LiquidGlassCard } from "@/components/ui/LiquidGlassCard";
-import { Copyleft, MonitorSmartphone, MousePointerClick, PlayCircle, ShieldCheck, ChevronRight, Mic, Video, MousePointer2, Settings } from "lucide-react";
+import { Copyleft, MonitorSmartphone, MousePointerClick, PlayCircle, ShieldCheck, ChevronRight, Mic, Video, MousePointer2, Settings, Check } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import Image from "next/image";
 
-import { useEffect, useState } from "react";
+import { useMutation } from "convex/react";
+import { useEffect, useRef, useState } from "react";
 import { useWebHaptics } from "web-haptics/react";
+import { api } from "../../convex/_generated/api";
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function WaitlistForm({ className, joined, onJoined }: { className?: string; joined: boolean; onJoined: () => void }) {
+  const haptic = useWebHaptics();
+  const joinWaitlist = useMutation(api.waitlist.join);
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState(false);
+  const [shake, setShake] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loading) return;
+    if (!EMAIL_REGEX.test(email)) {
+      setError(true);
+      setShake(true);
+      haptic.trigger("error");
+      setTimeout(() => setShake(false), 500);
+      setTimeout(() => setError(false), 3000);
+      inputRef.current?.focus();
+      return;
+    }
+    setError(false);
+    setLoading(true);
+    try {
+      await joinWaitlist({ email });
+      onJoined();
+      haptic.trigger("success");
+    } catch {
+      setError(true);
+      setTimeout(() => setError(false), 3000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className={`relative ${className ?? ""}`}>
+      <div className="flex justify-center">
+        <motion.div
+          layout
+          className={`overflow-hidden rounded-full ${joined ? "" : "w-full"}`}
+          style={{
+            background: joined ? "#ffffff" : "#111111",
+            border: joined ? "1px solid transparent" : "1px solid rgba(255,255,255,0.1)",
+            boxShadow: joined ? "none" : "0 25px 50px -12px rgba(0,0,0,0.25)",
+            ...(shake ? { animation: "shake 0.4s ease-in-out" } : {}),
+          }}
+          transition={{ layout: { type: "spring", stiffness: 300, damping: 28 } }}
+        >
+          <AnimatePresence mode="popLayout">
+            {joined ? (
+              <motion.div
+                key="success"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className="flex items-center gap-2.5 px-6 py-3"
+              >
+                <Check className="h-5 w-5 text-black" strokeWidth={2.5} />
+                <span className="text-sm font-medium text-black whitespace-nowrap">Joined Waitlist</span>
+              </motion.div>
+            ) : (
+              <motion.form
+                key="form"
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="flex w-full items-center p-1.5"
+                onSubmit={handleSubmit}
+              >
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); if (error) setError(false); }}
+                  placeholder="Enter email address..."
+                  className="flex-1 bg-transparent px-4 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="shrink-0 whitespace-nowrap rounded-full bg-brand-yellow px-5 py-2.5 text-sm font-medium text-black transition-all hover:bg-[#E5B853] disabled:opacity-70"
+                >
+                  {loading ? "Joining..." : "Join Waitlist"}
+                </button>
+              </motion.form>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </div>
+      <AnimatePresence>
+        {error && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute left-0 right-0 mt-2 text-center text-sm text-red-400"
+          >
+            Please enter a valid email address
+          </motion.p>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 function FAQItem({ item }: { item: { q: string; a: string } }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -41,6 +150,7 @@ function FAQItem({ item }: { item: { q: string; a: string } }) {
 export default function LandingPage() {
   const [activeSection, setActiveSection] = useState("overview");
   const [mounted, setMounted] = useState(false);
+  const [joined, setJoined] = useState(false);
   const haptic = useWebHaptics();
 
   useEffect(() => {
@@ -129,23 +239,9 @@ export default function LandingPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.3, ease: "easeOut" }}
-          className="w-full max-w-md mx-auto"
+          className="w-full max-w-lg mx-auto"
         >
-          <form className="flex w-full items-center rounded-full border border-white/10 bg-[#111111] p-1.5 focus-within:border-white/20 transition-all shadow-2xl" onSubmit={(e) => e.preventDefault()}>
-            <input
-              type="email"
-              placeholder="Enter email address..."
-              className="flex-1 bg-transparent px-4 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none"
-              required
-            />
-            <button
-              type="submit"
-              onClick={() => haptic.trigger("medium")}
-              className="shrink-0 whitespace-nowrap rounded-full bg-brand-yellow px-5 py-2.5 text-sm font-medium text-black transition-all hover:bg-[#E5B853]"
-            >
-              Join Waitlist
-            </button>
-          </form>
+          <WaitlistForm joined={joined} onJoined={() => setJoined(true)} />
         </motion.div>
 
         {/* Floating App Mockup */}
@@ -297,21 +393,7 @@ export default function LandingPage() {
         <div className="mx-auto max-w-[960px] px-6 text-center relative z-10">
           <div className="py-20 px-0 md:px-16 text-center">
             <h2 className="mb-10 text-3xl font-extrabold tracking-tighter text-white sm:text-4xl md:text-[56px] leading-[1.1]">What will you <span style={{ fontFamily: "var(--font-geist-pixel-square)" }}>automate</span>?</h2>
-            <form className="mx-auto flex w-full max-w-md items-center rounded-full border border-white/10 bg-[#111111] p-1.5 focus-within:border-white/20 transition-all shadow-lg" onSubmit={(e) => e.preventDefault()}>
-              <input
-                type="email"
-                placeholder="Enter email address..."
-                className="flex-1 bg-transparent px-4 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none"
-                required
-              />
-              <button
-                type="submit"
-                onClick={() => haptic.trigger("medium")}
-                className="shrink-0 whitespace-nowrap rounded-full bg-brand-yellow px-5 py-2.5 text-sm font-medium text-black transition-all hover:bg-[#E5B853]"
-              >
-                Join Waitlist
-              </button>
-            </form>
+            <WaitlistForm className="mx-auto w-full max-w-lg" joined={joined} onJoined={() => setJoined(true)} />
           </div>
         </div>
       </section>

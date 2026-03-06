@@ -231,7 +231,7 @@ export default function LandingPage() {
           transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
           className="mx-auto mb-10 max-w-2xl text-lg text-white/40 sm:text-xl font-normal leading-normal"
         >
-          Record your workflows once. Let Macroni's AI handle the rest.<br className="hidden sm:block" />
+          Record your workflows once. Let Macroni AI handle the rest.<br className="hidden sm:block" />
           Build, share, and monetize your macros securely.
         </motion.p>
 

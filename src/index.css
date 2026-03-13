@@ -104,31 +104,41 @@
 /* Custom scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgb(from var(--muted-foreground) r g b / 0.2) transparent !important;
+  scrollbar-color: oklch(0.5 0 0 / 0.15) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-track {
-  background: transparent !important;
-  border-radius: 4px;
+  background: transparent;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgb(from var(--muted-foreground) r g b / 0.2) !important;
-  border-radius: 4px;
-  transition: background-color 0.2s ease;
-  }
+  background: oklch(0.5 0 0 / 0.15);
+  border-radius: 3px;
+}
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgb(from var(--muted-foreground) r g b / 0.3) !important;
+  background: oklch(0.5 0 0 / 0.3);
 }
 
 *::-webkit-scrollbar-corner {
-  background: transparent !important;
+  background: transparent;
+}
+
+.dark *::-webkit-scrollbar-thumb {
+  background: oklch(0.8 0 0 / 0.15);
+}
+
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.8 0 0 / 0.3);
+}
+
+.dark * {
+  scrollbar-color: oklch(0.8 0 0 / 0.15) transparent;
 }
 
 /* Apply transparency to cards */

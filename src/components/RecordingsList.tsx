@@ -36,9 +36,10 @@ export const RecordingsList = ({
         </p>
       </div>
         {recordings.length === 0 ? (
-        <div className="h-80 flex items-center justify-center border rounded-lg bg-muted/20">
-          <p className="text-sm text-muted-foreground text-center">
-            No recordings saved yet.
+        <div className="h-80 flex flex-col items-center justify-center border rounded-lg bg-muted/20 gap-1">
+          <p className="text-sm text-muted-foreground">No recordings saved yet.</p>
+          <p className="text-xs text-muted-foreground">
+            Press <kbd className="font-mono px-1.5 py-0.5 rounded bg-secondary/50">{navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl"} + Shift + R</kbd> to start recording
           </p>
         </div>
         ) : (

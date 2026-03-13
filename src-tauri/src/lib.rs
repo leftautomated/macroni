@@ -648,11 +648,13 @@ pub fn run() {
                 }
             });
             
-            // Spawn the input listener thread
-            tauri::async_runtime::spawn(async move {
+            // Spawn the input listener on a real OS thread.
+            // On Windows, rdev::listen requires a thread with a message pump;
+            // tokio async tasks don't provide one, causing an immediate crash.
+            thread::spawn(move || {
                 #[cfg(target_os = "macos")]
                 rdev::set_is_main_thread(false);
-                
+
                 let callback = move |event: Event| {
                     let recording = is_recording.lock().ok().map(|r| *r).unwrap_or(false);
                     

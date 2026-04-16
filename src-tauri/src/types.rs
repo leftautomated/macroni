@@ -46,6 +46,18 @@ fn default_playback_speed() -> f64 {
     1.0
 }
 
+/// Metadata describing a screen recording video file associated with a Recording.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoMetadata {
+    pub path: String,
+    pub start_ms: i64,
+    pub duration_ms: i64,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub has_audio: bool,
+}
+
 /// A saved recording containing a sequence of input events
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Recording {
@@ -55,6 +67,8 @@ pub struct Recording {
     pub created_at: i64,
     #[serde(default = "default_playback_speed")]
     pub playback_speed: f64,
+    #[serde(default)]
+    pub video: Option<VideoMetadata>,
 }
 
 /// Shared application state for recording and playback
@@ -100,5 +114,42 @@ impl InputEventTimestamp for InputEvent {
             InputEvent::MouseMove { timestamp, .. } => *timestamp,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureQuality {
+    Low,
+    Med,
+    High,
+}
+
+impl CaptureQuality {
+    pub fn crf(&self) -> u8 {
+        match self {
+            CaptureQuality::Low => 32,
+            CaptureQuality::Med => 28,
+            CaptureQuality::High => 23,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureSettings {
+    pub fps: u32,
+    pub quality: CaptureQuality,
+    pub audio: bool,
+}
+
+impl Default for CaptureSettings {
+    fn default() -> Self {
+        Self { fps: 30, quality: CaptureQuality::Med, audio: true }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AppSettings {
+    #[serde(default)]
+    pub capture: CaptureSettings,
 }
 

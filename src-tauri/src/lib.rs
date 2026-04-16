@@ -94,6 +94,7 @@ fn save_recording(
         events,
         created_at: Utc::now().timestamp_millis(),
         playback_speed: 1.0,
+        video: None,
     };
     
     recordings.push(recording.clone());

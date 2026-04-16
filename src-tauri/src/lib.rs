@@ -565,14 +565,33 @@ fn is_playing(state: State<RecordingState>) -> Result<bool, String> {
 #[tauri::command]
 fn set_window_size(window: WebviewWindow, width: u32, height: u32) -> Result<(), String> {
     use tauri::{LogicalSize, Size};
-    
+
     // Set the window size with dynamic width and height
     let new_size = LogicalSize::new(width as f64, height as f64);
     window
         .set_size(Size::Logical(new_size))
         .map_err(|e| format!("Failed to resize window: {}", e))?;
-    
+
     Ok(())
+}
+
+#[tauri::command]
+fn open_playback_window(app: AppHandle, recording_id: String) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("playback") {
+        window
+            .eval(&format!("window.location.href = 'playback.html?id={}'", recording_id))
+            .map_err(|e| e.to_string())?;
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    Err("playback window not configured".to_string())
+}
+
+#[tauri::command]
+fn get_app_data_dir(app: AppHandle) -> Result<String, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -877,6 +896,8 @@ pub fn run() {
             settings::save_settings,
             permissions::check_screen_recording_permission,
             permissions::request_screen_recording,
+            open_playback_window,
+            get_app_data_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

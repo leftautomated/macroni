@@ -149,6 +149,9 @@ const App = () => {
                       selectedRecordingId={lastViewedRecordingId}
                       onViewRecording={recordingsManager.setSelectedRecording}
                       onDeleteRecording={recordingsManager.deleteRecording}
+                      onOpenPlayback={(id: string) =>
+                        invoke("open_playback_window", { recordingId: id })
+                      }
                     />
                   </TabsContent>
                   <TabsContent value="settings" className="mt-4">

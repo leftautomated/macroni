@@ -1,13 +1,14 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Recording } from "@/types";
-import { Trash2 } from "lucide-react";
+import { Trash2, Play } from "lucide-react";
 
 interface RecordingsListProps {
   recordings: Recording[];
   selectedRecordingId?: string | null;
   onViewRecording: (recording: Recording) => void;
   onDeleteRecording: (id: string) => void;
+  onOpenPlayback: (id: string) => void;
 }
 
 export const RecordingsList = ({
@@ -15,6 +16,7 @@ export const RecordingsList = ({
   selectedRecordingId,
   onViewRecording,
   onDeleteRecording,
+  onOpenPlayback,
 }: RecordingsListProps) => {
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -83,6 +85,17 @@ export const RecordingsList = ({
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenPlayback(recording.id);
+                      }}
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

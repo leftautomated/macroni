@@ -125,6 +125,7 @@ pub enum CaptureQuality {
 }
 
 impl CaptureQuality {
+    #[allow(dead_code)]
     pub fn crf(&self) -> u8 {
         match self {
             CaptureQuality::Low => 32,

@@ -1,5 +1,6 @@
 mod types;
 mod key_mapping;
+mod settings;
 
 use types::*;
 use key_mapping::*;
@@ -791,6 +792,8 @@ pub fn run() {
             is_playing,
             set_window_size,
             toggle_visibility,
+            settings::load_settings,
+            settings::save_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

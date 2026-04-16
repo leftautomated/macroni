@@ -58,13 +58,15 @@ const App = () => {
 
   const handleStopRecording = useCallback(async () => {
     try {
-      const events = await recorder.stopRecording();
-
-      if (events.length > 0) {
-        const newRecording = await recordingsManager.saveRecording("Untitled", events);
+      const result = await recorder.stopRecording();
+      if (result.events.length > 0 || result.video) {
+        const newRecording = await recordingsManager.saveRecording(
+          result.id,
+          "Untitled",
+          result.events,
+          result.video ?? undefined,
+        );
         recorder.clearEvents();
-
-        // Auto-open the recording detail view
         recordingsManager.setSelectedRecording(newRecording);
         setIsExpanded(true);
       }

@@ -30,82 +30,127 @@ tauri_panel! {
 }
 
 #[tauri::command]
-fn start_recording(state: State<RecordingState>) -> Result<(), String> {
+fn start_recording(app: AppHandle, state: State<RecordingState>) -> Result<String, String> {
     let mut is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
-    
     if *is_recording {
         return Err("Already recording".to_string());
     }
-    
+
+    // Generate recording id up front so the video filename can use it.
+    let id = chrono::Utc::now().timestamp_millis().to_string();
+
+    // Build capture config from settings.
+    let settings = crate::settings::load(&app);
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let videos_dir = app_data_dir.join("videos");
+    std::fs::create_dir_all(&videos_dir).map_err(|e| e.to_string())?;
+    let output_path = videos_dir.join(format!("{}.mp4", id));
+
+    // Start capture (may fail on permission denied — surface the error).
+    let session_result = crate::capture::ScreenCaptureSession::start(crate::capture::CaptureConfig {
+        output_path,
+        settings: settings.capture,
+    });
+    match session_result {
+        Ok(session) => {
+            *state.capture_session.lock().map_err(|e| e.to_string())? = Some(session);
+        },
+        Err(e) if e == "permission-denied" => {
+            let _ = app.emit("permission-needed", "screen-recording");
+            return Err(e);
+        },
+        Err(e) => {
+            // Capture failed for another reason; we still allow event-only recording.
+            let _ = app.emit("capture-failed", e.clone());
+            eprintln!("capture failed to start: {e}");
+        },
+    }
+
     *is_recording = true;
     drop(is_recording);
-    
-    let mut events = state.current_events.lock().map_err(|e| e.to_string())?;
-    events.clear();
-    
-    let mut modifiers = state.pressed_modifiers.lock().map_err(|e| e.to_string())?;
-    modifiers.clear();
-    
-    let mut buttons = state.pressed_buttons.lock().map_err(|e| e.to_string())?;
-    buttons.clear();
-    
-    Ok(())
+
+    *state.current_events.lock().map_err(|e| e.to_string())? = Vec::new();
+    *state.pressed_modifiers.lock().map_err(|e| e.to_string())? = std::collections::HashSet::new();
+    *state.pressed_buttons.lock().map_err(|e| e.to_string())? = std::collections::HashSet::new();
+    *state.current_id.lock().map_err(|e| e.to_string())? = Some(id.clone());
+    *state.last_video_meta.lock().map_err(|e| e.to_string())? = None;
+
+    Ok(id)
+}
+
+#[derive(serde::Serialize)]
+struct StopResult {
+    id: String,
+    events: Vec<InputEvent>,
+    video: Option<VideoMetadata>,
 }
 
 #[tauri::command]
-fn stop_recording(state: State<RecordingState>) -> Result<Vec<InputEvent>, String> {
+fn stop_recording(state: State<RecordingState>) -> Result<StopResult, String> {
     let mut is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
-    
     if !*is_recording {
         return Err("Not recording".to_string());
     }
-    
     *is_recording = false;
     drop(is_recording);
-    
-    let events = state.current_events.lock()
-        .map_err(|e| e.to_string())?
-        .clone();
-    
-    Ok(events)
+
+    let events = state.current_events.lock().map_err(|e| e.to_string())?.clone();
+    let id = state.current_id.lock().map_err(|e| e.to_string())?
+        .clone()
+        .ok_or("No recording id set")?;
+
+    // Stop + finalize capture if one was started.
+    let video = {
+        let session = state.capture_session.lock().map_err(|e| e.to_string())?.take();
+        match session {
+            Some(s) => match s.stop() {
+                Ok(meta) => Some(meta),
+                Err(e) => {
+                    eprintln!("capture finalize failed: {e}");
+                    None
+                },
+            },
+            None => None,
+        }
+    };
+
+    if let Some(ref v) = video {
+        *state.last_video_meta.lock().map_err(|e| e.to_string())? = Some(v.clone());
+    }
+
+    Ok(StopResult { id, events, video })
 }
 
 #[tauri::command]
 fn save_recording(
     app_handle: AppHandle,
+    id: String,
     name: String,
     events: Vec<InputEvent>,
+    video: Option<VideoMetadata>,
 ) -> Result<Recording, String> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
-    
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
-    
     let recordings_file = app_data_dir.join("recordings.json");
-    
+
     let mut recordings: Vec<Recording> = if recordings_file.exists() {
         let content = std::fs::read_to_string(&recordings_file).map_err(|e| e.to_string())?;
         serde_json::from_str(&content).unwrap_or_default()
     } else {
         Vec::new()
     };
-    
+
     let recording = Recording {
-        id: Utc::now().timestamp_millis().to_string(),
+        id: id.clone(),
         name,
         events,
-        created_at: Utc::now().timestamp_millis(),
+        created_at: chrono::Utc::now().timestamp_millis(),
         playback_speed: 1.0,
-        video: None,
+        video,
     };
-    
     recordings.push(recording.clone());
-    
     let content = serde_json::to_string_pretty(&recordings).map_err(|e| e.to_string())?;
     std::fs::write(&recordings_file, content).map_err(|e| e.to_string())?;
-    
     Ok(recording)
 }
 

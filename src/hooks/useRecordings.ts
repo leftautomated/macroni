@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Recording, InputEvent } from "@/types";
+import { Recording, InputEvent, VideoMetadata } from "@/types";
 
 export const useRecordings = () => {
   const [recordings, setRecordings] = useState<Recording[]>([]);
@@ -11,11 +11,19 @@ export const useRecordings = () => {
     setRecordings(result.sort((a, b) => b.created_at - a.created_at));
   }, []);
 
-  const saveRecording = useCallback(async (name: string, events: InputEvent[]): Promise<Recording> => {
-    const recording = await invoke<Recording>("save_recording", { name, events });
-    await loadRecordings();
-    return recording;
-  }, [loadRecordings]);
+  const saveRecording = useCallback(
+    async (id: string, name: string, events: InputEvent[], video?: VideoMetadata): Promise<Recording> => {
+      const recording = await invoke<Recording>("save_recording", {
+        id,
+        name,
+        events,
+        video: video ?? null,
+      });
+      await loadRecordings();
+      return recording;
+    },
+    [loadRecordings],
+  );
 
   const deleteRecording = useCallback(async (id: string) => {
     await invoke("delete_recording", { id });

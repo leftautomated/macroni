@@ -5,6 +5,8 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use rdev::{Key, Button};
 
+use crate::capture::ScreenCaptureSession;
+
 /// Represents a single input event captured during recording
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "PascalCase")]
@@ -81,6 +83,9 @@ pub struct RecordingState {
     pub is_playing: Arc<Mutex<bool>>,
     pub playback_position: Arc<Mutex<Option<usize>>>,
     pub loop_count: Arc<Mutex<usize>>,
+    pub current_id: Arc<Mutex<Option<String>>>,
+    pub capture_session: Arc<Mutex<Option<ScreenCaptureSession>>>,
+    pub last_video_meta: Arc<Mutex<Option<VideoMetadata>>>,
 }
 
 impl Default for RecordingState {
@@ -94,6 +99,9 @@ impl Default for RecordingState {
             is_playing: Arc::new(Mutex::new(false)),
             playback_position: Arc::new(Mutex::new(None)),
             loop_count: Arc::new(Mutex::new(0)),
+            current_id: Arc::new(Mutex::new(None)),
+            capture_session: Arc::new(Mutex::new(None)),
+            last_video_meta: Arc::new(Mutex::new(None)),
         }
     }
 }

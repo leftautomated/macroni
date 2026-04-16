@@ -2,15 +2,14 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "@/index.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { PlaybackView } from "@/components/playback/PlaybackView";
 
 const Playback = () => {
   const params = new URLSearchParams(window.location.search);
   const recordingId = params.get("id") ?? "";
   return (
     <ThemeProvider>
-      <div className="w-screen h-screen flex items-center justify-center bg-background text-foreground">
-        <p>Playback window — recording id: {recordingId}</p>
-      </div>
+      <PlaybackView recordingId={recordingId} />
     </ThemeProvider>
   );
 };

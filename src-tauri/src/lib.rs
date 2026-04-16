@@ -179,22 +179,52 @@ fn delete_recording(app_handle: AppHandle, id: String) -> Result<(), String> {
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    
+
     let recordings_file = app_data_dir.join("recordings.json");
-    
+
     if !recordings_file.exists() {
         return Err("No recordings found".to_string());
     }
-    
+
     let content = std::fs::read_to_string(&recordings_file).map_err(|e| e.to_string())?;
     let mut recordings: Vec<Recording> = serde_json::from_str(&content).unwrap_or_default();
-    
+
     recordings.retain(|r| r.id != id);
-    
+
     let content = serde_json::to_string_pretty(&recordings).map_err(|e| e.to_string())?;
     std::fs::write(&recordings_file, content).map_err(|e| e.to_string())?;
-    
+
+    // Best-effort video cleanup.
+    let video_path = app_data_dir.join("videos").join(format!("{}.mp4", id));
+    let _ = std::fs::remove_file(&video_path);
+
     Ok(())
+}
+
+/// Remove any orphaned `videos/*.mp4` files whose id doesn't match any saved recording.
+/// Called at startup to clean up after crashes or partial writes.
+fn sweep_orphan_videos(app: &AppHandle) {
+    let Ok(dir) = app.path().app_data_dir() else { return };
+    let videos_dir = dir.join("videos");
+    if !videos_dir.exists() { return }
+    let recordings_file = dir.join("recordings.json");
+    let known_ids: std::collections::HashSet<String> = if recordings_file.exists() {
+        let content = std::fs::read_to_string(&recordings_file).unwrap_or_default();
+        let list: Vec<Recording> = serde_json::from_str(&content).unwrap_or_default();
+        list.into_iter().map(|r| r.id).collect()
+    } else {
+        Default::default()
+    };
+    if let Ok(entries) = std::fs::read_dir(&videos_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("mp4") { continue }
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+            if !known_ids.contains(stem) {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -679,7 +709,10 @@ pub fn run() {
             // Initialize macOS NSPanel configuration
             #[cfg(target_os = "macos")]
             init_macos_panel(app.app_handle());
-            
+
+            // Clean up orphaned video files from prior crashes.
+            sweep_orphan_videos(app.app_handle());
+
             let app_handle = app.handle().clone();
             
             // Create a channel for sending events from listener thread

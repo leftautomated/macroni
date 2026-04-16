@@ -164,10 +164,16 @@ impl CaptureSink for Mp4EncoderSink {
         writer.add_track(&track).map_err(|e| e.to_string())?;
 
         let frame_duration = (1000 / self.fps).max(1) as u32;
-        for ef in self.encoded_frames.iter() {
+        let frames = &self.encoded_frames;
+        for (idx, ef) in frames.iter().enumerate() {
+            let duration = if idx + 1 < frames.len() {
+                (frames[idx + 1].pts_ms - ef.pts_ms).max(1) as u32
+            } else {
+                frame_duration.max(1) as u32
+            };
             let sample = mp4::Mp4Sample {
                 start_time: ef.pts_ms.max(0) as u64,
-                duration: frame_duration,
+                duration,
                 rendering_offset: 0,
                 is_sync: ef.is_keyframe,
                 bytes: ef.data.clone().into(),
@@ -207,6 +213,8 @@ fn strip_annex_b_prefix(nal: &[u8]) -> &[u8] {
 
 /// BGRA → I420 planar conversion. Standard BT.601 coefficients.
 fn bgra_to_i420(bgra: &[u8], width: usize, height: usize) -> Vec<u8> {
+    debug_assert!(width % 2 == 0 && height % 2 == 0, "bgra_to_i420 requires even dimensions");
+    debug_assert_eq!(bgra.len(), width * height * 4, "bgra buffer size mismatch");
     let y_size = width * height;
     let uv_size = y_size / 4;
     let mut out = vec![0u8; y_size + uv_size * 2];

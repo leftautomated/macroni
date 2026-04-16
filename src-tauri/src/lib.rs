@@ -2,6 +2,7 @@ mod types;
 mod key_mapping;
 mod settings;
 mod capture;
+mod encoder;
 
 use types::*;
 use key_mapping::*;

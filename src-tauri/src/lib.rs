@@ -3,6 +3,7 @@ mod key_mapping;
 mod settings;
 mod capture;
 mod encoder;
+mod permissions;
 
 use types::*;
 use key_mapping::*;
@@ -796,6 +797,8 @@ pub fn run() {
             toggle_visibility,
             settings::load_settings,
             settings::save_settings,
+            permissions::check_screen_recording_permission,
+            permissions::request_screen_recording,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -96,6 +96,24 @@ const App = () => {
     };
   }, [handleStartRecording, handleStopRecording]);
 
+  // Listen for capture permission / failure events from Rust
+  useEffect(() => {
+    const unlistenPerm = listen<string>("permission-needed", (ev) => {
+      if (ev.payload === "screen-recording") {
+        alert(
+          "Macroni needs Screen Recording permission. Open System Settings → Privacy & Security → Screen Recording, enable Macroni, and restart the app.",
+        );
+      }
+    });
+    const unlistenFail = listen<string>("capture-failed", (ev) => {
+      console.error("Video capture failed:", ev.payload);
+    });
+    return () => {
+      unlistenPerm.then((fn) => fn());
+      unlistenFail.then((fn) => fn());
+    };
+  }, []);
+
   const handleToggleExpand = () => {
     setIsExpanded(!isExpanded);
     // Auto-resize will handle the height adjustment via useEffect

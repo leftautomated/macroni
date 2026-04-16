@@ -67,7 +67,7 @@ pub struct Recording {
     pub created_at: i64,
     #[serde(default = "default_playback_speed")]
     pub playback_speed: f64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<VideoMetadata>,
 }
 

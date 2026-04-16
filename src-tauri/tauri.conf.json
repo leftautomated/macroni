@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Macroni",
         "width": 700,
         "height": 50,
@@ -24,6 +25,18 @@
         "resizable": false,
         "contentProtected": true,
         "acceptFirstMouse": true
+      },
+      {
+        "label": "playback",
+        "title": "Playback",
+        "url": "playback.html",
+        "width": 1200,
+        "height": 750,
+        "minWidth": 800,
+        "minHeight": 500,
+        "visible": false,
+        "resizable": true,
+        "decorations": true
       }
     ],
     "security": {

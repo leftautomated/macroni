@@ -4,6 +4,7 @@ mod settings;
 mod capture;
 mod encoder;
 mod permissions;
+mod crash_log;
 
 use types::*;
 use key_mapping::*;
@@ -661,6 +662,11 @@ fn init_macos_panel(app_handle: &AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Install panic → crash.log hook FIRST so any panic during Tauri init is
+    // captured. Path: ~/Library/Application Support/Macroni/crash.log (macOS),
+    // %APPDATA%\Macroni\crash.log (Windows).
+    crash_log::install_panic_hook();
+
     let state = RecordingState::default();
     let is_recording = Arc::clone(&state.is_recording);
     let events = Arc::clone(&state.current_events);
@@ -725,12 +731,16 @@ pub fn run() {
                 )?;
             }
 
+            crash_log::log_line("setup: start");
+
             // Initialize macOS NSPanel configuration
             #[cfg(target_os = "macos")]
             init_macos_panel(app.app_handle());
 
             // Clean up orphaned video files from prior crashes.
             sweep_orphan_videos(app.app_handle());
+
+            crash_log::log_line("setup: complete");
 
             let app_handle = app.handle().clone();
             

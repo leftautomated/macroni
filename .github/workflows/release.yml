@@ -50,6 +50,15 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # NASM is required by openh264-sys2 (H.264 encoder native assembly)
+      - name: Install NASM (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: brew install nasm
+
+      - name: Install NASM (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: ilammy/setup-nasm@v1
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

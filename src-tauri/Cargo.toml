@@ -26,7 +26,7 @@ serde_json = "1"
 rdev = { git = "https://github.com/Narsil/rdev" }
 chrono = { version = "0.4", features = ["serde"] }
 scap = "0.0.8"
-openh264 = "0.6"
+openh264 = { version = "0.6", default-features = false, features = ["source"] }
 mp4 = "0.14"
 
 [dev-dependencies]

@@ -99,6 +99,21 @@ pub struct ScreenCaptureSession {
 }
 
 impl ScreenCaptureSession {
+    /// Start a screen capture session.
+    ///
+    /// On Windows this currently returns `Err("windows-capture-unsupported")`
+    /// because scap's upstream Windows path does not compile against the
+    /// current `windows-capture` dependency. The caller treats non-
+    /// permission-denied errors as "no video, keep recording events" so the
+    /// app still works — just without the video half of the preview feature.
+    /// Revisit when upstream scap fixes Windows or when we replace the
+    /// cross-platform capture layer.
+    #[cfg(target_os = "windows")]
+    pub fn start(_config: CaptureConfig) -> Result<Self, String> {
+        Err("windows-capture-unsupported".to_string())
+    }
+
+    #[cfg(not(target_os = "windows"))]
     pub fn start(config: CaptureConfig) -> Result<Self, String> {
         use scap::capturer::{Capturer, Options};
         use scap::frame::{Frame as ScapFrame, FrameType, VideoFrame};

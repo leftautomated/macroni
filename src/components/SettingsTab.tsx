@@ -5,6 +5,7 @@ import { useAppSettings } from "@/hooks/useAppSettings";
 import type { CaptureQuality, CaptureSettings } from "@/types";
 
 const isMac = navigator.userAgent.includes("Mac");
+const isWindows = navigator.userAgent.includes("Win");
 const mod = isMac ? "⌘" : "Ctrl";
 
 const SHORTCUTS = [
@@ -53,6 +54,13 @@ export const SettingsTab = () => {
             <h4 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
               <Video className="h-3 w-3" /> Video Capture
             </h4>
+            {isWindows && (
+              <p className="text-xs text-muted-foreground italic">
+                Video capture is temporarily unavailable on Windows (upstream library
+                issue). Event recording still works. These settings apply once video
+                support ships.
+              </p>
+            )}
             {settings ? (
               <div className="space-y-3">
                 <div>

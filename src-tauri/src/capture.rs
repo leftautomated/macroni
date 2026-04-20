@@ -101,7 +101,7 @@ pub struct ScreenCaptureSession {
 impl ScreenCaptureSession {
     pub fn start(config: CaptureConfig) -> Result<Self, String> {
         use scap::capturer::{Capturer, Options};
-        use scap::frame::{Frame as ScapFrame, FrameType};
+        use scap::frame::{Frame as ScapFrame, FrameType, VideoFrame};
 
         if !scap::is_supported() {
             return Err("Screen capture is not supported on this platform".to_string());
@@ -125,16 +125,22 @@ impl ScreenCaptureSession {
                 crop_area: None,
                 output_type: FrameType::BGRAFrame,
                 output_resolution: scap::capturer::Resolution::Captured,
+                captures_audio: settings.audio,
                 ..Default::default()
             };
             let mut capturer = Capturer::build(opts).map_err(|e| format!("{:?}", e))?;
             capturer.start_capture();
 
-            // Grab first frame to learn actual dimensions.
-            let first = capturer.get_next_frame().map_err(|e| format!("{:?}", e))?;
-            let (width, height, first_data, first_ts) = match first {
-                ScapFrame::BGRA(f) => (f.width as u32, f.height as u32, f.data, Utc::now().timestamp_millis()),
-                _ => return Err("Unexpected frame format".to_string()),
+            // Pull frames until we see the first BGRA video frame — scap 0.1 may
+            // interleave audio frames, so we skip those rather than bailing.
+            let (width, height, first_data, first_ts) = loop {
+                let frame = capturer.get_next_frame().map_err(|e| format!("{:?}", e))?;
+                match frame {
+                    ScapFrame::Video(VideoFrame::BGRA(f)) => {
+                        break (f.width as u32, f.height as u32, f.data, Utc::now().timestamp_millis());
+                    }
+                    _ => continue,
+                }
             };
 
             let mut sink: Box<dyn CaptureSink> = Box::new(
@@ -152,18 +158,23 @@ impl ScreenCaptureSession {
 
             while running_thread.load(Ordering::Relaxed) {
                 match capturer.get_next_frame() {
-                    Ok(ScapFrame::BGRA(f)) => {
+                    Ok(ScapFrame::Video(VideoFrame::BGRA(f))) => {
                         let ts = Utc::now().timestamp_millis();
-                        if let Err(e) = sink.on_frame(&Frame { width: f.width as u32, height: f.height as u32, data: f.data, timestamp_ms: ts }) {
+                        if let Err(e) = sink.on_frame(&Frame {
+                            width: f.width as u32,
+                            height: f.height as u32,
+                            data: f.data,
+                            timestamp_ms: ts,
+                        }) {
                             eprintln!("capture: sink error {e}");
                             break;
                         }
-                    },
-                    Ok(_) => continue,
+                    }
+                    Ok(_) => continue, // audio frame or other video format — ignore for now
                     Err(e) => {
                         eprintln!("capture: frame error {:?}", e);
                         break;
-                    },
+                    }
                 }
             }
 

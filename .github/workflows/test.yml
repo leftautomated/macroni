@@ -102,3 +102,45 @@ jobs:
 
       - name: Run frontend tests
         run: pnpm test
+
+  coverage:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install NASM (openh264-sys2)
+        run: brew install nasm
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Rust coverage gate (fail under 62% lines)
+        working-directory: src-tauri
+        run: cargo llvm-cov --fail-under-lines 62 --summary-only
+
+      - name: Frontend coverage gate (vitest thresholds in vitest.config.ts)
+        run: pnpm test:coverage

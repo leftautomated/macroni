@@ -10,6 +10,7 @@ changed, and what that bought us.
 | [0002](0002-event-capture.md) | Extract `EventCapture` from the rdev listener closure | Accepted |
 | [0003](0003-playback-plan-engine.md) | Split playback into `PlaybackPlan` + `PlaybackEngine` | Accepted |
 | [0004](0004-recording-session.md) | Consolidate active-recording state into `RecordingSession` | Accepted |
+| [0005](0005-coverage-gate.md) | Adopt coverage gate (Rust + frontend) with ratchet baseline | Accepted |
 
 ## Conventions
 

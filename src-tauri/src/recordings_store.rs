@@ -1,0 +1,302 @@
+//! Persistence for `recordings.json` and its associated video files.
+//!
+//! Hides the on-disk JSON layout, parse-or-empty semantics, atomic writes, and
+//! orphan video sweeping behind a small interface. Tauri commands become thin
+//! dispatchers; tests use `open_at(tempdir)` to exercise the store without an
+//! `AppHandle`.
+
+use std::path::{Path, PathBuf};
+
+use tauri::{AppHandle, Manager};
+
+use crate::types::Recording;
+
+const RECORDINGS_FILENAME: &str = "recordings.json";
+const VIDEOS_DIRNAME: &str = "videos";
+
+#[derive(Debug)]
+pub enum StoreError {
+    Io(std::io::Error),
+    Serde(serde_json::Error),
+    NotFound,
+    InvalidSpeed,
+}
+
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StoreError::Io(e) => write!(f, "{}", e),
+            StoreError::Serde(e) => write!(f, "{}", e),
+            StoreError::NotFound => write!(f, "Recording not found"),
+            StoreError::InvalidSpeed => write!(f, "Speed must be between 0.01 and 1000"),
+        }
+    }
+}
+
+impl From<std::io::Error> for StoreError {
+    fn from(e: std::io::Error) -> Self { StoreError::Io(e) }
+}
+impl From<serde_json::Error> for StoreError {
+    fn from(e: serde_json::Error) -> Self { StoreError::Serde(e) }
+}
+
+pub struct RecordingsStore {
+    data_dir: PathBuf,
+}
+
+impl RecordingsStore {
+    pub fn open(app: &AppHandle) -> Result<Self, StoreError> {
+        let data_dir = app.path().app_data_dir().map_err(|e| {
+            StoreError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string()))
+        })?;
+        std::fs::create_dir_all(&data_dir)?;
+        Ok(Self { data_dir })
+    }
+
+    #[allow(dead_code)] // test seam — referenced from #[cfg(test)] blocks only
+    pub fn open_at(data_dir: PathBuf) -> Self {
+        Self { data_dir }
+    }
+
+    fn recordings_path(&self) -> PathBuf { self.data_dir.join(RECORDINGS_FILENAME) }
+    fn videos_dir(&self) -> PathBuf { self.data_dir.join(VIDEOS_DIRNAME) }
+    fn video_path(&self, id: &str) -> PathBuf { self.videos_dir().join(format!("{}.mp4", id)) }
+
+    pub fn load_all(&self) -> Result<Vec<Recording>, StoreError> {
+        let path = self.recordings_path();
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let content = std::fs::read_to_string(&path)?;
+        Ok(serde_json::from_str(&content).unwrap_or_default())
+    }
+
+    pub fn add(&self, recording: Recording) -> Result<Recording, StoreError> {
+        let mut recordings = self.load_all()?;
+        recordings.push(recording.clone());
+        self.write_all(&recordings)?;
+        Ok(recording)
+    }
+
+    pub fn delete(&self, id: &str) -> Result<(), StoreError> {
+        let mut recordings = self.load_all()?;
+        let before = recordings.len();
+        recordings.retain(|r| r.id != id);
+        if recordings.len() == before {
+            return Err(StoreError::NotFound);
+        }
+        self.write_all(&recordings)?;
+        let _ = std::fs::remove_file(self.video_path(id));
+        Ok(())
+    }
+
+    pub fn update_name(&self, id: &str, name: &str) -> Result<Recording, StoreError> {
+        let mut recordings = self.load_all()?;
+        let target = recordings.iter_mut().find(|r| r.id == id).ok_or(StoreError::NotFound)?;
+        target.name = name.to_string();
+        let updated = target.clone();
+        self.write_all(&recordings)?;
+        Ok(updated)
+    }
+
+    pub fn update_speed(&self, id: &str, speed: f64) -> Result<Recording, StoreError> {
+        if !speed.is_finite() || speed <= 0.0 || speed > 1000.0 {
+            return Err(StoreError::InvalidSpeed);
+        }
+        let mut recordings = self.load_all()?;
+        let target = recordings.iter_mut().find(|r| r.id == id).ok_or(StoreError::NotFound)?;
+        target.playback_speed = speed;
+        let updated = target.clone();
+        self.write_all(&recordings)?;
+        Ok(updated)
+    }
+
+    /// Remove `videos/*.mp4` files whose id doesn't match any saved recording.
+    pub fn sweep_orphan_videos(&self) {
+        let videos_dir = self.videos_dir();
+        if !videos_dir.exists() {
+            return;
+        }
+        let known_ids: std::collections::HashSet<String> = match self.load_all() {
+            Ok(list) => list.into_iter().map(|r| r.id).collect(),
+            Err(_) => return,
+        };
+        let Ok(entries) = std::fs::read_dir(&videos_dir) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("mp4") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+            if !known_ids.contains(stem) {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+
+    fn write_all(&self, recordings: &[Recording]) -> Result<(), StoreError> {
+        std::fs::create_dir_all(&self.data_dir)?;
+        let final_path = self.recordings_path();
+        let content = serde_json::to_string_pretty(recordings)?;
+        atomic_write(&final_path, content.as_bytes())
+    }
+}
+
+/// Write to a sibling temp file then rename — prevents truncated/corrupt JSON
+/// if the process dies mid-write.
+fn atomic_write(final_path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+    let dir = final_path.parent().ok_or_else(|| {
+        StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "no parent dir"))
+    })?;
+    let file_name = final_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| {
+            StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "no file name"))
+        })?;
+    let tmp_path = dir.join(format!(".{}.tmp", file_name));
+    std::fs::write(&tmp_path, bytes)?;
+    std::fs::rename(&tmp_path, final_path)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::InputEvent;
+    use tempfile::tempdir;
+
+    fn rec(id: &str, name: &str) -> Recording {
+        Recording {
+            id: id.into(),
+            name: name.into(),
+            events: vec![InputEvent::KeyPress { key: "A".into(), timestamp: 1 }],
+            created_at: 1_700_000_000_000,
+            playback_speed: 1.0,
+            video: None,
+        }
+    }
+
+    #[test]
+    fn load_all_returns_empty_when_file_missing() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        assert_eq!(store.load_all().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn add_round_trips_through_load_all() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "first")).unwrap();
+        store.add(rec("2", "second")).unwrap();
+        let all = store.load_all().unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].id, "1");
+        assert_eq!(all[1].name, "second");
+    }
+
+    #[test]
+    fn update_name_preserves_other_fields() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "old")).unwrap();
+        let updated = store.update_name("1", "new").unwrap();
+        assert_eq!(updated.name, "new");
+        assert_eq!(updated.events.len(), 1);
+        assert_eq!(updated.playback_speed, 1.0);
+        assert_eq!(store.load_all().unwrap()[0].name, "new");
+    }
+
+    #[test]
+    fn update_name_missing_id_returns_not_found() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        assert!(matches!(store.update_name("nope", "y"), Err(StoreError::NotFound)));
+    }
+
+    #[test]
+    fn update_speed_rejects_nonfinite_zero_negative_and_too_large() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        assert!(matches!(store.update_speed("1", f64::NAN), Err(StoreError::InvalidSpeed)));
+        assert!(matches!(store.update_speed("1", 0.0), Err(StoreError::InvalidSpeed)));
+        assert!(matches!(store.update_speed("1", -1.0), Err(StoreError::InvalidSpeed)));
+        assert!(matches!(store.update_speed("1", 1001.0), Err(StoreError::InvalidSpeed)));
+        assert!(matches!(store.update_speed("1", f64::INFINITY), Err(StoreError::InvalidSpeed)));
+    }
+
+    #[test]
+    fn update_speed_accepts_valid_range() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        let updated = store.update_speed("1", 2.5).unwrap();
+        assert_eq!(updated.playback_speed, 2.5);
+    }
+
+    #[test]
+    fn delete_removes_recording_and_associated_video_file() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        std::fs::create_dir_all(dir.path().join("videos")).unwrap();
+        let video = dir.path().join("videos/1.mp4");
+        std::fs::write(&video, b"fake").unwrap();
+        store.delete("1").unwrap();
+        assert_eq!(store.load_all().unwrap().len(), 0);
+        assert!(!video.exists());
+    }
+
+    #[test]
+    fn delete_missing_id_returns_not_found() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        assert!(matches!(store.delete("nope"), Err(StoreError::NotFound)));
+    }
+
+    #[test]
+    fn sweep_orphan_videos_removes_unknown_mp4s_only() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("keep", "x")).unwrap();
+        std::fs::create_dir_all(dir.path().join("videos")).unwrap();
+        let kept = dir.path().join("videos/keep.mp4");
+        let orphan = dir.path().join("videos/orphan.mp4");
+        let unrelated = dir.path().join("videos/notes.txt");
+        std::fs::write(&kept, b"k").unwrap();
+        std::fs::write(&orphan, b"o").unwrap();
+        std::fs::write(&unrelated, b"n").unwrap();
+        store.sweep_orphan_videos();
+        assert!(kept.exists(), "known recording's video should remain");
+        assert!(!orphan.exists(), "orphan mp4 should be removed");
+        assert!(unrelated.exists(), "non-mp4 should be left alone");
+    }
+
+    #[test]
+    fn atomic_write_leaves_no_temp_file_on_success() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        let entries: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        for name in &entries {
+            assert!(!name.ends_with(".tmp"), "stray temp file: {}", name);
+        }
+        assert!(entries.iter().any(|n| n == "recordings.json"));
+    }
+
+    #[test]
+    fn corrupt_recordings_json_loads_as_empty() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("recordings.json"), b"not-json{").unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        assert_eq!(store.load_all().unwrap().len(), 0);
+    }
+}

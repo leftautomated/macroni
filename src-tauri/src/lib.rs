@@ -5,6 +5,7 @@ mod capture;
 mod encoder;
 mod permissions;
 mod crash_log;
+mod recordings_store;
 
 use types::*;
 use key_mapping::*;
@@ -130,166 +131,45 @@ fn save_recording(
     events: Vec<InputEvent>,
     video: Option<VideoMetadata>,
 ) -> Result<Recording, String> {
-    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
-    let recordings_file = app_data_dir.join("recordings.json");
-
-    let mut recordings: Vec<Recording> = if recordings_file.exists() {
-        let content = std::fs::read_to_string(&recordings_file).map_err(|e| e.to_string())?;
-        serde_json::from_str(&content).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-
     let recording = Recording {
-        id: id.clone(),
+        id,
         name,
         events,
         created_at: chrono::Utc::now().timestamp_millis(),
         playback_speed: 1.0,
         video,
     };
-    recordings.push(recording.clone());
-    let content = serde_json::to_string_pretty(&recordings).map_err(|e| e.to_string())?;
-    std::fs::write(&recordings_file, content).map_err(|e| e.to_string())?;
-    Ok(recording)
+    recordings_store::RecordingsStore::open(&app_handle)
+        .and_then(|s| s.add(recording))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn load_recordings(app_handle: AppHandle) -> Result<Vec<Recording>, String> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
-    
-    let recordings_file = app_data_dir.join("recordings.json");
-    
-    if !recordings_file.exists() {
-        return Ok(Vec::new());
-    }
-    
-    let content = std::fs::read_to_string(&recordings_file).map_err(|e| e.to_string())?;
-    let recordings: Vec<Recording> = serde_json::from_str(&content).unwrap_or_default();
-    
-    Ok(recordings)
+    recordings_store::RecordingsStore::open(&app_handle)
+        .and_then(|s| s.load_all())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn delete_recording(app_handle: AppHandle, id: String) -> Result<(), String> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
-
-    let recordings_file = app_data_dir.join("recordings.json");
-
-    if !recordings_file.exists() {
-        return Err("No recordings found".to_string());
-    }
-
-    let content = std::fs::read_to_string(&recordings_file).map_err(|e| e.to_string())?;
-    let mut recordings: Vec<Recording> = serde_json::from_str(&content).unwrap_or_default();
-
-    recordings.retain(|r| r.id != id);
-
-    let content = serde_json::to_string_pretty(&recordings).map_err(|e| e.to_string())?;
-    std::fs::write(&recordings_file, content).map_err(|e| e.to_string())?;
-
-    // Best-effort video cleanup.
-    let video_path = app_data_dir.join("videos").join(format!("{}.mp4", id));
-    let _ = std::fs::remove_file(&video_path);
-
-    Ok(())
-}
-
-/// Remove any orphaned `videos/*.mp4` files whose id doesn't match any saved recording.
-/// Called at startup to clean up after crashes or partial writes.
-fn sweep_orphan_videos(app: &AppHandle) {
-    let Ok(dir) = app.path().app_data_dir() else { return };
-    let videos_dir = dir.join("videos");
-    if !videos_dir.exists() { return }
-    let recordings_file = dir.join("recordings.json");
-    let known_ids: std::collections::HashSet<String> = if recordings_file.exists() {
-        let content = std::fs::read_to_string(&recordings_file).unwrap_or_default();
-        let list: Vec<Recording> = serde_json::from_str(&content).unwrap_or_default();
-        list.into_iter().map(|r| r.id).collect()
-    } else {
-        Default::default()
-    };
-    if let Ok(entries) = std::fs::read_dir(&videos_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("mp4") { continue }
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
-            if !known_ids.contains(stem) {
-                let _ = std::fs::remove_file(&path);
-            }
-        }
-    }
+    recordings_store::RecordingsStore::open(&app_handle)
+        .and_then(|s| s.delete(&id))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn update_recording_name(app_handle: AppHandle, id: String, name: String) -> Result<Recording, String> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
-    
-    let recordings_file = app_data_dir.join("recordings.json");
-    
-    if !recordings_file.exists() {
-        return Err("No recordings found".to_string());
-    }
-    
-    let content = std::fs::read_to_string(&recordings_file).map_err(|e| e.to_string())?;
-    let mut recordings: Vec<Recording> = serde_json::from_str(&content).unwrap_or_default();
-    
-    let recording = recordings
-        .iter_mut()
-        .find(|r| r.id == id)
-        .ok_or_else(|| "Recording not found".to_string())?;
-    
-    recording.name = name.clone();
-    let updated_recording = recording.clone();
-    
-    let content = serde_json::to_string_pretty(&recordings).map_err(|e| e.to_string())?;
-    std::fs::write(&recordings_file, content).map_err(|e| e.to_string())?;
-    
-    Ok(updated_recording)
+    recordings_store::RecordingsStore::open(&app_handle)
+        .and_then(|s| s.update_name(&id, &name))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn update_recording_speed(app_handle: AppHandle, id: String, speed: f64) -> Result<Recording, String> {
-    if !speed.is_finite() || speed <= 0.0 || speed > 1000.0 {
-        return Err("Speed must be between 0.01 and 1000".to_string());
-    }
-
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
-
-    let recordings_file = app_data_dir.join("recordings.json");
-
-    if !recordings_file.exists() {
-        return Err("No recordings found".to_string());
-    }
-
-    let content = std::fs::read_to_string(&recordings_file).map_err(|e| e.to_string())?;
-    let mut recordings: Vec<Recording> = serde_json::from_str(&content).unwrap_or_default();
-
-    let recording = recordings
-        .iter_mut()
-        .find(|r| r.id == id)
-        .ok_or_else(|| "Recording not found".to_string())?;
-
-    recording.playback_speed = speed;
-    let updated_recording = recording.clone();
-
-    let content = serde_json::to_string_pretty(&recordings).map_err(|e| e.to_string())?;
-    std::fs::write(&recordings_file, content).map_err(|e| e.to_string())?;
-
-    Ok(updated_recording)
+    recordings_store::RecordingsStore::open(&app_handle)
+        .and_then(|s| s.update_speed(&id, speed))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -738,7 +618,9 @@ pub fn run() {
             init_macos_panel(app.app_handle());
 
             // Clean up orphaned video files from prior crashes.
-            sweep_orphan_videos(app.app_handle());
+            if let Ok(store) = recordings_store::RecordingsStore::open(app.app_handle()) {
+                store.sweep_orphan_videos();
+            }
 
             crash_log::log_line("setup: complete");
 

@@ -11,7 +11,7 @@
  * component internals.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -92,9 +92,15 @@ describe("Acceptance: recording flow", () => {
     }
   });
 
+  afterEach(() => {
+    // Symmetric cleanup so a test that throws mid-run can't leave seeded
+    // recordings visible to the next test.
+    fakeBackend.reset();
+  });
+
   it("shows the empty state on the Recordings tab when no recordings exist", async () => {
     render(<App />);
-    await userEvent.click(await screen.findByRole("button", { name: /expand/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /^expand$/i }));
 
     await userEvent.click(screen.getByRole("tab", { name: /^recordings$/i }));
 
@@ -115,7 +121,7 @@ describe("Acceptance: recording flow", () => {
     });
 
     render(<App />);
-    await userEvent.click(await screen.findByRole("button", { name: /expand/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /^expand$/i }));
     await userEvent.click(screen.getByRole("tab", { name: /^recordings$/i }));
 
     await waitFor(() => {

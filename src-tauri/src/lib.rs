@@ -34,6 +34,13 @@ tauri_panel! {
 
 #[tauri::command]
 fn start_recording(app: AppHandle, state: State<RecordingState>) -> Result<String, String> {
+    // Best-effort early-return so we don't acquire the screen-recording
+    // permission and spawn a scap thread just to drop them when session.start
+    // fails below. The authoritative guard is session.start() — it runs under
+    // the inner mutex and atomically claims the slot. A small TOCTOU window
+    // between this read and session.start can produce a spurious "Already
+    // recording" error during a concurrent stop; the user retries and it
+    // succeeds. We accept that vs. leaking a capture thread.
     if state.session.is_active() {
         return Err("Already recording".to_string());
     }
@@ -387,9 +394,24 @@ pub fn run() {
                 rdev::set_is_main_thread(false);
 
                 let mut capture = event_capture::EventCapture::new();
+                let mut was_active = false;
                 let callback = move |event: Event| {
-                    if !listener_session.is_active() {
+                    let is_active = listener_session.is_active();
+                    if !is_active {
+                        was_active = false;
                         return;
+                    }
+                    if !was_active {
+                        // Rising edge: a new session just started. Clear any
+                        // modifier/button state left from the previous session —
+                        // release events that fired while the listener was
+                        // inactive were silently dropped and would otherwise
+                        // poison this session (e.g. the user holds Cmd to fire
+                        // the Cmd+Shift+R stop shortcut, releases Cmd after the
+                        // session ended; without this reset every subsequent
+                        // keypress would emit a stale KeyCombo).
+                        capture.reset();
+                        was_active = true;
                     }
                     let timestamp = Utc::now().timestamp_millis();
                     for ev in capture.on_rdev_event(event.event_type, timestamp) {

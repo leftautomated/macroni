@@ -22,28 +22,33 @@ fn read(rel: &str) -> String {
 }
 
 /// Forbid any line that contains any of `needles` inside `rel`, unless the
-/// line also contains the substring `// arch-allow`. ADR references in
-/// comments are ignored (anything in a `//!` doc comment or a line starting
-/// with `//` followed by an ADR pointer).
+/// line also contains the substring `// arch-allow`. Comments and lines
+/// inside `#[cfg(test)] mod ... { ... }` blocks are skipped — the ADRs
+/// constrain production code, not test helpers.
 fn assert_no_imports(rel: &str, needles: &[&str], adr: &str) {
     let content = read(rel);
-    let violations: Vec<(usize, &str)> = content
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| {
-            // Skip comment lines so this file isn't fragile to mentioning the
-            // forbidden imports in prose.
-            let trimmed = line.trim_start();
-            if trimmed.starts_with("//") {
-                return false;
-            }
-            if line.contains("// arch-allow") {
-                return false;
-            }
-            needles.iter().any(|n| line.contains(n))
-        })
-        .map(|(i, line)| (i + 1, line))
-        .collect();
+    let mut in_test_mod = false;
+    let mut violations: Vec<(usize, String)> = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim_start();
+        // Heuristic: once we see `#[cfg(test)]` everything below is test code.
+        // ADR rules apply to production, not to test scaffolding.
+        if trimmed.starts_with("#[cfg(test)]") {
+            in_test_mod = true;
+        }
+        if in_test_mod {
+            continue;
+        }
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        if line.contains("// arch-allow") {
+            continue;
+        }
+        if needles.iter().any(|n| line.contains(n)) {
+            violations.push((i + 1, line.to_string()));
+        }
+    }
     if !violations.is_empty() {
         let mut msg = format!("Architecture rule violated in {} (see {}):\n", rel, adr);
         for (lineno, line) in violations {
@@ -60,15 +65,27 @@ fn assert_no_imports(rel: &str, needles: &[&str], adr: &str) {
 #[test]
 fn adr_0001_recordings_json_io_lives_only_in_recordings_store() {
     // ADR-0001: `recordings.json` IO is the RecordingsStore's responsibility.
-    // No other module should mention the file directly.
+    // No other module should mention the file directly in production code.
+    // Comments and `#[cfg(test)]` blocks are exempt — same rules as
+    // `assert_no_imports`.
     for rel in modules_other_than(&["recordings_store.rs"]) {
         let content = read(&rel);
-        assert!(
-            !content.contains("recordings.json"),
-            "ADR-0001 violated: {} references `recordings.json` directly. \
-             Use recordings_store::RecordingsStore.",
-            rel
-        );
+        let mut in_test_mod = false;
+        for line in content.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("#[cfg(test)]") {
+                in_test_mod = true;
+            }
+            if in_test_mod || trimmed.starts_with("//") || line.contains("// arch-allow") {
+                continue;
+            }
+            assert!(
+                !line.contains("recordings.json"),
+                "ADR-0001 violated: {} references `recordings.json` directly. \
+                 Use recordings_store::RecordingsStore.",
+                rel
+            );
+        }
     }
 }
 

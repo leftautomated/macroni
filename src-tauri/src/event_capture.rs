@@ -29,6 +29,18 @@ impl EventCapture {
         }
     }
 
+    /// Clear modifier/button state. Call at the start of every new recording
+    /// session so keys or mouse buttons that were held when the previous
+    /// session ended (and whose release events were dropped while
+    /// `is_recording == false`) don't poison the new session.
+    ///
+    /// `last_mouse_position` is intentionally preserved — the cursor's last
+    /// known location is still a valid starting point.
+    pub fn reset(&mut self) {
+        self.pressed_modifiers.clear();
+        self.pressed_buttons.clear();
+    }
+
     /// Convert a single rdev event into 0, 1, or 2 `InputEvent`s.
     /// A key press with active modifiers produces both a `KeyPress` and a
     /// `KeyCombo` event. A mouse-move without any button held emits nothing
@@ -49,10 +61,12 @@ impl EventCapture {
                     if let Some(recognized_char) =
                         get_character_with_modifiers(key, &self.pressed_modifiers)
                     {
+                        // pressed_modifiers is populated exclusively by
+                        // is_modifier_key-true keys, so every entry is already
+                        // a modifier — no redundant filter needed here.
                         let modifiers: Vec<String> = self
                             .pressed_modifiers
                             .iter()
-                            .filter(|k| is_modifier_key(**k))
                             .map(|k| key_to_string(*k))
                             .collect();
                         out.push(InputEvent::KeyCombo {
@@ -242,6 +256,50 @@ mod tests {
             out.is_empty(),
             "after button release, drag filter should re-engage"
         );
+    }
+
+    #[test]
+    fn reset_clears_pressed_modifiers_and_buttons() {
+        let mut cap = EventCapture::new();
+        // Hold Cmd + Left button, but never release either before reset.
+        cap.on_rdev_event(EventType::KeyPress(Key::MetaLeft), ts());
+        cap.on_rdev_event(EventType::ButtonPress(Button::Left), ts() + 1);
+
+        cap.reset();
+
+        // After reset, a plain KeyPress(A) must not produce a stale KeyCombo,
+        // and a MouseMove must not be emitted as a drag.
+        let key_out = cap.on_rdev_event(EventType::KeyPress(Key::KeyA), ts() + 2);
+        assert_eq!(
+            key_out.len(),
+            1,
+            "modifier state should be cleared by reset; got {:?}",
+            key_out
+        );
+        assert!(matches!(&key_out[0], InputEvent::KeyPress { .. }));
+
+        let move_out = cap.on_rdev_event(EventType::MouseMove { x: 1.0, y: 1.0 }, ts() + 3);
+        assert!(
+            move_out.is_empty(),
+            "button state should be cleared by reset; mouse move should not emit"
+        );
+    }
+
+    #[test]
+    fn reset_preserves_last_mouse_position() {
+        let mut cap = EventCapture::new();
+        cap.on_rdev_event(EventType::MouseMove { x: 42.0, y: 99.0 }, ts());
+        cap.reset();
+        // After reset, a ButtonPress should still use the cached position
+        // rather than falling back to (0, 0).
+        let out = cap.on_rdev_event(EventType::ButtonPress(Button::Left), ts() + 1);
+        match &out[0] {
+            InputEvent::ButtonPress { x, y, .. } => {
+                assert_eq!(*x, 42.0);
+                assert_eq!(*y, 99.0);
+            }
+            other => panic!("expected ButtonPress, got {:?}", other),
+        }
     }
 
     #[test]

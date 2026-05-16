@@ -175,7 +175,11 @@ jobs:
         if: github.event_name == 'pull_request'
         working-directory: src-tauri
         run: |
-          git diff ${{ github.event.pull_request.base.sha }}...HEAD > /tmp/pr.diff
+          # Two-dot diff (base..HEAD) gives exactly what this PR's commits
+          # changed, regardless of whether the branch is up-to-date with base.
+          # Three-dot would anchor on the merge base and include unrelated
+          # commits from main if the branch is behind.
+          git diff ${{ github.event.pull_request.base.sha }}..HEAD > /tmp/pr.diff
           cargo mutants --in-diff /tmp/pr.diff --no-shuffle
 
       - name: Mutation gate (main — full scoped sweep)

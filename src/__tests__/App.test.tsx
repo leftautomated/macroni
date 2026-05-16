@@ -54,7 +54,7 @@ describe("App (integration root)", () => {
 
   it("opens the panel and shows the three tabs when the expand toggle is clicked", async () => {
     render(<App />);
-    const expandButton = await screen.findByRole("button", { name: /expand/i });
+    const expandButton = await screen.findByRole("button", { name: /^expand$/i });
     await userEvent.click(expandButton);
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: /live events/i })).toBeInTheDocument();

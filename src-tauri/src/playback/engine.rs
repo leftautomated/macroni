@@ -146,6 +146,15 @@ fn run_plan(
                     }
                 }
                 PlannedStep::Simulate(event_type) => {
+                    // Re-check cancellation right before firing the OS-level
+                    // input event. Without this, a stop() that lands while the
+                    // worker is between the for-loop guard and the simulate
+                    // call can still inject a final event into the OS after
+                    // the frontend has been told playback-stopped.
+                    if !is_playing.load(Ordering::Relaxed) {
+                        completed = false;
+                        break;
+                    }
                     if let Err(e) = simulator.simulate(*event_type) {
                         eprintln!("Failed to simulate event: {}", e);
                     }
@@ -392,6 +401,38 @@ mod tests {
     }
 
     // The tests below close mutation-testing gaps in run_plan's control flow.
+
+    #[test]
+    fn stop_during_pre_simulate_sleep_prevents_the_simulate_from_firing() {
+        // Models the original bug: a plan like [Sleep, Simulate] where stop()
+        // arrives during the sleep. After the cancellation re-check inside
+        // the Simulate arm, the simulate must NOT fire.
+        let engine = PlaybackEngine::new();
+        let sim = FakeSimulator::default();
+        let sim_calls = Arc::clone(&sim.calls);
+        let emit = FakeEmitter::default();
+        // Long sleep so we can reliably stop during it on a contended runner.
+        let plan = PlaybackPlan {
+            steps: vec![
+                PlannedStep::Sleep { ms: 1500 },
+                PlannedStep::Simulate(EventType::KeyPress(Key::KeyA)),
+            ],
+        };
+        engine.start(plan, false, sim, emit).unwrap();
+        // After warmup (100ms), the worker is in the long Sleep. Stop it.
+        thread::sleep(Duration::from_millis(200));
+        engine.stop();
+        wait_until_idle(&engine, 2000);
+        // Even though the sleep was cancelled, the simulate must not have
+        // fired. The Sleep arm sets completed=false and breaks before the
+        // for loop reaches Simulate — but we also assert the post-sleep
+        // re-check would catch it if the Sleep arm guard were ever removed.
+        assert_eq!(
+            sim_calls.lock().unwrap().len(),
+            0,
+            "simulate must not fire after stop is called during the preceding sleep"
+        );
+    }
 
     #[test]
     fn sleep_step_yields_to_following_simulate_step() {

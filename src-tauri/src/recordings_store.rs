@@ -81,7 +81,19 @@ impl RecordingsStore {
             return Ok(Vec::new());
         }
         let content = std::fs::read_to_string(&path)?;
-        Ok(serde_json::from_str(&content).unwrap_or_default())
+        match serde_json::from_str::<Vec<Recording>>(&content) {
+            Ok(list) => Ok(list),
+            Err(e) => {
+                // Per ADR-0001 we treat a malformed file as empty rather than
+                // crashing. Log the parse failure so the data-loss path is
+                // observable via crash.log instead of being silent.
+                eprintln!(
+                    "[recordings_store] {} unreadable, treating as empty: {e}",
+                    path.display()
+                );
+                Ok(Vec::new())
+            }
+        }
     }
 
     pub fn add(&self, recording: Recording) -> Result<Recording, StoreError> {
@@ -116,7 +128,10 @@ impl RecordingsStore {
     }
 
     pub fn update_speed(&self, id: &str, speed: f64) -> Result<Recording, StoreError> {
-        if !speed.is_finite() || speed <= 0.0 || speed > 1000.0 {
+        // The Display impl for InvalidSpeed promises the range [0.01, 1000];
+        // the frontend may match on that string. Reject anything below 0.01
+        // (including subnormals) or above 1000.
+        if !speed.is_finite() || !(0.01..=1000.0).contains(&speed) {
             return Err(StoreError::InvalidSpeed);
         }
         let mut recordings = self.load_all()?;
@@ -285,6 +300,30 @@ mod tests {
         store.add(rec("1", "x")).unwrap();
         let updated = store.update_speed("1", 2.5).unwrap();
         assert_eq!(updated.playback_speed, 2.5);
+    }
+
+    #[test]
+    fn update_speed_rejects_values_between_zero_and_0_01_to_match_display_contract() {
+        // The InvalidSpeed Display string promises "between 0.01 and 1000".
+        // Values in (0.0, 0.01) used to be accepted under the old `<= 0.0`
+        // guard, contradicting the contract.
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        assert!(matches!(
+            store.update_speed("1", 0.001),
+            Err(StoreError::InvalidSpeed)
+        ));
+        assert!(matches!(
+            store.update_speed("1", 0.0001),
+            Err(StoreError::InvalidSpeed)
+        ));
+        assert!(matches!(
+            store.update_speed("1", f64::MIN_POSITIVE),
+            Err(StoreError::InvalidSpeed)
+        ));
+        // 0.01 itself is the inclusive lower bound — must pass.
+        assert!(store.update_speed("1", 0.01).is_ok());
     }
 
     #[test]

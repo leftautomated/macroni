@@ -6,6 +6,7 @@ mod encoder;
 mod permissions;
 mod crash_log;
 mod recordings_store;
+mod event_capture;
 
 use types::*;
 use key_mapping::*;
@@ -72,8 +73,6 @@ fn start_recording(app: AppHandle, state: State<RecordingState>) -> Result<Strin
     drop(is_recording);
 
     *state.current_events.lock().map_err(|e| e.to_string())? = Vec::new();
-    *state.pressed_modifiers.lock().map_err(|e| e.to_string())? = std::collections::HashSet::new();
-    *state.pressed_buttons.lock().map_err(|e| e.to_string())? = std::collections::HashSet::new();
     *state.current_id.lock().map_err(|e| e.to_string())? = Some(id.clone());
     *state.last_video_meta.lock().map_err(|e| e.to_string())? = None;
 
@@ -550,9 +549,6 @@ pub fn run() {
     let state = RecordingState::default();
     let is_recording = Arc::clone(&state.is_recording);
     let events = Arc::clone(&state.current_events);
-    let last_pos = Arc::clone(&state.last_mouse_position);
-    let pressed_modifiers = Arc::clone(&state.pressed_modifiers);
-    let pressed_buttons = Arc::clone(&state.pressed_buttons);
     let shortcut_is_playing = Arc::clone(&state.is_playing);
 
     let mut builder = tauri::Builder::default()
@@ -649,120 +645,18 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 rdev::set_is_main_thread(false);
 
+                let mut capture = event_capture::EventCapture::new();
                 let callback = move |event: Event| {
                     let recording = is_recording.lock().ok().map(|r| *r).unwrap_or(false);
-                    
                     if !recording {
                         return;
                     }
-                    
                     let timestamp = Utc::now().timestamp_millis();
-                    
-                    match event.event_type {
-                        EventType::KeyPress(key) => {
-                            // Track modifier state
-                            if is_modifier_key(key) {
-                                if let Ok(mut modifiers) = pressed_modifiers.lock() {
-                                    modifiers.insert(key);
-                                }
-                            }
-                            
-                            // Always emit the individual KeyPress event
-                            let key_str = key_to_string(key);
-                            let key_press_event = InputEvent::KeyPress {
-                                key: key_str.clone(),
-                                timestamp,
-                            };
-                            let _ = tx.send(key_press_event);
-                            
-                            // If this is a non-modifier key and modifiers are active, try to recognize the combo
-                            if !is_modifier_key(key) {
-                                if let Ok(modifiers) = pressed_modifiers.lock() {
-                                    if let Some(recognized_char) = get_character_with_modifiers(key, &modifiers) {
-                                        let modifier_names: Vec<String> = modifiers
-                                            .iter()
-                                            .filter(|k| is_modifier_key(**k))
-                                            .map(|k| key_to_string(*k))
-                                            .collect();
-                                        
-                                        let combo_event = InputEvent::KeyCombo {
-                                            char: recognized_char,
-                                            key: key_str,
-                                            modifiers: modifier_names,
-                                            timestamp,
-                                        };
-                                        let _ = tx.send(combo_event);
-                                    }
-                                }
-                            }
-                        },
-                        EventType::KeyRelease(key) => {
-                            // Remove from modifier state
-                            if is_modifier_key(key) {
-                                if let Ok(mut modifiers) = pressed_modifiers.lock() {
-                                    modifiers.remove(&key);
-                                }
-                            }
-                            
-                            // Emit the KeyRelease event
-                            let key_release_event = InputEvent::KeyRelease {
-                                key: key_to_string(key),
-                                timestamp,
-                            };
-                            let _ = tx.send(key_release_event);
-                        },
-                        EventType::ButtonPress(button) => {
-                            // Track button state
-                            if let Ok(mut buttons) = pressed_buttons.lock() {
-                                buttons.insert(button);
-                            }
-                            
-                            let pos = last_pos.lock().ok().and_then(|p| *p).unwrap_or((0.0, 0.0));
-                            let button_press_event = InputEvent::ButtonPress {
-                                button: button_to_string(button),
-                                x: pos.0,
-                                y: pos.1,
-                                timestamp,
-                            };
-                            let _ = tx.send(button_press_event);
-                        },
-                        EventType::ButtonRelease(button) => {
-                            // Remove from button state
-                            if let Ok(mut buttons) = pressed_buttons.lock() {
-                                buttons.remove(&button);
-                            }
-                            
-                            let pos = last_pos.lock().ok().and_then(|p| *p).unwrap_or((0.0, 0.0));
-                            let button_release_event = InputEvent::ButtonRelease {
-                                button: button_to_string(button),
-                                x: pos.0,
-                                y: pos.1,
-                                timestamp,
-                            };
-                            let _ = tx.send(button_release_event);
-                        },
-                        EventType::MouseMove { x, y } => {
-                            // Update last known mouse position
-                            if let Ok(mut pos) = last_pos.lock() {
-                                *pos = Some((x, y));
-                            }
-                            
-                            // Record mouse move if any buttons are pressed (dragging)
-                            if let Ok(buttons) = pressed_buttons.lock() {
-                                if !buttons.is_empty() {
-                                    let mouse_move_event = InputEvent::MouseMove {
-                                        x,
-                                        y,
-                                        timestamp,
-                                    };
-                                    let _ = tx.send(mouse_move_event);
-                                }
-                            }
-                        },
-                        _ => {}
+                    for ev in capture.on_rdev_event(event.event_type, timestamp) {
+                        let _ = tx.send(ev);
                     }
                 };
-                
+
                 if let Err(e) = listen(callback) {
                     eprintln!("Error in input listener: {:?}", e);
                 }

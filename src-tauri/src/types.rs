@@ -1,9 +1,7 @@
 //! Core types and data structures
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use rdev::{Key, Button};
 
 use crate::capture::ScreenCaptureSession;
 
@@ -73,13 +71,13 @@ pub struct Recording {
     pub video: Option<VideoMetadata>,
 }
 
-/// Shared application state for recording and playback
+/// Shared application state for recording and playback.
+///
+/// Modifier/button/mouse-position state for the input listener now lives
+/// inside `event_capture::EventCapture` on the listener thread itself.
 pub struct RecordingState {
     pub is_recording: Arc<Mutex<bool>>,
     pub current_events: Arc<Mutex<Vec<InputEvent>>>,
-    pub last_mouse_position: Arc<Mutex<Option<(f64, f64)>>>,
-    pub pressed_modifiers: Arc<Mutex<HashSet<Key>>>,
-    pub pressed_buttons: Arc<Mutex<HashSet<Button>>>,
     pub is_playing: Arc<Mutex<bool>>,
     pub playback_position: Arc<Mutex<Option<usize>>>,
     pub loop_count: Arc<Mutex<usize>>,
@@ -93,9 +91,6 @@ impl Default for RecordingState {
         Self {
             is_recording: Arc::new(Mutex::new(false)),
             current_events: Arc::new(Mutex::new(Vec::new())),
-            last_mouse_position: Arc::new(Mutex::new(None)),
-            pressed_modifiers: Arc::new(Mutex::new(HashSet::new())),
-            pressed_buttons: Arc::new(Mutex::new(HashSet::new())),
             is_playing: Arc::new(Mutex::new(false)),
             playback_position: Arc::new(Mutex::new(None)),
             loop_count: Arc::new(Mutex::new(0)),

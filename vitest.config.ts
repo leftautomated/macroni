@@ -25,16 +25,16 @@ export default defineConfig({
         "src/main.tsx",
         "src/vite-env.d.ts",
       ],
-      // Ratchet baseline — current totals (1 commit before #6 lands) are
-      // statements 8.21%, branches 6.69%, functions 6.28%, lines 7.88%.
-      // Floor sits just below those so the gate fires on regression but
-      // doesn't churn on rounding. Ratchet upward (never down) as tests are
-      // added. See docs/adrs/0005-coverage-gate.md.
+      // Ratchet baseline — after the App + RecordingControls + ExpandToggle
+      // tests landed, totals are statements 32.85%, branches 15.61%,
+      // functions 25.71%, lines 33.65%. Gate sits a few points below to fire
+      // on regression without churning on rounding. Ratchet upward (never
+      // down) as more component tests are added. See docs/adrs/0005-coverage-gate.md.
       thresholds: {
-        lines: 7,
-        statements: 7,
-        functions: 6,
-        branches: 6,
+        lines: 30,
+        statements: 30,
+        functions: 22,
+        branches: 14,
       },
     },
   },

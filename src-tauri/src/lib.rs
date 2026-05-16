@@ -8,6 +8,7 @@ mod crash_log;
 mod recordings_store;
 mod event_capture;
 mod playback;
+mod recording_session;
 
 use types::*;
 
@@ -33,8 +34,7 @@ tauri_panel! {
 
 #[tauri::command]
 fn start_recording(app: AppHandle, state: State<RecordingState>) -> Result<String, String> {
-    let mut is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
-    if *is_recording {
+    if state.session.is_active() {
         return Err("Already recording".to_string());
     }
 
@@ -49,32 +49,24 @@ fn start_recording(app: AppHandle, state: State<RecordingState>) -> Result<Strin
     let output_path = videos_dir.join(format!("{}.mp4", id));
 
     // Start capture (may fail on permission denied — surface the error).
-    let session_result = crate::capture::ScreenCaptureSession::start(crate::capture::CaptureConfig {
+    let capture = match crate::capture::ScreenCaptureSession::start(crate::capture::CaptureConfig {
         output_path,
         settings: settings.capture,
-    });
-    match session_result {
-        Ok(session) => {
-            *state.capture_session.lock().map_err(|e| e.to_string())? = Some(session);
-        },
+    }) {
+        Ok(session) => Some(session),
         Err(e) if e == "permission-denied" => {
             let _ = app.emit("permission-needed", "screen-recording");
             return Err(e);
-        },
+        }
         Err(e) => {
             // Capture failed for another reason; we still allow event-only recording.
             let _ = app.emit("capture-failed", e.clone());
             eprintln!("capture failed to start: {e}");
-        },
-    }
+            None
+        }
+    };
 
-    *is_recording = true;
-    drop(is_recording);
-
-    *state.current_events.lock().map_err(|e| e.to_string())? = Vec::new();
-    *state.current_id.lock().map_err(|e| e.to_string())? = Some(id.clone());
-    *state.last_video_meta.lock().map_err(|e| e.to_string())? = None;
-
+    state.session.start(id.clone(), capture).map_err(|e| e.to_string())?;
     Ok(id)
 }
 
@@ -87,38 +79,15 @@ struct StopResult {
 
 #[tauri::command]
 fn stop_recording(state: State<RecordingState>) -> Result<StopResult, String> {
-    let mut is_recording = state.is_recording.lock().map_err(|e| e.to_string())?;
-    if !*is_recording {
-        return Err("Not recording".to_string());
-    }
-    *is_recording = false;
-    drop(is_recording);
-
-    let events = state.current_events.lock().map_err(|e| e.to_string())?.clone();
-    let id = state.current_id.lock().map_err(|e| e.to_string())?
-        .clone()
-        .ok_or("No recording id set")?;
-
-    // Stop + finalize capture if one was started.
-    let video = {
-        let session = state.capture_session.lock().map_err(|e| e.to_string())?.take();
-        match session {
-            Some(s) => match s.stop() {
-                Ok(meta) => Some(meta),
-                Err(e) => {
-                    eprintln!("capture finalize failed: {e}");
-                    None
-                },
-            },
-            None => None,
+    let stopped = state.session.stop().map_err(|e| e.to_string())?;
+    let video = stopped.capture.and_then(|s| match s.stop() {
+        Ok(meta) => Some(meta),
+        Err(e) => {
+            eprintln!("capture finalize failed: {e}");
+            None
         }
-    };
-
-    if let Some(ref v) = video {
-        *state.last_video_meta.lock().map_err(|e| e.to_string())? = Some(v.clone());
-    }
-
-    Ok(StopResult { id, events, video })
+    });
+    Ok(StopResult { id: stopped.id, events: stopped.events, video })
 }
 
 #[tauri::command]
@@ -307,8 +276,8 @@ pub fn run() {
     crash_log::install_panic_hook();
 
     let state = RecordingState::default();
-    let is_recording = Arc::clone(&state.is_recording);
-    let events = Arc::clone(&state.current_events);
+    let listener_session = Arc::clone(&state.session);
+    let collector_session = Arc::clone(&state.session);
     let shortcut_engine = Arc::clone(&state.engine);
 
     let mut builder = tauri::Builder::default()
@@ -384,16 +353,11 @@ pub fn run() {
             // Spawn thread to handle received events
             std::thread::spawn(move || {
                 while let Ok(event) = rx.recv() {
-                    // Add to state
-                    if let Ok(mut evts) = events.lock() {
-                        evts.push(event.clone());
-                    }
-                    
-                    // Emit event to frontend
+                    collector_session.push_event(event.clone());
                     let _ = app_handle.emit("input-event", &event);
                 }
             });
-            
+
             // Spawn the input listener on a real OS thread.
             // On Windows, rdev::listen requires a thread with a message pump;
             // tokio async tasks don't provide one, causing an immediate crash.
@@ -403,8 +367,7 @@ pub fn run() {
 
                 let mut capture = event_capture::EventCapture::new();
                 let callback = move |event: Event| {
-                    let recording = is_recording.lock().ok().map(|r| *r).unwrap_or(false);
-                    if !recording {
+                    if !listener_session.is_active() {
                         return;
                     }
                     let timestamp = Utc::now().timestamp_millis();

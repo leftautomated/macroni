@@ -242,6 +242,14 @@ mod tests {
     }
 
     #[test]
+    fn session_error_display_messages_are_stable() {
+        // The error strings cross the Tauri boundary — they show up verbatim
+        // in the frontend. Asserting on them protects against silent rewording.
+        assert_eq!(SessionError::AlreadyActive.to_string(), "Already recording");
+        assert_eq!(SessionError::NotActive.to_string(), "Not recording");
+    }
+
+    #[test]
     fn events_preserve_insertion_order_across_many_pushes() {
         let s = RecordingSession::new();
         s.start("rec-1".into(), None).unwrap();

@@ -288,6 +288,32 @@ mod tests {
     }
 
     #[test]
+    fn update_speed_boundary_1000_is_inclusive_but_1000_001_is_not() {
+        // The boundary is "speed > 1000.0 is invalid"; 1000.0 itself must be
+        // accepted. Pins the > vs >= choice.
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        let exact = store.update_speed("1", 1000.0).unwrap();
+        assert_eq!(exact.playback_speed, 1000.0);
+        assert!(matches!(
+            store.update_speed("1", 1000.0001),
+            Err(StoreError::InvalidSpeed)
+        ));
+    }
+
+    #[test]
+    fn store_error_display_messages_are_stable() {
+        // Error strings cross the Tauri boundary; the frontend may match on
+        // them. Asserting protects against silent rewording.
+        assert_eq!(StoreError::NotFound.to_string(), "Recording not found");
+        assert_eq!(
+            StoreError::InvalidSpeed.to_string(),
+            "Speed must be between 0.01 and 1000"
+        );
+    }
+
+    #[test]
     fn delete_removes_recording_and_associated_video_file() {
         let dir = tempdir().unwrap();
         let store = RecordingsStore::open_at(dir.path().to_path_buf());

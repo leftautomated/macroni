@@ -1,0 +1,25 @@
+# cargo-mutants configuration.
+#
+# Adoption posture: hard gate scoped to the four deepened modules. These have
+# the most assertion-dense tests and benefit most from mutation testing.
+# Other modules are out of scope for the gate (lib.rs / permissions.rs are
+# Tauri command surfaces that need acceptance tests instead — ADR-0007).
+
+examine_globs = [
+    "src/recordings_store.rs",
+    "src/event_capture.rs",
+    "src/recording_session.rs",
+    "src/playback/plan.rs",
+    "src/playback/engine.rs",
+]
+
+# Skip mutations we've reviewed and accepted as equivalent (i.e., no test
+# could distinguish the mutated and original behaviour). Each entry must be
+# pinned to a code location with a comment explaining why.
+exclude_re = [
+    # plan.rs:76 — `if actual > 0` vs `>= 0`. `actual` is computed as
+    # `scaled.saturating_sub(overhead).max(min_delay)` and `min_delay` is
+    # always >= 1, so `actual >= 1` always holds. The two operators are
+    # behaviourally indistinguishable; this is a true equivalent mutant.
+    "replace > with >= in PlaybackPlan::compile",
+]

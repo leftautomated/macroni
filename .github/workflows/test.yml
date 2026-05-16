@@ -144,3 +144,41 @@ jobs:
 
       - name: Frontend coverage gate (vitest thresholds in vitest.config.ts)
         run: pnpm test:coverage
+
+  mutation:
+    # Mutation testing on the four deepened modules (see mutants.toml).
+    # Runs on PRs only against changed files for tractable runtime;
+    # main pushes run the full scoped sweep.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need base ref for --in-diff
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install NASM (openh264-sys2)
+        run: brew install nasm
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+
+      - name: Mutation gate (PR — changed files only)
+        if: github.event_name == 'pull_request'
+        working-directory: src-tauri
+        run: |
+          git diff ${{ github.event.pull_request.base.sha }}...HEAD > /tmp/pr.diff
+          cargo mutants --in-diff /tmp/pr.diff --no-shuffle
+
+      - name: Mutation gate (main — full scoped sweep)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: src-tauri
+        run: cargo mutants --no-shuffle

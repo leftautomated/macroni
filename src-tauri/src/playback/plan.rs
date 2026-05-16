@@ -459,4 +459,195 @@ mod tests {
         assert!(string_to_key("A").is_some());
         assert!(string_to_button("Left").is_some());
     }
+
+    // The tests below were added to close mutation-testing gaps. They assert
+    // boundary conditions in the timing logic that the happy-path tests above
+    // walk past.
+
+    #[test]
+    fn min_delay_for_mouse_move_returns_5_others_return_1() {
+        assert_eq!(min_delay_for(&mouse_move(0.0, 0.0, 0)), 5);
+        assert_eq!(min_delay_for(&key_press("A", 0)), 1);
+        assert_eq!(min_delay_for(&key_release("A", 0)), 1);
+        assert_eq!(min_delay_for(&button_press("Left", 0.0, 0.0, 0)), 1);
+        assert_eq!(min_delay_for(&key_combo(0)), 1);
+    }
+
+    #[test]
+    fn sanitize_speed_treats_nan_and_nonpositive_as_invalid_independently() {
+        assert_eq!(sanitize_speed(f64::NAN), 1.0);
+        assert_eq!(sanitize_speed(0.0), 1.0);
+        assert_eq!(sanitize_speed(-1.0), 1.0);
+        assert_eq!(sanitize_speed(f64::INFINITY), 1.0);
+        // A finite positive speed is preserved (above the 0.01 floor).
+        assert_eq!(sanitize_speed(2.5), 2.5);
+        // Below 0.01 floor.
+        assert_eq!(sanitize_speed(0.001), 0.01);
+    }
+
+    #[test]
+    fn speed_exactly_2_includes_post_event_10ms_sleep_above_2_drops_to_1ms() {
+        // The `speed <= 2.0` branch is the boundary; mutants flipped <= to >.
+        let events = vec![key_press("A", 0), key_press("B", 100)];
+        let plan_2 = PlaybackPlan::compile(&events, 2.0).unwrap();
+        let plan_2_01 = PlaybackPlan::compile(&events, 2.01).unwrap();
+
+        // Post-event sleeps: 10ms at speed<=2, 1ms above.
+        let trailing_2 = plan_2.steps.last().cloned();
+        let trailing_2_01 = plan_2_01.steps.last().cloned();
+        assert!(matches!(trailing_2, Some(PlannedStep::Sleep { ms: 10 })));
+        assert!(matches!(trailing_2_01, Some(PlannedStep::Sleep { ms: 1 })));
+    }
+
+    #[test]
+    fn mouse_move_throttle_uses_strict_greater_than_50ms() {
+        // should_update_position uses `> 50` for the "elapsed since last
+        // throttle window" check. At exactly 50ms it should NOT update;
+        // at 51ms it should.
+        let pressed = button_press("Left", 0.0, 0.0, 0);
+
+        // Index 1, delta exactly 50ms — should be throttled (skipped).
+        let events_eq = vec![pressed.clone(), mouse_move(1.0, 1.0, 50)];
+        let plan_eq = PlaybackPlan::compile(&events_eq, 1.0).unwrap();
+        let positions_eq: Vec<usize> = plan_eq
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::EmitPosition { index } => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            !positions_eq.contains(&1),
+            "delta of exactly 50ms must NOT trigger position emit: {:?}",
+            positions_eq
+        );
+
+        // Index 1, delta 51ms — must emit.
+        let events_gt = vec![pressed, mouse_move(1.0, 1.0, 51)];
+        let plan_gt = PlaybackPlan::compile(&events_gt, 1.0).unwrap();
+        let positions_gt: Vec<usize> = plan_gt
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::EmitPosition { index } => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            positions_gt.contains(&1),
+            "delta of 51ms must trigger position emit: {:?}",
+            positions_gt
+        );
+    }
+
+    #[test]
+    fn plan_error_display_messages_are_stable() {
+        assert_eq!(PlanError::Empty.to_string(), "No events to play");
+        assert_eq!(
+            PlanError::AllKeyCombos.to_string(),
+            "No playable events found"
+        );
+    }
+
+    #[test]
+    fn speed_1x_has_post_position_10ms_sleep_then_inter_event_sleep() {
+        // Pins line 62: the `if speed <= 2.0 { push Sleep 10 }` branch must
+        // fire at speed 1.0. A mutant that flips <= to > would drop the
+        // leading 10ms sleep at slow speeds.
+        let events = vec![key_press("A", 0), key_press("B", 100)];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        // Step 0 must be EmitPosition{0}, step 1 must be Sleep{10}.
+        assert!(matches!(
+            plan.steps.first(),
+            Some(PlannedStep::EmitPosition { index: 0 })
+        ));
+        assert!(matches!(plan.steps.get(1), Some(PlannedStep::Sleep { ms: 10 })));
+    }
+
+    #[test]
+    fn overhead_credit_reduces_inter_event_sleep_at_slow_speed() {
+        // Pins line 64: `overhead_ms += 10` must accumulate. With overhead=10
+        // and a 100ms inter-event delay at speed 1.0, the inter-event Sleep
+        // should be ~90ms (100 - 10 overhead), not 100ms. A mutant that
+        // changes += to *= leaves overhead at 0, producing a 100ms sleep.
+        let events = vec![key_press("A", 0), key_press("B", 100)];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        // Look for an inter-event sleep — the largest Sleep step in the plan
+        // that isn't the post-event 10ms or the first-event 50ms.
+        let sleeps: Vec<u64> = plan
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::Sleep { ms } => Some(*ms),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            sleeps.contains(&90),
+            "expected an exact 90ms inter-event sleep (100ms - 10ms overhead); sleeps were {:?}",
+            sleeps
+        );
+        assert!(
+            !sleeps.contains(&100),
+            "found a 100ms sleep — overhead credit was not applied: {:?}",
+            sleeps
+        );
+    }
+
+    #[test]
+    fn throttle_uses_delta_not_sum_of_timestamps() {
+        // Pins line 122 `event_time - prev_time`. Picks inputs where the
+        // operator matters: delta=5ms (no emit) but sum=55ms (would emit
+        // under a + mutant). check_index = max(index-3, 0), so for index 1
+        // check_index = 0 — we need events[0].timestamp >= 25 and
+        // events[1].timestamp = events[0] + 5.
+        let events = vec![
+            button_press("Left", 0.0, 0.0, 25), // prev_time = 25
+            mouse_move(1.0, 1.0, 30),           // event_time = 30, delta = 5, sum = 55
+        ];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        let positions: Vec<usize> = plan
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::EmitPosition { index } => Some(*index),
+                _ => None,
+            })
+            .collect();
+        // Original: delta 5 <= 50, throttled, no emit. Mutant: sum 55 > 50,
+        // emits. So position 1 in the list = mutation survived.
+        assert!(
+            !positions.contains(&1),
+            "delta of 5ms must throttle the position emit; the `-` operator \
+             keeps it under 50 while a `+` mutant would push sum 55 over 50. \
+             positions={:?}",
+            positions
+        );
+    }
+
+    #[test]
+    fn inter_event_delay_uses_subtraction_not_addition() {
+        // The delay calc is event.timestamp() - prev.timestamp(); a mutant
+        // flipped it to +. Two events 100ms apart should produce a sleep
+        // around 100ms (minus overhead) — never 200ms.
+        let events = vec![key_press("A", 1000), key_press("B", 1100)];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        let total: u64 = plan
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::Sleep { ms } => Some(*ms),
+                _ => None,
+            })
+            .sum();
+        // A '+' mutation would push total close to 2100ms (1000+1100). The
+        // real subtraction stays under 200ms (50 startup + 90 inter-event +
+        // 10 post-update + 10 post-simulate × 2). Generous upper bound:
+        assert!(
+            total < 250,
+            "inter-event delay used + instead of -; total sleep {} too large",
+            total
+        );
+    }
 }

@@ -390,4 +390,86 @@ mod tests {
         assert_eq!(engine.position(), None);
         assert_eq!(engine.loop_count(), 0);
     }
+
+    // The tests below close mutation-testing gaps in run_plan's control flow.
+
+    #[test]
+    fn sleep_step_yields_to_following_simulate_step() {
+        // A plan with [Sleep, Simulate] must execute both. A mutation that
+        // flips the cancellation check on the Sleep step would mark the
+        // iteration as cancelled after a successful sleep and skip the
+        // simulate. Pins line 143.
+        let engine = PlaybackEngine::new();
+        let sim = FakeSimulator::default();
+        let sim_calls = Arc::clone(&sim.calls);
+        let emit = FakeEmitter::default();
+        let plan = PlaybackPlan {
+            steps: vec![
+                PlannedStep::Sleep { ms: 30 },
+                PlannedStep::Simulate(EventType::KeyPress(Key::KeyA)),
+            ],
+        };
+        engine.start(plan, false, sim, emit).unwrap();
+        wait_until_idle(&engine, 2000);
+        assert_eq!(
+            sim_calls.lock().unwrap().len(),
+            1,
+            "the simulate after a successful sleep must run"
+        );
+    }
+
+    #[test]
+    fn single_iteration_emits_no_loop_restart() {
+        // loop_forever=false on a trivial plan should produce exactly zero
+        // loop-restart emits. Pins line 117 — a mutation that flips
+        // `if !is_first_iteration` would treat the first iteration as a
+        // restart and emit one.
+        let engine = PlaybackEngine::new();
+        let emit = FakeEmitter::default();
+        let restarts = Arc::clone(&emit.restarts);
+        engine
+            .start(trivial_plan(), false, FakeSimulator::default(), emit)
+            .unwrap();
+        wait_until_idle(&engine, 1000);
+        assert_eq!(
+            *restarts.lock().unwrap(),
+            0,
+            "no restart emit expected for a single, non-looping iteration"
+        );
+    }
+
+    #[test]
+    fn loop_count_observable_mid_run() {
+        // Mid-run, loop_count must reflect completed iterations. Pins line 43
+        // (loop_count accessor) — a mutation returning a constant 0 would
+        // mask repeat iterations.
+        let engine = PlaybackEngine::new();
+        engine
+            .start(
+                trivial_plan(),
+                true, // loop forever
+                FakeSimulator::default(),
+                FakeEmitter::default(),
+            )
+            .unwrap();
+        // Wait for at least one loop restart to land (after the first
+        // iteration: loop_count goes 0 -> 1). Each iteration takes ~50ms gap
+        // + trivial steps; 3s budget for parallel-test contention.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut observed = 0;
+        while Instant::now() < deadline {
+            let now = engine.loop_count();
+            if now > 0 {
+                observed = now;
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        engine.stop();
+        wait_until_idle(&engine, 2000);
+        assert!(
+            observed > 0,
+            "loop_count never reported a value above 0 during a looping run"
+        );
+    }
 }

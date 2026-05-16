@@ -248,6 +248,17 @@ mod tests {
         }
     }
 
+    fn wait_until_position(engine: &PlaybackEngine, want: usize, max_ms: u64) -> bool {
+        let deadline = Instant::now() + Duration::from_millis(max_ms);
+        while Instant::now() < deadline {
+            if engine.position() == Some(want) {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        false
+    }
+
     #[test]
     fn start_runs_plan_and_emits_complete() {
         let engine = PlaybackEngine::new();
@@ -353,12 +364,12 @@ mod tests {
         let sim = FakeSimulator::default();
         let emit = FakeEmitter::default();
         engine.start(plan, false, sim, emit).unwrap();
-        // After warmup (100ms) + step 0 emit + into Sleep(2000), we're firmly at index 0.
-        thread::sleep(Duration::from_millis(500));
-        assert_eq!(
-            engine.position(),
-            Some(0),
-            "should be at index 0 mid-first-sleep"
+        // Poll for position=0 rather than time-based wait so the test survives
+        // contended schedulers (cargo's parallel runner can starve the worker
+        // thread past a fixed sleep).
+        assert!(
+            wait_until_position(&engine, 0, 3000),
+            "engine never reported position=0 within 3s"
         );
         engine.stop();
         wait_until_idle(&engine, 2000);

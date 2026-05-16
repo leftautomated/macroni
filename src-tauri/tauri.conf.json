@@ -23,7 +23,6 @@
         "alwaysOnTop": true,
         "visibleOnAllWorkspaces": true,
         "resizable": false,
-        "contentProtected": true,
         "acceptFirstMouse": true
       },
       {

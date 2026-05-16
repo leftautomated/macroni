@@ -13,10 +13,16 @@ export enum InputEventType {
   MouseMove = "MouseMove",
 }
 
-export type InputEvent = 
+export type InputEvent =
   | { type: InputEventType.KeyPress; key: string; timestamp: number }
   | { type: InputEventType.KeyRelease; key: string; timestamp: number }
-  | { type: InputEventType.KeyCombo; char: string; key: string; modifiers: string[]; timestamp: number }
+  | {
+      type: InputEventType.KeyCombo;
+      char: string;
+      key: string;
+      modifiers: string[];
+      timestamp: number;
+    }
   | { type: InputEventType.ButtonPress; button: string; x: number; y: number; timestamp: number }
   | { type: InputEventType.ButtonRelease; button: string; x: number; y: number; timestamp: number }
   | { type: InputEventType.MouseMove; x: number; y: number; timestamp: number };

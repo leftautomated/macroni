@@ -45,7 +45,10 @@ impl PlaybackPlan {
         if events.is_empty() {
             return Err(PlanError::Empty);
         }
-        if !events.iter().any(|e| !matches!(e, InputEvent::KeyCombo { .. })) {
+        if !events
+            .iter()
+            .any(|e| !matches!(e, InputEvent::KeyCombo { .. }))
+        {
             return Err(PlanError::AllKeyCombos);
         }
         let speed = sanitize_speed(speed);
@@ -81,14 +84,20 @@ impl PlaybackPlan {
             }
             push_simulate(&mut steps, event);
             // Post-event small sleep, dropped at very high speeds.
-            steps.push(PlannedStep::Sleep { ms: if speed <= 2.0 { 10 } else { 1 } });
+            steps.push(PlannedStep::Sleep {
+                ms: if speed <= 2.0 { 10 } else { 1 },
+            });
         }
         Ok(Self { steps })
     }
 }
 
 fn sanitize_speed(speed: f64) -> f64 {
-    if !speed.is_finite() || speed <= 0.0 { 1.0 } else { speed.max(0.01) }
+    if !speed.is_finite() || speed <= 0.0 {
+        1.0
+    } else {
+        speed.max(0.01)
+    }
 }
 
 fn min_delay_for(event: &InputEvent) -> u64 {
@@ -104,7 +113,7 @@ fn min_delay_for(event: &InputEvent) -> u64 {
 fn should_update_position(events: &[InputEvent], index: usize) -> bool {
     match events.get(index) {
         Some(InputEvent::MouseMove { .. }) => {
-            if index == 0 || index % 3 == 0 {
+            if index == 0 || index.is_multiple_of(3) {
                 true
             } else {
                 let event_time = events[index].timestamp();
@@ -166,38 +175,66 @@ mod tests {
     use rdev::{Button, Key};
 
     fn key_press(key: &str, ts: i64) -> InputEvent {
-        InputEvent::KeyPress { key: key.into(), timestamp: ts }
+        InputEvent::KeyPress {
+            key: key.into(),
+            timestamp: ts,
+        }
     }
     fn key_release(key: &str, ts: i64) -> InputEvent {
-        InputEvent::KeyRelease { key: key.into(), timestamp: ts }
+        InputEvent::KeyRelease {
+            key: key.into(),
+            timestamp: ts,
+        }
     }
     fn key_combo(ts: i64) -> InputEvent {
-        InputEvent::KeyCombo { char: "A".into(), key: "A".into(), modifiers: vec!["MetaLeft".into()], timestamp: ts }
+        InputEvent::KeyCombo {
+            char: "A".into(),
+            key: "A".into(),
+            modifiers: vec!["MetaLeft".into()],
+            timestamp: ts,
+        }
     }
     fn button_press(btn: &str, x: f64, y: f64, ts: i64) -> InputEvent {
-        InputEvent::ButtonPress { button: btn.into(), x, y, timestamp: ts }
+        InputEvent::ButtonPress {
+            button: btn.into(),
+            x,
+            y,
+            timestamp: ts,
+        }
     }
     fn mouse_move(x: f64, y: f64, ts: i64) -> InputEvent {
-        InputEvent::MouseMove { x, y, timestamp: ts }
-    }
-
-    fn count_sleeps(steps: &[PlannedStep]) -> usize {
-        steps.iter().filter(|s| matches!(s, PlannedStep::Sleep { .. })).count()
+        InputEvent::MouseMove {
+            x,
+            y,
+            timestamp: ts,
+        }
     }
 
     fn total_sleep_ms(steps: &[PlannedStep]) -> u64 {
-        steps.iter().filter_map(|s| match s { PlannedStep::Sleep { ms } => Some(*ms), _ => None }).sum()
+        steps
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::Sleep { ms } => Some(*ms),
+                _ => None,
+            })
+            .sum()
     }
 
     #[test]
     fn compile_empty_events_errors() {
-        assert_eq!(PlaybackPlan::compile(&[], 1.0).unwrap_err(), PlanError::Empty);
+        assert_eq!(
+            PlaybackPlan::compile(&[], 1.0).unwrap_err(),
+            PlanError::Empty
+        );
     }
 
     #[test]
     fn compile_all_key_combos_errors() {
         let events = vec![key_combo(0), key_combo(10)];
-        assert_eq!(PlaybackPlan::compile(&events, 1.0).unwrap_err(), PlanError::AllKeyCombos);
+        assert_eq!(
+            PlaybackPlan::compile(&events, 1.0).unwrap_err(),
+            PlanError::AllKeyCombos
+        );
     }
 
     #[test]
@@ -205,10 +242,20 @@ mod tests {
         let events = vec![key_press("A", 0)];
         let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
         // Expect: EmitPosition{0} ... Simulate(KeyPress(KeyA)) somewhere after.
-        let pos_idx = plan.steps.iter().position(|s| matches!(s, PlannedStep::EmitPosition { index: 0 }));
-        let sim_idx = plan.steps.iter().position(|s| matches!(s, PlannedStep::Simulate(EventType::KeyPress(Key::KeyA))));
+        let pos_idx = plan
+            .steps
+            .iter()
+            .position(|s| matches!(s, PlannedStep::EmitPosition { index: 0 }));
+        let sim_idx = plan
+            .steps
+            .iter()
+            .position(|s| matches!(s, PlannedStep::Simulate(EventType::KeyPress(Key::KeyA))));
         assert!(pos_idx.is_some(), "no EmitPosition: {:?}", plan.steps);
-        assert!(sim_idx.is_some(), "no Simulate(KeyPress(KeyA)): {:?}", plan.steps);
+        assert!(
+            sim_idx.is_some(),
+            "no Simulate(KeyPress(KeyA)): {:?}",
+            plan.steps
+        );
         assert!(pos_idx < sim_idx, "EmitPosition must come before Simulate");
     }
 
@@ -216,7 +263,10 @@ mod tests {
     fn key_release_is_simulated() {
         let events = vec![key_press("A", 0), key_release("A", 10)];
         let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
-        assert!(plan.steps.iter().any(|s| matches!(s, PlannedStep::Simulate(EventType::KeyRelease(Key::KeyA)))));
+        assert!(plan
+            .steps
+            .iter()
+            .any(|s| matches!(s, PlannedStep::Simulate(EventType::KeyRelease(Key::KeyA)))));
     }
 
     #[test]
@@ -225,18 +275,33 @@ mod tests {
         // — combos are an annotation, not a thing to replay.
         let events = vec![key_press("A", 0), key_combo(0), key_release("A", 10)];
         let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
-        let combo_simulations = plan.steps.iter().filter(|s| {
-            // Combos would surface as a KeyPress simulate, but they ride alongside
-            // a real KeyPress at index 0 — so what we really care about is that
-            // there is exactly one KeyPress(KeyA) simulate, not two.
-            matches!(s, PlannedStep::Simulate(EventType::KeyPress(Key::KeyA)))
-        }).count();
-        assert_eq!(combo_simulations, 1, "combo must not produce its own simulate");
-        let position_updates: Vec<_> = plan.steps.iter().filter_map(|s| match s {
-            PlannedStep::EmitPosition { index } => Some(*index),
-            _ => None,
-        }).collect();
-        assert!(position_updates.contains(&1), "combo position should be emitted: {:?}", position_updates);
+        let combo_simulations = plan
+            .steps
+            .iter()
+            .filter(|s| {
+                // Combos would surface as a KeyPress simulate, but they ride alongside
+                // a real KeyPress at index 0 — so what we really care about is that
+                // there is exactly one KeyPress(KeyA) simulate, not two.
+                matches!(s, PlannedStep::Simulate(EventType::KeyPress(Key::KeyA)))
+            })
+            .count();
+        assert_eq!(
+            combo_simulations, 1,
+            "combo must not produce its own simulate"
+        );
+        let position_updates: Vec<_> = plan
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::EmitPosition { index } => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            position_updates.contains(&1),
+            "combo position should be emitted: {:?}",
+            position_updates
+        );
     }
 
     #[test]
@@ -245,14 +310,33 @@ mod tests {
         let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
         // Find the ButtonPress Simulate, then walk backward looking for
         // Simulate(MouseMove(50,60)) and a Sleep(10) between them.
-        let bp_idx = plan.steps.iter().position(|s| matches!(s, PlannedStep::Simulate(EventType::ButtonPress(Button::Left))))
+        let bp_idx = plan
+            .steps
+            .iter()
+            .position(|s| {
+                matches!(
+                    s,
+                    PlannedStep::Simulate(EventType::ButtonPress(Button::Left))
+                )
+            })
             .expect("ButtonPress simulate missing");
         let pre_window = &plan.steps[..bp_idx];
         let mm_idx = pre_window.iter().rposition(|s| matches!(s, PlannedStep::Simulate(EventType::MouseMove { x, y }) if *x == 50.0 && *y == 60.0))
             .expect("pre-move MouseMove simulate missing");
-        let between = &pre_window[mm_idx+1..];
-        let sleep_ms: u64 = between.iter().filter_map(|s| match s { PlannedStep::Sleep { ms } => Some(*ms), _ => None }).sum();
-        assert!(sleep_ms >= 10, "expected at least 10ms between pre-move and press, got {}ms in {:?}", sleep_ms, between);
+        let between = &pre_window[mm_idx + 1..];
+        let sleep_ms: u64 = between
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::Sleep { ms } => Some(*ms),
+                _ => None,
+            })
+            .sum();
+        assert!(
+            sleep_ms >= 10,
+            "expected at least 10ms between pre-move and press, got {}ms in {:?}",
+            sleep_ms,
+            between
+        );
     }
 
     #[test]
@@ -267,16 +351,40 @@ mod tests {
             mouse_move(40.0, 40.0, 4),
         ];
         let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
-        let positions: Vec<usize> = plan.steps.iter().filter_map(|s| match s {
-            PlannedStep::EmitPosition { index } => Some(*index),
-            _ => None,
-        }).collect();
+        let positions: Vec<usize> = plan
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::EmitPosition { index } => Some(*index),
+                _ => None,
+            })
+            .collect();
         // index 0 (button) emits, then for moves: index 1 skip, 2 skip, 3 emit, 4 skip
-        assert!(positions.contains(&0), "expected position 0: {:?}", positions);
-        assert!(positions.contains(&3), "expected position 3 (every-3rd): {:?}", positions);
-        assert!(!positions.contains(&1), "position 1 should be throttled: {:?}", positions);
-        assert!(!positions.contains(&2), "position 2 should be throttled: {:?}", positions);
-        assert!(!positions.contains(&4), "position 4 should be throttled: {:?}", positions);
+        assert!(
+            positions.contains(&0),
+            "expected position 0: {:?}",
+            positions
+        );
+        assert!(
+            positions.contains(&3),
+            "expected position 3 (every-3rd): {:?}",
+            positions
+        );
+        assert!(
+            !positions.contains(&1),
+            "position 1 should be throttled: {:?}",
+            positions
+        );
+        assert!(
+            !positions.contains(&2),
+            "position 2 should be throttled: {:?}",
+            positions
+        );
+        assert!(
+            !positions.contains(&4),
+            "position 4 should be throttled: {:?}",
+            positions
+        );
     }
 
     #[test]
@@ -289,7 +397,12 @@ mod tests {
         let total_1x = total_sleep_ms(&PlaybackPlan::compile(&events_1x, 1.0).unwrap().steps);
         let total_2x = total_sleep_ms(&PlaybackPlan::compile(&events_2x, 2.0).unwrap().steps);
         // The scaled gap drops by ~500ms; total should drop by at least 400ms.
-        assert!(total_1x >= total_2x + 400, "1x ({}) should exceed 2x ({}) by ~500ms", total_1x, total_2x);
+        assert!(
+            total_1x >= total_2x + 400,
+            "1x ({}) should exceed 2x ({}) by ~500ms",
+            total_1x,
+            total_2x
+        );
     }
 
     #[test]
@@ -300,9 +413,12 @@ mod tests {
         let events = vec![key_press("A", 0), key_press("B", 50), key_press("C", 100)];
         let plan_1x = PlaybackPlan::compile(&events, 1.0).unwrap();
         let plan_3x = PlaybackPlan::compile(&events, 3.0).unwrap();
-        assert!(total_sleep_ms(&plan_3x.steps) < total_sleep_ms(&plan_1x.steps),
+        assert!(
+            total_sleep_ms(&plan_3x.steps) < total_sleep_ms(&plan_1x.steps),
             "3x total sleep ({}) should drop below 1x ({})",
-            total_sleep_ms(&plan_3x.steps), total_sleep_ms(&plan_1x.steps));
+            total_sleep_ms(&plan_3x.steps),
+            total_sleep_ms(&plan_1x.steps)
+        );
     }
 
     #[test]
@@ -322,13 +438,19 @@ mod tests {
                 // walk backward to find the most recent Sleep before this MouseMove
                 for prev in plan.steps[..i].iter().rev() {
                     if let PlannedStep::Sleep { ms } = prev {
-                        if *ms >= 5 { found_floor = true; }
+                        if *ms >= 5 {
+                            found_floor = true;
+                        }
                         break;
                     }
                 }
             }
         }
-        assert!(found_floor, "expected at least one >=5ms sleep before a MouseMove simulate: {:?}", plan.steps);
+        assert!(
+            found_floor,
+            "expected at least one >=5ms sleep before a MouseMove simulate: {:?}",
+            plan.steps
+        );
     }
 
     #[test]

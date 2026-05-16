@@ -28,7 +28,9 @@ pub struct TauriEmitter {
 }
 
 impl TauriEmitter {
-    pub fn new(app: AppHandle) -> Self { Self { app } }
+    pub fn new(app: AppHandle) -> Self {
+        Self { app }
+    }
 }
 
 impl Emitter for TauriEmitter {

@@ -46,12 +46,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(
     }, [onTimeUpdate, onDurationChange, onError]);
 
     return (
-      <video
-        ref={videoRef}
-        src={src}
-        controls
-        className="w-full h-full bg-black rounded-lg"
-      />
+      <video ref={videoRef} src={src} controls className="w-full h-full bg-black rounded-lg" />
     );
   },
 );

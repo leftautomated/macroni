@@ -31,13 +31,23 @@ impl PlaybackEngine {
         }
     }
 
-    pub fn is_playing(&self) -> bool { self.is_playing.load(Ordering::Relaxed) }
-    pub fn position(&self) -> Option<usize> { self.position.lock().ok().and_then(|p| *p) }
-    pub fn loop_count(&self) -> usize { self.loop_count.load(Ordering::Relaxed) }
+    pub fn is_playing(&self) -> bool {
+        self.is_playing.load(Ordering::Relaxed)
+    }
+    #[allow(dead_code)] // read in unit tests; exposed for future Tauri command needs
+    pub fn position(&self) -> Option<usize> {
+        self.position.lock().ok().and_then(|p| *p)
+    }
+    #[allow(dead_code)] // read in unit tests; exposed for future Tauri command needs
+    pub fn loop_count(&self) -> usize {
+        self.loop_count.load(Ordering::Relaxed)
+    }
 
     pub fn stop(&self) {
         self.is_playing.store(false, Ordering::Relaxed);
-        if let Ok(mut p) = self.position.lock() { *p = None; }
+        if let Ok(mut p) = self.position.lock() {
+            *p = None;
+        }
         self.loop_count.store(0, Ordering::Relaxed);
     }
 
@@ -53,7 +63,9 @@ impl PlaybackEngine {
         if self.is_playing.swap(true, Ordering::Relaxed) {
             return Err("Already playing".to_string());
         }
-        if let Ok(mut p) = self.position.lock() { *p = None; }
+        if let Ok(mut p) = self.position.lock() {
+            *p = None;
+        }
         self.loop_count.store(0, Ordering::Relaxed);
 
         let is_playing = Arc::clone(&self.is_playing);
@@ -61,7 +73,15 @@ impl PlaybackEngine {
         let loop_count = Arc::clone(&self.loop_count);
 
         thread::spawn(move || {
-            run_plan(plan, loop_forever, &is_playing, &position, &loop_count, simulator, emitter);
+            run_plan(
+                plan,
+                loop_forever,
+                &is_playing,
+                &position,
+                &loop_count,
+                simulator,
+                emitter,
+            );
         });
 
         Ok(())
@@ -69,7 +89,9 @@ impl PlaybackEngine {
 }
 
 impl Default for PlaybackEngine {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 fn run_plan(
@@ -82,17 +104,25 @@ fn run_plan(
     emitter: impl Emitter,
 ) {
     // Warmup so UI subscribers have a chance to attach.
-    if !sleep_cancellable(WARMUP_MS, is_playing) { return finalize(emitter, is_playing, position, loop_count); }
+    if !sleep_cancellable(WARMUP_MS, is_playing) {
+        return finalize(emitter, is_playing, position, loop_count);
+    }
 
     let mut is_first_iteration = true;
     loop {
-        if !is_playing.load(Ordering::Relaxed) { break; }
+        if !is_playing.load(Ordering::Relaxed) {
+            break;
+        }
 
         if !is_first_iteration {
             loop_count.fetch_add(1, Ordering::Relaxed);
-            if let Ok(mut p) = position.lock() { *p = Some(0); }
+            if let Ok(mut p) = position.lock() {
+                *p = Some(0);
+            }
             emitter.emit_loop_restart();
-            if !sleep_cancellable(LOOP_RESTART_GAP_MS, is_playing) { break; }
+            if !sleep_cancellable(LOOP_RESTART_GAP_MS, is_playing) {
+                break;
+            }
         }
         is_first_iteration = false;
 
@@ -104,7 +134,9 @@ fn run_plan(
             }
             match step {
                 PlannedStep::EmitPosition { index } => {
-                    if let Ok(mut p) = position.lock() { *p = Some(*index); }
+                    if let Ok(mut p) = position.lock() {
+                        *p = Some(*index);
+                    }
                     emitter.emit_position(*index);
                 }
                 PlannedStep::Sleep { ms } => {
@@ -114,14 +146,16 @@ fn run_plan(
                     }
                 }
                 PlannedStep::Simulate(event_type) => {
-                    if let Err(e) = simulator.simulate(event_type.clone()) {
+                    if let Err(e) = simulator.simulate(*event_type) {
                         eprintln!("Failed to simulate event: {}", e);
                     }
                 }
             }
         }
 
-        if !completed || !loop_forever { break; }
+        if !completed || !loop_forever {
+            break;
+        }
     }
 
     finalize(emitter, is_playing, position, loop_count);
@@ -134,7 +168,9 @@ fn finalize(
     loop_count: &AtomicUsize,
 ) {
     is_playing.store(false, Ordering::Relaxed);
-    if let Ok(mut p) = position.lock() { *p = None; }
+    if let Ok(mut p) = position.lock() {
+        *p = None;
+    }
     loop_count.store(0, Ordering::Relaxed);
     emitter.emit_complete();
 }
@@ -142,11 +178,15 @@ fn finalize(
 /// Sleep `ms` in small chunks, bailing if `is_playing` flips to false. Returns
 /// `true` if we slept the full duration, `false` if cancelled.
 fn sleep_cancellable(ms: u64, is_playing: &AtomicBool) -> bool {
-    if ms == 0 { return is_playing.load(Ordering::Relaxed); }
+    if ms == 0 {
+        return is_playing.load(Ordering::Relaxed);
+    }
     const CHUNK_MS: u64 = 10;
     let mut remaining = ms;
     while remaining > 0 {
-        if !is_playing.load(Ordering::Relaxed) { return false; }
+        if !is_playing.load(Ordering::Relaxed) {
+            return false;
+        }
         let chunk = remaining.min(CHUNK_MS);
         thread::sleep(Duration::from_millis(chunk));
         remaining = remaining.saturating_sub(chunk);
@@ -163,7 +203,9 @@ mod tests {
     use std::time::Instant;
 
     #[derive(Default, Clone)]
-    struct FakeSimulator { calls: Arc<StdMutex<Vec<EventType>>> }
+    struct FakeSimulator {
+        calls: Arc<StdMutex<Vec<EventType>>>,
+    }
     impl Simulator for FakeSimulator {
         fn simulate(&self, event_type: EventType) -> Result<(), String> {
             self.calls.lock().unwrap().push(event_type);
@@ -178,9 +220,15 @@ mod tests {
         completes: Arc<StdMutex<usize>>,
     }
     impl Emitter for FakeEmitter {
-        fn emit_position(&self, index: usize) { self.positions.lock().unwrap().push(index); }
-        fn emit_loop_restart(&self) { *self.restarts.lock().unwrap() += 1; }
-        fn emit_complete(&self) { *self.completes.lock().unwrap() += 1; }
+        fn emit_position(&self, index: usize) {
+            self.positions.lock().unwrap().push(index);
+        }
+        fn emit_loop_restart(&self) {
+            *self.restarts.lock().unwrap() += 1;
+        }
+        fn emit_complete(&self) {
+            *self.completes.lock().unwrap() += 1;
+        }
     }
 
     /// A short plan that runs in ~0ms (no Sleep steps).
@@ -219,8 +267,17 @@ mod tests {
     #[test]
     fn cannot_start_twice() {
         let engine = PlaybackEngine::new();
-        let plan = PlaybackPlan { steps: vec![PlannedStep::Sleep { ms: 500 }] };
-        engine.start(plan, false, FakeSimulator::default(), FakeEmitter::default()).unwrap();
+        let plan = PlaybackPlan {
+            steps: vec![PlannedStep::Sleep { ms: 500 }],
+        };
+        engine
+            .start(
+                plan,
+                false,
+                FakeSimulator::default(),
+                FakeEmitter::default(),
+            )
+            .unwrap();
         let second = engine.start(
             PlaybackPlan { steps: vec![] },
             false,
@@ -235,7 +292,9 @@ mod tests {
     #[test]
     fn stop_cancels_mid_sleep_quickly() {
         let engine = PlaybackEngine::new();
-        let plan = PlaybackPlan { steps: vec![PlannedStep::Sleep { ms: 10_000 }] };
+        let plan = PlaybackPlan {
+            steps: vec![PlannedStep::Sleep { ms: 10_000 }],
+        };
         let sim = FakeSimulator::default();
         let emit = FakeEmitter::default();
         let started = Instant::now();
@@ -243,7 +302,10 @@ mod tests {
         thread::sleep(Duration::from_millis(50));
         engine.stop();
         wait_until_idle(&engine, 1000);
-        assert!(started.elapsed() < Duration::from_secs(1), "stop should bail out quickly");
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "stop should bail out quickly"
+        );
         assert!(!engine.is_playing());
     }
 
@@ -263,8 +325,16 @@ mod tests {
         wait_until_idle(&engine, 2000);
         let n_sims = sim_calls.lock().unwrap().len();
         let n_restarts = *restarts.lock().unwrap();
-        assert!(n_sims >= 2, "expected multiple iterations, got {} simulate calls", n_sims);
-        assert!(n_restarts >= 1, "expected at least one loop-restart emit, got {}", n_restarts);
+        assert!(
+            n_sims >= 2,
+            "expected multiple iterations, got {} simulate calls",
+            n_sims
+        );
+        assert!(
+            n_restarts >= 1,
+            "expected at least one loop-restart emit, got {}",
+            n_restarts
+        );
     }
 
     #[test]
@@ -285,7 +355,11 @@ mod tests {
         engine.start(plan, false, sim, emit).unwrap();
         // After warmup (100ms) + step 0 emit + into Sleep(2000), we're firmly at index 0.
         thread::sleep(Duration::from_millis(500));
-        assert_eq!(engine.position(), Some(0), "should be at index 0 mid-first-sleep");
+        assert_eq!(
+            engine.position(),
+            Some(0),
+            "should be at index 0 mid-first-sleep"
+        );
         engine.stop();
         wait_until_idle(&engine, 2000);
     }
@@ -293,7 +367,14 @@ mod tests {
     #[test]
     fn position_resets_to_none_after_complete() {
         let engine = PlaybackEngine::new();
-        engine.start(trivial_plan(), false, FakeSimulator::default(), FakeEmitter::default()).unwrap();
+        engine
+            .start(
+                trivial_plan(),
+                false,
+                FakeSimulator::default(),
+                FakeEmitter::default(),
+            )
+            .unwrap();
         wait_until_idle(&engine, 1000);
         assert_eq!(engine.position(), None);
         assert_eq!(engine.loop_count(), 0);

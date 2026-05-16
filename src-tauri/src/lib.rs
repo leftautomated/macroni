@@ -1,22 +1,22 @@
-mod types;
-mod key_mapping;
-mod settings;
 mod capture;
-mod encoder;
-mod permissions;
 mod crash_log;
-mod recordings_store;
+mod encoder;
 mod event_capture;
+mod key_mapping;
+mod permissions;
 mod playback;
 mod recording_session;
+mod recordings_store;
+mod settings;
+mod types;
 
 use types::*;
 
-use std::sync::Arc;
-use std::sync::mpsc::channel;
-use std::thread;
-use rdev::{listen, Event};
 use chrono::Utc;
+use rdev::{listen, Event};
+use std::sync::mpsc::channel;
+use std::sync::Arc;
+use std::thread;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 #[cfg(target_os = "macos")]
@@ -66,7 +66,10 @@ fn start_recording(app: AppHandle, state: State<RecordingState>) -> Result<Strin
         }
     };
 
-    state.session.start(id.clone(), capture).map_err(|e| e.to_string())?;
+    state
+        .session
+        .start(id.clone(), capture)
+        .map_err(|e| e.to_string())?;
     Ok(id)
 }
 
@@ -87,7 +90,11 @@ fn stop_recording(state: State<RecordingState>) -> Result<StopResult, String> {
             None
         }
     });
-    Ok(StopResult { id: stopped.id, events: stopped.events, video })
+    Ok(StopResult {
+        id: stopped.id,
+        events: stopped.events,
+        video,
+    })
 }
 
 #[tauri::command]
@@ -126,14 +133,22 @@ fn delete_recording(app_handle: AppHandle, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn update_recording_name(app_handle: AppHandle, id: String, name: String) -> Result<Recording, String> {
+fn update_recording_name(
+    app_handle: AppHandle,
+    id: String,
+    name: String,
+) -> Result<Recording, String> {
     recordings_store::RecordingsStore::open(&app_handle)
         .and_then(|s| s.update_name(&id, &name))
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn update_recording_speed(app_handle: AppHandle, id: String, speed: f64) -> Result<Recording, String> {
+fn update_recording_speed(
+    app_handle: AppHandle,
+    id: String,
+    speed: f64,
+) -> Result<Recording, String> {
     recordings_store::RecordingsStore::open(&app_handle)
         .and_then(|s| s.update_speed(&id, speed))
         .map_err(|e| e.to_string())
@@ -169,8 +184,6 @@ fn is_playing(state: State<RecordingState>) -> Result<bool, String> {
     Ok(state.engine.is_playing())
 }
 
-
-
 #[tauri::command]
 fn set_window_size(window: WebviewWindow, width: u32, height: u32) -> Result<(), String> {
     use tauri::{LogicalSize, Size};
@@ -188,7 +201,10 @@ fn set_window_size(window: WebviewWindow, width: u32, height: u32) -> Result<(),
 fn open_playback_window(app: AppHandle, recording_id: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("playback") {
         window
-            .eval(&format!("window.location.href = 'playback.html?id={}'", recording_id))
+            .eval(format!(
+                "window.location.href = 'playback.html?id={}'",
+                recording_id
+            ))
             .map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
@@ -211,7 +227,9 @@ fn toggle_visibility(app_handle: AppHandle) -> Result<bool, String> {
 
         // Use NSPanel's is_visible() as source of truth — Tauri's window.is_visible()
         // can get out of sync when macOS hides the panel (sleep, space switch, etc.)
-        let panel = app_handle.get_webview_panel("main").map_err(|e| format!("{:?}", e))?;
+        let panel = app_handle
+            .get_webview_panel("main")
+            .map_err(|e| format!("{:?}", e))?;
         if panel.is_visible() {
             panel.hide();
             Ok(false)
@@ -244,16 +262,16 @@ fn toggle_visibility(app_handle: AppHandle) -> Result<bool, String> {
 #[cfg(target_os = "macos")]
 fn init_macos_panel(app_handle: &AppHandle) {
     use tauri_nspanel::{CollectionBehavior, PanelLevel, StyleMask};
-    
+
     let window: WebviewWindow = app_handle.get_webview_window("main").unwrap();
     let panel = window.to_panel::<MacroPanel>().unwrap();
-    
+
     // Set the window to float level
     panel.set_level(PanelLevel::Floating.value());
-    
+
     // Ensures the panel cannot activate the app
     panel.set_style_mask(StyleMask::empty().nonactivating_panel().into());
-    
+
     // Allows the panel to display on the same space as fullscreen window and join all spaces
     panel.set_collection_behavior(
         CollectionBehavior::new()
@@ -280,15 +298,14 @@ pub fn run() {
     let collector_session = Arc::clone(&state.session);
     let shortcut_engine = Arc::clone(&state.engine);
 
-    let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init());
-    
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+
     // Initialize nspanel plugin on macOS (MUST be before setup)
     #[cfg(target_os = "macos")]
     {
         builder = builder.plugin(tauri_nspanel::init());
     }
-    
+
     builder
         .setup(move |app| {
             // Register global shortcuts inside setup using the correct Tauri v2 pattern
@@ -300,7 +317,9 @@ pub fn run() {
                         .with_handler({
                             let engine = Arc::clone(&shortcut_engine);
                             move |app, shortcut, event| {
-                                use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+                                use tauri_plugin_global_shortcut::{
+                                    Code, Modifiers, ShortcutState,
+                                };
 
                                 if event.state() != ShortcutState::Pressed {
                                     return;
@@ -323,12 +342,14 @@ pub fn run() {
                                     }
                                 }
                                 // Cmd+Shift+R / Ctrl+Shift+R — toggle recording
-                                else if shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::KeyR) {
+                                else if shortcut
+                                    .matches(Modifiers::SUPER | Modifiers::SHIFT, Code::KeyR)
+                                {
                                     let _ = app.emit("toggle-recording", ());
                                 }
                             }
                         })
-                        .build()
+                        .build(),
                 )?;
             }
 
@@ -346,10 +367,10 @@ pub fn run() {
             crash_log::log_line("setup: complete");
 
             let app_handle = app.handle().clone();
-            
+
             // Create a channel for sending events from listener thread
             let (tx, rx) = channel::<InputEvent>();
-            
+
             // Spawn thread to handle received events
             std::thread::spawn(move || {
                 while let Ok(event) = rx.recv() {
@@ -380,7 +401,7 @@ pub fn run() {
                     eprintln!("Error in input listener: {:?}", e);
                 }
             });
-            
+
             Ok(())
         })
         .manage(state)

@@ -14,11 +14,7 @@ export const RecordingControls = ({
 }: RecordingControlsProps) => {
   if (!isRecording) {
     return (
-      <Button
-        onClick={onStartRecording}
-        size="sm"
-        className="gap-1.5 h-7 px-3 text-xs"
-      >
+      <Button onClick={onStartRecording} size="sm" className="gap-1.5 h-7 px-3 text-xs">
         <Circle className="h-3 w-3 fill-current" />
         Start
       </Button>
@@ -43,4 +39,3 @@ export const RecordingControls = ({
     </>
   );
 };
-

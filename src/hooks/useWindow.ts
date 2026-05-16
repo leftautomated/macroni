@@ -18,4 +18,3 @@ export const useWindowResize = () => {
 
   return { resizeWindow };
 };
-

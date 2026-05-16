@@ -15,12 +15,7 @@ export const ExpandToggle = ({ isExpanded, onToggle }: ExpandToggleProps) => {
       onClick={onToggle}
       title={isExpanded ? "Collapse" : "Expand"}
     >
-      {isExpanded ? (
-        <ChevronUp className="h-3.5 w-3.5" />
-      ) : (
-        <ChevronDown className="h-3.5 w-3.5" />
-      )}
+      {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
     </Button>
   );
 };
-

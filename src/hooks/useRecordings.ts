@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Recording, InputEvent, VideoMetadata } from "@/types";
+import type { Recording, InputEvent, VideoMetadata } from "@/types";
 
 export const useRecordings = () => {
   const [recordings, setRecordings] = useState<Recording[]>([]);
@@ -12,7 +12,12 @@ export const useRecordings = () => {
   }, []);
 
   const saveRecording = useCallback(
-    async (id: string, name: string, events: InputEvent[], video?: VideoMetadata): Promise<Recording> => {
+    async (
+      id: string,
+      name: string,
+      events: InputEvent[],
+      video?: VideoMetadata,
+    ): Promise<Recording> => {
       const recording = await invoke<Recording>("save_recording", {
         id,
         name,
@@ -25,30 +30,39 @@ export const useRecordings = () => {
     [loadRecordings],
   );
 
-  const deleteRecording = useCallback(async (id: string) => {
-    await invoke("delete_recording", { id });
-    await loadRecordings();
-    
-    setSelectedRecording((current) => (current?.id === id ? null : current));
-  }, [loadRecordings]);
+  const deleteRecording = useCallback(
+    async (id: string) => {
+      await invoke("delete_recording", { id });
+      await loadRecordings();
 
-  const updateRecordingName = useCallback(async (id: string, name: string): Promise<Recording> => {
-    const recording = await invoke<Recording>("update_recording_name", { id, name });
-    await loadRecordings();
-    
-    setSelectedRecording((current) => (current?.id === id ? recording : current));
-    
-    return recording;
-  }, [loadRecordings]);
+      setSelectedRecording((current) => (current?.id === id ? null : current));
+    },
+    [loadRecordings],
+  );
 
-  const updateRecordingSpeed = useCallback(async (id: string, speed: number): Promise<Recording> => {
-    const recording = await invoke<Recording>("update_recording_speed", { id, speed });
-    await loadRecordings();
+  const updateRecordingName = useCallback(
+    async (id: string, name: string): Promise<Recording> => {
+      const recording = await invoke<Recording>("update_recording_name", { id, name });
+      await loadRecordings();
 
-    setSelectedRecording((current) => (current?.id === id ? recording : current));
+      setSelectedRecording((current) => (current?.id === id ? recording : current));
 
-    return recording;
-  }, [loadRecordings]);
+      return recording;
+    },
+    [loadRecordings],
+  );
+
+  const updateRecordingSpeed = useCallback(
+    async (id: string, speed: number): Promise<Recording> => {
+      const recording = await invoke<Recording>("update_recording_speed", { id, speed });
+      await loadRecordings();
+
+      setSelectedRecording((current) => (current?.id === id ? recording : current));
+
+      return recording;
+    },
+    [loadRecordings],
+  );
 
   useEffect(() => {
     loadRecordings();

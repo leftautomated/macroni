@@ -34,10 +34,14 @@ impl std::fmt::Display for StoreError {
 }
 
 impl From<std::io::Error> for StoreError {
-    fn from(e: std::io::Error) -> Self { StoreError::Io(e) }
+    fn from(e: std::io::Error) -> Self {
+        StoreError::Io(e)
+    }
 }
 impl From<serde_json::Error> for StoreError {
-    fn from(e: serde_json::Error) -> Self { StoreError::Serde(e) }
+    fn from(e: serde_json::Error) -> Self {
+        StoreError::Serde(e)
+    }
 }
 
 pub struct RecordingsStore {
@@ -47,7 +51,10 @@ pub struct RecordingsStore {
 impl RecordingsStore {
     pub fn open(app: &AppHandle) -> Result<Self, StoreError> {
         let data_dir = app.path().app_data_dir().map_err(|e| {
-            StoreError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string()))
+            StoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                e.to_string(),
+            ))
         })?;
         std::fs::create_dir_all(&data_dir)?;
         Ok(Self { data_dir })
@@ -58,9 +65,15 @@ impl RecordingsStore {
         Self { data_dir }
     }
 
-    fn recordings_path(&self) -> PathBuf { self.data_dir.join(RECORDINGS_FILENAME) }
-    fn videos_dir(&self) -> PathBuf { self.data_dir.join(VIDEOS_DIRNAME) }
-    fn video_path(&self, id: &str) -> PathBuf { self.videos_dir().join(format!("{}.mp4", id)) }
+    fn recordings_path(&self) -> PathBuf {
+        self.data_dir.join(RECORDINGS_FILENAME)
+    }
+    fn videos_dir(&self) -> PathBuf {
+        self.data_dir.join(VIDEOS_DIRNAME)
+    }
+    fn video_path(&self, id: &str) -> PathBuf {
+        self.videos_dir().join(format!("{}.mp4", id))
+    }
 
     pub fn load_all(&self) -> Result<Vec<Recording>, StoreError> {
         let path = self.recordings_path();
@@ -92,7 +105,10 @@ impl RecordingsStore {
 
     pub fn update_name(&self, id: &str, name: &str) -> Result<Recording, StoreError> {
         let mut recordings = self.load_all()?;
-        let target = recordings.iter_mut().find(|r| r.id == id).ok_or(StoreError::NotFound)?;
+        let target = recordings
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(StoreError::NotFound)?;
         target.name = name.to_string();
         let updated = target.clone();
         self.write_all(&recordings)?;
@@ -104,7 +120,10 @@ impl RecordingsStore {
             return Err(StoreError::InvalidSpeed);
         }
         let mut recordings = self.load_all()?;
-        let target = recordings.iter_mut().find(|r| r.id == id).ok_or(StoreError::NotFound)?;
+        let target = recordings
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(StoreError::NotFound)?;
         target.playback_speed = speed;
         let updated = target.clone();
         self.write_all(&recordings)?;
@@ -121,13 +140,17 @@ impl RecordingsStore {
             Ok(list) => list.into_iter().map(|r| r.id).collect(),
             Err(_) => return,
         };
-        let Ok(entries) = std::fs::read_dir(&videos_dir) else { return };
+        let Ok(entries) = std::fs::read_dir(&videos_dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|s| s.to_str()) != Some("mp4") {
                 continue;
             }
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
             if !known_ids.contains(stem) {
                 let _ = std::fs::remove_file(&path);
             }
@@ -146,13 +169,19 @@ impl RecordingsStore {
 /// if the process dies mid-write.
 fn atomic_write(final_path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     let dir = final_path.parent().ok_or_else(|| {
-        StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "no parent dir"))
+        StoreError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no parent dir",
+        ))
     })?;
     let file_name = final_path
         .file_name()
         .and_then(|s| s.to_str())
         .ok_or_else(|| {
-            StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "no file name"))
+            StoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "no file name",
+            ))
         })?;
     let tmp_path = dir.join(format!(".{}.tmp", file_name));
     std::fs::write(&tmp_path, bytes)?;
@@ -170,7 +199,10 @@ mod tests {
         Recording {
             id: id.into(),
             name: name.into(),
-            events: vec![InputEvent::KeyPress { key: "A".into(), timestamp: 1 }],
+            events: vec![InputEvent::KeyPress {
+                key: "A".into(),
+                timestamp: 1,
+            }],
             created_at: 1_700_000_000_000,
             playback_speed: 1.0,
             video: None,
@@ -213,7 +245,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = RecordingsStore::open_at(dir.path().to_path_buf());
         store.add(rec("1", "x")).unwrap();
-        assert!(matches!(store.update_name("nope", "y"), Err(StoreError::NotFound)));
+        assert!(matches!(
+            store.update_name("nope", "y"),
+            Err(StoreError::NotFound)
+        ));
     }
 
     #[test]
@@ -221,11 +256,26 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = RecordingsStore::open_at(dir.path().to_path_buf());
         store.add(rec("1", "x")).unwrap();
-        assert!(matches!(store.update_speed("1", f64::NAN), Err(StoreError::InvalidSpeed)));
-        assert!(matches!(store.update_speed("1", 0.0), Err(StoreError::InvalidSpeed)));
-        assert!(matches!(store.update_speed("1", -1.0), Err(StoreError::InvalidSpeed)));
-        assert!(matches!(store.update_speed("1", 1001.0), Err(StoreError::InvalidSpeed)));
-        assert!(matches!(store.update_speed("1", f64::INFINITY), Err(StoreError::InvalidSpeed)));
+        assert!(matches!(
+            store.update_speed("1", f64::NAN),
+            Err(StoreError::InvalidSpeed)
+        ));
+        assert!(matches!(
+            store.update_speed("1", 0.0),
+            Err(StoreError::InvalidSpeed)
+        ));
+        assert!(matches!(
+            store.update_speed("1", -1.0),
+            Err(StoreError::InvalidSpeed)
+        ));
+        assert!(matches!(
+            store.update_speed("1", 1001.0),
+            Err(StoreError::InvalidSpeed)
+        ));
+        assert!(matches!(
+            store.update_speed("1", f64::INFINITY),
+            Err(StoreError::InvalidSpeed)
+        ));
     }
 
     #[test]

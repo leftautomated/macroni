@@ -63,12 +63,20 @@ impl RecordingSession {
         self.recording.load(Ordering::Relaxed)
     }
 
-    pub fn start(&self, id: String, capture: Option<ScreenCaptureSession>) -> Result<(), SessionError> {
+    pub fn start(
+        &self,
+        id: String,
+        capture: Option<ScreenCaptureSession>,
+    ) -> Result<(), SessionError> {
         let mut state = self.inner.lock().map_err(|_| SessionError::AlreadyActive)?;
         if matches!(*state, SessionState::Active { .. }) {
             return Err(SessionError::AlreadyActive);
         }
-        *state = SessionState::Active { id, events: Vec::new(), capture };
+        *state = SessionState::Active {
+            id,
+            events: Vec::new(),
+            capture,
+        };
         self.recording.store(true, Ordering::Relaxed);
         Ok(())
     }
@@ -94,7 +102,15 @@ impl RecordingSession {
         self.recording.store(false, Ordering::Relaxed);
         let mut state = self.inner.lock().map_err(|_| SessionError::NotActive)?;
         match std::mem::replace(&mut *state, SessionState::Idle) {
-            SessionState::Active { id, events, capture } => Ok(StoppedSession { id, events, capture }),
+            SessionState::Active {
+                id,
+                events,
+                capture,
+            } => Ok(StoppedSession {
+                id,
+                events,
+                capture,
+            }),
             SessionState::Idle => Err(SessionError::NotActive),
         }
     }
@@ -111,7 +127,9 @@ impl RecordingSession {
 }
 
 impl Default for RecordingSession {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -120,7 +138,10 @@ mod tests {
     use crate::types::InputEventTimestamp;
 
     fn ev(ts: i64) -> InputEvent {
-        InputEvent::KeyPress { key: "A".into(), timestamp: ts }
+        InputEvent::KeyPress {
+            key: "A".into(),
+            timestamp: ts,
+        }
     }
 
     #[test]
@@ -142,7 +163,10 @@ mod tests {
     fn double_start_errors() {
         let s = RecordingSession::new();
         s.start("rec-1".into(), None).unwrap();
-        assert_eq!(s.start("rec-2".into(), None), Err(SessionError::AlreadyActive));
+        assert_eq!(
+            s.start("rec-2".into(), None),
+            Err(SessionError::AlreadyActive)
+        );
     }
 
     #[test]
@@ -160,7 +184,11 @@ mod tests {
         s.push_event(ev(1));
         s.push_event(ev(2));
         let stopped = s.stop().unwrap();
-        assert_eq!(stopped.events.len(), 2, "only post-start events should accumulate");
+        assert_eq!(
+            stopped.events.len(),
+            2,
+            "only post-start events should accumulate"
+        );
         assert_eq!(stopped.events[0].timestamp(), 1);
         assert_eq!(stopped.events[1].timestamp(), 2);
     }
@@ -176,7 +204,11 @@ mod tests {
         s.push_event(ev(99));
         let stopped = s.stop().unwrap();
         assert_eq!(stopped.id, "second");
-        assert_eq!(stopped.events.len(), 1, "new session should not inherit prior events");
+        assert_eq!(
+            stopped.events.len(),
+            1,
+            "new session should not inherit prior events"
+        );
         assert_eq!(stopped.events[0].timestamp(), 99);
     }
 

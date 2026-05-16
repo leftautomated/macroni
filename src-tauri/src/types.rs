@@ -138,7 +138,11 @@ pub struct CaptureSettings {
 
 impl Default for CaptureSettings {
     fn default() -> Self {
-        Self { fps: 30, quality: CaptureQuality::Med, audio: true }
+        Self {
+            fps: 30,
+            quality: CaptureQuality::Med,
+            audio: true,
+        }
     }
 }
 
@@ -147,4 +151,3 @@ pub struct AppSettings {
     #[serde(default)]
     pub capture: CaptureSettings,
 }
-

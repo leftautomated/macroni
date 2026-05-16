@@ -31,31 +31,48 @@ interface UsePlaybackSyncArgs {
 }
 
 export function usePlaybackSync({ events, video }: UsePlaybackSyncArgs) {
-  const startMs = video?.start_ms ?? (events[0]?.timestamp ?? 0);
-  const [state, setState] = useState<SyncState>({ currentMs: startMs, activeIndex: -1, videoTimeMs: 0 });
+  const startMs = video?.start_ms ?? events[0]?.timestamp ?? 0;
+  const [state, setState] = useState<SyncState>({
+    currentMs: startMs,
+    activeIndex: -1,
+    videoTimeMs: 0,
+  });
   const userScrolledAt = useRef<number>(0);
 
-  const onVideoTime = useCallback((videoSeconds: number) => {
-    const videoTimeMs = videoSeconds * 1000;
-    const absoluteMs = startMs + videoTimeMs;
-    setState({
-      currentMs: absoluteMs,
-      activeIndex: findActiveEventIndex(events, absoluteMs),
-      videoTimeMs,
-    });
-  }, [events, startMs]);
+  const onVideoTime = useCallback(
+    (videoSeconds: number) => {
+      const videoTimeMs = videoSeconds * 1000;
+      const absoluteMs = startMs + videoTimeMs;
+      setState({
+        currentMs: absoluteMs,
+        activeIndex: findActiveEventIndex(events, absoluteMs),
+        videoTimeMs,
+      });
+    },
+    [events, startMs],
+  );
 
-  const seekToEvent = useCallback((index: number) => {
-    if (!events[index]) return;
-    const absoluteMs = events[index].timestamp;
-    const videoTimeMs = Math.max(0, absoluteMs - startMs);
-    setState({ currentMs: absoluteMs, activeIndex: index, videoTimeMs });
-  }, [events, startMs]);
+  const seekToEvent = useCallback(
+    (index: number) => {
+      if (!events[index]) return;
+      const absoluteMs = events[index].timestamp;
+      const videoTimeMs = Math.max(0, absoluteMs - startMs);
+      setState({ currentMs: absoluteMs, activeIndex: index, videoTimeMs });
+    },
+    [events, startMs],
+  );
 
-  const seekToMs = useCallback((absoluteMs: number) => {
-    const videoTimeMs = Math.max(0, absoluteMs - startMs);
-    setState({ currentMs: absoluteMs, activeIndex: findActiveEventIndex(events, absoluteMs), videoTimeMs });
-  }, [events, startMs]);
+  const seekToMs = useCallback(
+    (absoluteMs: number) => {
+      const videoTimeMs = Math.max(0, absoluteMs - startMs);
+      setState({
+        currentMs: absoluteMs,
+        activeIndex: findActiveEventIndex(events, absoluteMs),
+        videoTimeMs,
+      });
+    },
+    [events, startMs],
+  );
 
   const noteUserScroll = useCallback(() => {
     userScrolledAt.current = Date.now();

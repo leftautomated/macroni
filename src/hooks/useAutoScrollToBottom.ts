@@ -1,14 +1,13 @@
-import { useEffect, RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 
-export const useAutoScrollToBottom = <T,>(
+export const useAutoScrollToBottom = <T>(
   scrollRef: RefObject<HTMLElement | null>,
-  dependencies: T[]
+  dependencies: T[],
 ) => {
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollRef, dependencies.length]);
 };
-

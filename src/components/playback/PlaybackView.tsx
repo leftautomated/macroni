@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Recording } from "@/types";
-import { VideoPlayer, VideoPlayerHandle } from "./VideoPlayer";
+import { VideoPlayer, type VideoPlayerHandle } from "./VideoPlayer";
 import { SyncedEventList } from "./SyncedEventList";
 import { EventTimeline } from "./EventTimeline";
 import { usePlaybackSync } from "@/hooks/usePlaybackSync";
@@ -40,9 +40,7 @@ export function PlaybackView({ recordingId }: Props) {
 
   if (loadError) {
     return (
-      <div className="h-screen flex items-center justify-center text-destructive">
-        {loadError}
-      </div>
+      <div className="h-screen flex items-center justify-center text-destructive">{loadError}</div>
     );
   }
   if (!recording) {

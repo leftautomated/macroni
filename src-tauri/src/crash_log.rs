@@ -44,7 +44,9 @@ pub fn log_line(msg: &str) {
     let Some(path) = log_path() else { return };
     let Some(parent) = path.parent() else { return };
     let _ = std::fs::create_dir_all(parent);
-    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) else { return };
+    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) else {
+        return;
+    };
     let ts = chrono::Utc::now().to_rfc3339();
     let _ = writeln!(file, "[{ts}] {msg}");
 }

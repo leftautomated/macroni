@@ -33,7 +33,7 @@ const App = () => {
       setLastViewedRecordingId(recordingsManager.selectedRecording.id);
     }
   }, [recordingsManager.selectedRecording]);
-  
+
   useAutoResize({
     isExpanded,
     headerRef,
@@ -123,16 +123,20 @@ const App = () => {
     <div className="w-screen h-screen flex overflow-hidden justify-center items-start pt-4 pb-4 bg-transparent">
       <div className="w-full max-w-5xl mx-2 space-y-3 overflow-hidden">
         <div className="flex justify-center">
-          <Card ref={headerRef} className="flex items-center gap-2 px-3 py-2 w-fit" data-tauri-drag-region>
+          <Card
+            ref={headerRef}
+            className="flex items-center gap-2 px-3 py-2 w-fit"
+            data-tauri-drag-region
+          >
             <div className="cursor-move" data-tauri-drag-region>
               <GripVertical className="h-4 w-4 text-muted-foreground" data-tauri-drag-region />
-        </div>
+            </div>
             <div className="h-4 w-px bg-border" data-tauri-drag-region />
-        <RecordingControls
+            <RecordingControls
               isRecording={recorder.isRecording}
-          onStartRecording={handleStartRecording}
-          onStopRecording={handleStopRecording}
-        />
+              onStartRecording={handleStartRecording}
+              onStopRecording={handleStopRecording}
+            />
             <div className="h-4 w-px bg-border" data-tauri-drag-region />
             <VisibilityToggle />
             <ExpandToggle isExpanded={isExpanded} onToggle={handleToggleExpand} />
@@ -152,7 +156,13 @@ const App = () => {
               </Card>
             ) : (
               <Card className="p-4">
-                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "live" | "recordings" | "settings")} className="w-full">
+                <Tabs
+                  value={activeTab}
+                  onValueChange={(value) =>
+                    setActiveTab(value as "live" | "recordings" | "settings")
+                  }
+                  className="w-full"
+                >
                   <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="live">Live Events</TabsTrigger>
                     <TabsTrigger value="recordings">Recordings</TabsTrigger>

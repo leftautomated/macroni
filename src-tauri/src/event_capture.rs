@@ -9,7 +9,9 @@ use std::collections::HashSet;
 
 use rdev::{Button, EventType, Key};
 
-use crate::key_mapping::{button_to_string, get_character_with_modifiers, is_modifier_key, key_to_string};
+use crate::key_mapping::{
+    button_to_string, get_character_with_modifiers, is_modifier_key, key_to_string,
+};
 use crate::types::InputEvent;
 
 pub struct EventCapture {
@@ -39,9 +41,14 @@ impl EventCapture {
                     self.pressed_modifiers.insert(key);
                 }
                 let key_str = key_to_string(key);
-                out.push(InputEvent::KeyPress { key: key_str.clone(), timestamp: timestamp_ms });
+                out.push(InputEvent::KeyPress {
+                    key: key_str.clone(),
+                    timestamp: timestamp_ms,
+                });
                 if !is_modifier_key(key) {
-                    if let Some(recognized_char) = get_character_with_modifiers(key, &self.pressed_modifiers) {
+                    if let Some(recognized_char) =
+                        get_character_with_modifiers(key, &self.pressed_modifiers)
+                    {
                         let modifiers: Vec<String> = self
                             .pressed_modifiers
                             .iter()
@@ -89,7 +96,11 @@ impl EventCapture {
             EventType::MouseMove { x, y } => {
                 self.last_mouse_position = Some((x, y));
                 if !self.pressed_buttons.is_empty() {
-                    out.push(InputEvent::MouseMove { x, y, timestamp: timestamp_ms });
+                    out.push(InputEvent::MouseMove {
+                        x,
+                        y,
+                        timestamp: timestamp_ms,
+                    });
                 }
             }
             _ => {}
@@ -99,14 +110,18 @@ impl EventCapture {
 }
 
 impl Default for EventCapture {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn ts() -> i64 { 1_700_000_000_000 }
+    fn ts() -> i64 {
+        1_700_000_000_000
+    }
 
     #[test]
     fn key_press_emits_key_press() {
@@ -144,8 +159,13 @@ mod tests {
         match &out[1] {
             InputEvent::KeyCombo { key, modifiers, .. } => {
                 assert_eq!(key, "A");
-                assert!(modifiers.iter().any(|m| m == "MetaLeft" || m == "Cmd" || m.contains("Meta")),
-                    "modifier list should include Meta/Cmd, got {:?}", modifiers);
+                assert!(
+                    modifiers
+                        .iter()
+                        .any(|m| m == "MetaLeft" || m == "Cmd" || m.contains("Meta")),
+                    "modifier list should include Meta/Cmd, got {:?}",
+                    modifiers
+                );
             }
             other => panic!("expected KeyCombo, got {:?}", other),
         }
@@ -157,7 +177,12 @@ mod tests {
         cap.on_rdev_event(EventType::KeyPress(Key::MetaLeft), ts());
         cap.on_rdev_event(EventType::KeyRelease(Key::MetaLeft), ts() + 1);
         let out = cap.on_rdev_event(EventType::KeyPress(Key::KeyA), ts() + 2);
-        assert_eq!(out.len(), 1, "stale modifier should not produce combo: {:?}", out);
+        assert_eq!(
+            out.len(),
+            1,
+            "stale modifier should not produce combo: {:?}",
+            out
+        );
     }
 
     #[test]
@@ -174,7 +199,9 @@ mod tests {
         cap.on_rdev_event(EventType::ButtonPress(Button::Left), ts() + 1);
         let out = cap.on_rdev_event(EventType::MouseMove { x: 100.0, y: 200.0 }, ts() + 2);
         assert_eq!(out.len(), 1);
-        assert!(matches!(&out[0], InputEvent::MouseMove { x, y, .. } if *x == 100.0 && *y == 200.0));
+        assert!(
+            matches!(&out[0], InputEvent::MouseMove { x, y, .. } if *x == 100.0 && *y == 200.0)
+        );
     }
 
     #[test]
@@ -211,7 +238,10 @@ mod tests {
         cap.on_rdev_event(EventType::ButtonPress(Button::Left), ts());
         cap.on_rdev_event(EventType::ButtonRelease(Button::Left), ts() + 1);
         let out = cap.on_rdev_event(EventType::MouseMove { x: 1.0, y: 1.0 }, ts() + 2);
-        assert!(out.is_empty(), "after button release, drag filter should re-engage");
+        assert!(
+            out.is_empty(),
+            "after button release, drag filter should re-engage"
+        );
     }
 
     #[test]
@@ -223,8 +253,11 @@ mod tests {
         // If 2, modifier list must include a Shift variant.
         if out.len() == 2 {
             if let InputEvent::KeyCombo { modifiers, .. } = &out[1] {
-                assert!(modifiers.iter().any(|m| m.contains("Shift")),
-                    "modifier list should include Shift, got {:?}", modifiers);
+                assert!(
+                    modifiers.iter().any(|m| m.contains("Shift")),
+                    "modifier list should include Shift, got {:?}",
+                    modifiers
+                );
             }
         }
     }

@@ -1,10 +1,7 @@
 import { useState, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 
-export const usePlaybackPosition = (
-  isPlaying: boolean,
-  onComplete?: () => void
-) => {
+export const usePlaybackPosition = (isPlaying: boolean, onComplete?: () => void) => {
   const [currentPosition, setCurrentPosition] = useState<number | null>(null);
 
   useEffect(() => {
@@ -35,4 +32,3 @@ export const usePlaybackPosition = (
 
   return currentPosition;
 };
-

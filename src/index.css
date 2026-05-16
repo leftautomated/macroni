@@ -25,7 +25,7 @@
   --color-ring: var(--ring);
 }
 
-  :root {
+:root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -45,7 +45,7 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-  
+
   --opacity: 0.85;
   --backdrop-blur: blur(20px);
 }
@@ -80,7 +80,7 @@
     width: 100vw;
     height: 100vh;
   }
-  
+
   /* Prevent all text and element selection */
   * {
     user-select: none;
@@ -88,7 +88,7 @@
     -moz-user-select: none;
     -ms-user-select: none;
   }
-  
+
   /* Remove outlines from interactive elements */
   button:focus,
   button:focus-visible,

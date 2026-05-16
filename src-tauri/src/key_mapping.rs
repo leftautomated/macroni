@@ -1,6 +1,6 @@
 //! Key and button string conversion utilities
 
-use rdev::{Key, Button};
+use rdev::{Button, Key};
 
 /// Converts an `rdev::Key` to its string representation
 pub fn key_to_string(key: Key) -> String {
@@ -242,7 +242,10 @@ pub fn is_modifier_key(key: Key) -> bool {
 
 /// Attempts to produce a human-readable string for a key pressed with modifiers.
 /// Returns `None` when no modifiers are active.
-pub fn get_character_with_modifiers(key: Key, modifiers: &std::collections::HashSet<Key>) -> Option<String> {
+pub fn get_character_with_modifiers(
+    key: Key,
+    modifiers: &std::collections::HashSet<Key>,
+) -> Option<String> {
     if modifiers.is_empty() {
         return None;
     }
@@ -268,10 +271,18 @@ pub fn get_character_with_modifiers(key: Key, modifiers: &std::collections::Hash
 
     // Multiple modifier combinations
     let mut modifier_names = Vec::new();
-    if has_shift { modifier_names.push("Shift"); }
-    if has_ctrl { modifier_names.push("Ctrl"); }
-    if has_alt { modifier_names.push("Alt"); }
-    if has_cmd { modifier_names.push("Cmd"); }
+    if has_shift {
+        modifier_names.push("Shift");
+    }
+    if has_ctrl {
+        modifier_names.push("Ctrl");
+    }
+    if has_alt {
+        modifier_names.push("Alt");
+    }
+    if has_cmd {
+        modifier_names.push("Cmd");
+    }
 
     if modifier_names.len() > 1 {
         let key_str = key_to_string(key);
@@ -338,13 +349,32 @@ fn single_modifier_combo(modifier: &str, key: Key) -> Option<String> {
     let key_str = key_to_string(key);
     // Only produce combo strings for letter keys and common targets
     match key {
-        Key::KeyA | Key::KeyB | Key::KeyC | Key::KeyD | Key::KeyE |
-        Key::KeyF | Key::KeyG | Key::KeyH | Key::KeyI | Key::KeyJ |
-        Key::KeyK | Key::KeyL | Key::KeyM | Key::KeyN | Key::KeyO |
-        Key::KeyP | Key::KeyQ | Key::KeyR | Key::KeyS | Key::KeyT |
-        Key::KeyU | Key::KeyV | Key::KeyW | Key::KeyX | Key::KeyY |
-        Key::KeyZ => Some(format!("{}+{}", modifier, key_str)),
+        Key::KeyA
+        | Key::KeyB
+        | Key::KeyC
+        | Key::KeyD
+        | Key::KeyE
+        | Key::KeyF
+        | Key::KeyG
+        | Key::KeyH
+        | Key::KeyI
+        | Key::KeyJ
+        | Key::KeyK
+        | Key::KeyL
+        | Key::KeyM
+        | Key::KeyN
+        | Key::KeyO
+        | Key::KeyP
+        | Key::KeyQ
+        | Key::KeyR
+        | Key::KeyS
+        | Key::KeyT
+        | Key::KeyU
+        | Key::KeyV
+        | Key::KeyW
+        | Key::KeyX
+        | Key::KeyY
+        | Key::KeyZ => Some(format!("{}+{}", modifier, key_str)),
         _ => None,
     }
 }
-

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 use crate::capture::ScreenCaptureSession;
+use crate::playback::PlaybackEngine;
 
 /// Represents a single input event captured during recording
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,14 +74,13 @@ pub struct Recording {
 
 /// Shared application state for recording and playback.
 ///
-/// Modifier/button/mouse-position state for the input listener now lives
-/// inside `event_capture::EventCapture` on the listener thread itself.
+/// Modifier/button/mouse-position state for the input listener lives inside
+/// `event_capture::EventCapture` on the listener thread. All playback state
+/// (is_playing / position / loop_count) lives inside `PlaybackEngine`.
 pub struct RecordingState {
     pub is_recording: Arc<Mutex<bool>>,
     pub current_events: Arc<Mutex<Vec<InputEvent>>>,
-    pub is_playing: Arc<Mutex<bool>>,
-    pub playback_position: Arc<Mutex<Option<usize>>>,
-    pub loop_count: Arc<Mutex<usize>>,
+    pub engine: Arc<PlaybackEngine>,
     pub current_id: Arc<Mutex<Option<String>>>,
     pub capture_session: Arc<Mutex<Option<ScreenCaptureSession>>>,
     pub last_video_meta: Arc<Mutex<Option<VideoMetadata>>>,
@@ -91,9 +91,7 @@ impl Default for RecordingState {
         Self {
             is_recording: Arc::new(Mutex::new(false)),
             current_events: Arc::new(Mutex::new(Vec::new())),
-            is_playing: Arc::new(Mutex::new(false)),
-            playback_position: Arc::new(Mutex::new(None)),
-            loop_count: Arc::new(Mutex::new(0)),
+            engine: Arc::new(PlaybackEngine::new()),
             current_id: Arc::new(Mutex::new(None)),
             capture_session: Arc::new(Mutex::new(None)),
             last_video_meta: Arc::new(Mutex::new(None)),

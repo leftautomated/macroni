@@ -11,6 +11,8 @@ changed, and what that bought us.
 | [0003](0003-playback-plan-engine.md) | Split playback into `PlaybackPlan` + `PlaybackEngine` | Accepted |
 | [0004](0004-recording-session.md) | Consolidate active-recording state into `RecordingSession` | Accepted |
 | [0005](0005-coverage-gate.md) | Adopt coverage gate (Rust + frontend) with ratchet baseline | Accepted |
+| [0006](0006-mutation-runner.md) | Adopt mutation testing on the deepened modules | Accepted |
+| [0007](0007-acceptance-specs.md) | Adopt acceptance specs at the React+hooks layer; defer true Tauri E2E | Accepted |
 
 ## Conventions
 

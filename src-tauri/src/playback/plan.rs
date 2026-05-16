@@ -562,7 +562,10 @@ mod tests {
             plan.steps.first(),
             Some(PlannedStep::EmitPosition { index: 0 })
         ));
-        assert!(matches!(plan.steps.get(1), Some(PlannedStep::Sleep { ms: 10 })));
+        assert!(matches!(
+            plan.steps.get(1),
+            Some(PlannedStep::Sleep { ms: 10 })
+        ));
     }
 
     #[test]

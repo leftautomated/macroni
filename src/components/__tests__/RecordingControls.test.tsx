@@ -7,7 +7,9 @@ describe("RecordingControls", () => {
   it("shows the Start button when not recording and calls onStartRecording on click", async () => {
     const onStart = vi.fn();
     const onStop = vi.fn();
-    render(<RecordingControls isRecording={false} onStartRecording={onStart} onStopRecording={onStop} />);
+    render(
+      <RecordingControls isRecording={false} onStartRecording={onStart} onStopRecording={onStop} />,
+    );
 
     const startButton = screen.getByRole("button", { name: /start/i });
     expect(startButton).toBeInTheDocument();
@@ -21,7 +23,9 @@ describe("RecordingControls", () => {
   it("shows the Recording indicator + Stop button when recording, and calls onStopRecording on click", async () => {
     const onStart = vi.fn();
     const onStop = vi.fn();
-    render(<RecordingControls isRecording={true} onStartRecording={onStart} onStopRecording={onStop} />);
+    render(
+      <RecordingControls isRecording={true} onStartRecording={onStart} onStopRecording={onStop} />,
+    );
 
     expect(screen.getByText(/recording/i)).toBeInTheDocument();
     const stopButton = screen.getByRole("button", { name: /stop/i });
@@ -36,7 +40,9 @@ describe("RecordingControls", () => {
   it("does not invoke either handler at mount", () => {
     const onStart = vi.fn();
     const onStop = vi.fn();
-    render(<RecordingControls isRecording={false} onStartRecording={onStart} onStopRecording={onStop} />);
+    render(
+      <RecordingControls isRecording={false} onStartRecording={onStart} onStopRecording={onStop} />,
+    );
     expect(onStart).not.toHaveBeenCalled();
     expect(onStop).not.toHaveBeenCalled();
   });

@@ -5,6 +5,7 @@ import { useRecorder } from "@/hooks/useRecorder";
 import { useRecordings } from "@/hooks/useRecordings";
 import { useInputEventListener } from "@/hooks/useInputEventListener";
 import { useAutoResize } from "@/hooks/useAutoResize";
+import { usePermissionStatus } from "@/hooks/usePermissionStatus";
 import { RecordingControls } from "@/components/RecordingControls";
 import { LiveEventDisplay } from "@/components/LiveEventDisplay";
 import { RecordingsList } from "@/components/RecordingsList";
@@ -12,6 +13,7 @@ import { RecordingDetail } from "@/components/RecordingDetail";
 import { SettingsTab } from "@/components/SettingsTab";
 import { VisibilityToggle } from "@/components/VisibilityToggle";
 import { ExpandToggle } from "@/components/ExpandToggle";
+import { PermissionAlert } from "@/components/PermissionAlert";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GripVertical } from "lucide-react";
@@ -19,6 +21,7 @@ import { GripVertical } from "lucide-react";
 const App = () => {
   const recorder = useRecorder();
   const recordingsManager = useRecordings();
+  const permissions = usePermissionStatus();
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<"live" | "recordings" | "settings">("live");
   const [lastViewedRecordingId, setLastViewedRecordingId] = useState<string | null>(null);
@@ -96,24 +99,6 @@ const App = () => {
     };
   }, [handleStartRecording, handleStopRecording]);
 
-  // Listen for capture permission / failure events from Rust
-  useEffect(() => {
-    const unlistenPerm = listen<string>("permission-needed", (ev) => {
-      if (ev.payload === "screen-recording") {
-        alert(
-          "Macroni needs Screen Recording permission. Open System Settings → Privacy & Security → Screen Recording, enable Macroni, and restart the app.",
-        );
-      }
-    });
-    const unlistenFail = listen<string>("capture-failed", (ev) => {
-      console.error("Video capture failed:", ev.payload);
-    });
-    return () => {
-      unlistenPerm.then((fn) => fn());
-      unlistenFail.then((fn) => fn());
-    };
-  }, []);
-
   const handleToggleExpand = () => {
     setIsExpanded(!isExpanded);
     // Auto-resize will handle the height adjustment via useEffect
@@ -122,12 +107,8 @@ const App = () => {
   return (
     <div className="w-screen h-screen flex overflow-hidden justify-center items-start pt-4 pb-4 bg-transparent">
       <div className="w-full max-w-5xl mx-2 space-y-3 overflow-hidden">
-        <div className="flex justify-center">
-          <Card
-            ref={headerRef}
-            className="flex items-center gap-2 px-3 py-2 w-fit"
-            data-tauri-drag-region
-          >
+        <div ref={headerRef} className="flex flex-col items-center gap-2">
+          <Card className="flex items-center gap-2 px-3 py-2 w-fit" data-tauri-drag-region>
             <div className="cursor-move" data-tauri-drag-region>
               <GripVertical className="h-4 w-4 text-muted-foreground" data-tauri-drag-region />
             </div>
@@ -141,6 +122,14 @@ const App = () => {
             <VisibilityToggle />
             <ExpandToggle isExpanded={isExpanded} onToggle={handleToggleExpand} />
           </Card>
+          <PermissionAlert
+            needsScreenRecording={permissions.state.needsScreenRecording}
+            captureError={permissions.state.captureError}
+            onOpenSystemSettings={permissions.openSystemSettings}
+            onRecheck={permissions.recheck}
+            onDismissPermission={permissions.dismissPermissionPrompt}
+            onDismissCaptureError={permissions.dismissCaptureError}
+          />
         </div>
 
         {isExpanded && (

@@ -1,10 +1,8 @@
-
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import { Eye } from "lucide-react";
 
 export const VisibilityToggle = () => {
-
   const handleToggle = async () => {
     try {
       await invoke<boolean>("toggle_visibility");
@@ -13,7 +11,7 @@ export const VisibilityToggle = () => {
     }
   };
 
-  const isMac = navigator.userAgent.includes('Mac');
+  const isMac = navigator.userAgent.includes("Mac");
   const shortcutHint = isMac ? "⌘ + M" : "Ctrl + M";
 
   return (
@@ -28,4 +26,3 @@ export const VisibilityToggle = () => {
     </Button>
   );
 };
-

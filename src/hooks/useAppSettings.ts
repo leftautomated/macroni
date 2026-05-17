@@ -6,9 +6,11 @@ export const useAppSettings = () => {
   const [settings, setSettings] = useState<AppSettings | null>(null);
 
   useEffect(() => {
-    invoke<AppSettings>("load_settings").then(setSettings).catch((err) => {
-      console.error("Failed to load settings:", err);
-    });
+    invoke<AppSettings>("load_settings")
+      .then(setSettings)
+      .catch((err) => {
+        console.error("Failed to load settings:", err);
+      });
   }, []);
 
   const update = useCallback(async (next: AppSettings) => {

@@ -9,7 +9,12 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "format": "biome format --write"
   },
   "dependencies": {
     "@radix-ui/react-tabs": "1.1.13",
@@ -25,6 +30,7 @@
     "tailwindcss": "4.1.16"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.15",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
@@ -33,6 +39,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^5.1.0",
+    "@vitest/coverage-v8": "4.1.6",
     "@vitest/ui": "4.1.4",
     "jsdom": "29.0.2",
     "typescript": "^5.9.3",

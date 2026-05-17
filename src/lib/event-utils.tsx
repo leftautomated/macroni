@@ -1,5 +1,5 @@
 import { Keyboard, MousePointer } from "lucide-react";
-import { InputEvent, InputEventType } from "@/types";
+import { type InputEvent, InputEventType } from "@/types";
 
 export interface EventDetails {
   icon: React.ReactNode;
@@ -57,12 +57,12 @@ export function getEventDetails(event: InputEvent): EventDetails {
 
 export function formatTimestamp(timestamp: number): string {
   const date = new Date(timestamp);
-  const time = date.toLocaleTimeString('en-US', {
+  const time = date.toLocaleTimeString("en-US", {
     hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
   });
-  const ms = String(date.getMilliseconds()).padStart(3, '0');
+  const ms = String(date.getMilliseconds()).padStart(3, "0");
   return `${time}.${ms}`;
 }

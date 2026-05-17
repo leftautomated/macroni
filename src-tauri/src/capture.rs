@@ -2,13 +2,14 @@
 //! frame pulls from `scap` and pushes them through a `CaptureSink`. A fake sink
 //! backs the unit tests so the capture flow is verifiable without real scap.
 
-use crate::types::{CaptureQuality, VideoMetadata};
+use crate::types::VideoMetadata;
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
 
 /// Raw captured frame in BGRA (scap's native format on macOS/Windows).
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // width/height belong to the Frame contract; consumers may not read them
 pub struct Frame {
     pub width: u32,
     pub height: u32,
@@ -40,8 +41,14 @@ impl CaptureSink for FakeSink {
     }
     fn finalize(self: Box<Self>) -> Result<VideoMetadata, String> {
         let frames = self.frames.lock().unwrap();
-        let duration_ms = frames.last().map(|f| f.timestamp_ms - self.start_ms).unwrap_or(0);
-        let (width, height) = frames.first().map(|f| (f.width, f.height)).unwrap_or((0, 0));
+        let duration_ms = frames
+            .last()
+            .map(|f| f.timestamp_ms - self.start_ms)
+            .unwrap_or(0);
+        let (width, height) = frames
+            .first()
+            .map(|f| (f.width, f.height))
+            .unwrap_or((0, 0));
         Ok(VideoMetadata {
             path: String::from("<fake>"),
             start_ms: self.start_ms,
@@ -54,35 +61,11 @@ impl CaptureSink for FakeSink {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fake_sink_collects_frames_and_reports_duration() {
-        let frames_handle: Arc<Mutex<Vec<Frame>>> = Arc::new(Mutex::new(Vec::new()));
-        let mut sink = Box::new(FakeSink {
-            frames: Arc::clone(&frames_handle),
-            start_ms: 1000,
-            fps: 30,
-        });
-        sink.on_frame(&Frame { width: 640, height: 360, data: vec![0; 640 * 360 * 4], timestamp_ms: 1000 }).unwrap();
-        sink.on_frame(&Frame { width: 640, height: 360, data: vec![0; 640 * 360 * 4], timestamp_ms: 1033 }).unwrap();
-        sink.on_frame(&Frame { width: 640, height: 360, data: vec![0; 640 * 360 * 4], timestamp_ms: 1066 }).unwrap();
-
-        let meta = sink.finalize().unwrap();
-        assert_eq!(meta.duration_ms, 66);
-        assert_eq!(meta.width, 640);
-        assert_eq!(meta.fps, 30);
-        assert_eq!(frames_handle.lock().unwrap().len(), 3);
-    }
-}
-
 use crate::types::CaptureSettings;
+use chrono::Utc;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use chrono::Utc;
 
 /// Configuration for starting a capture session. Built from AppSettings at runtime.
 pub struct CaptureConfig {
@@ -95,6 +78,7 @@ pub struct CaptureConfig {
 pub struct ScreenCaptureSession {
     running: Arc<AtomicBool>,
     handle: Option<JoinHandle<Result<VideoMetadata, String>>>,
+    #[allow(dead_code)] // exposed via start_ms() accessor for future callers
     start_ms: i64,
 }
 
@@ -152,24 +136,32 @@ impl ScreenCaptureSession {
                 let frame = capturer.get_next_frame().map_err(|e| format!("{:?}", e))?;
                 match frame {
                     ScapFrame::Video(VideoFrame::BGRA(f)) => {
-                        break (f.width as u32, f.height as u32, f.data, Utc::now().timestamp_millis());
+                        break (
+                            f.width as u32,
+                            f.height as u32,
+                            f.data,
+                            Utc::now().timestamp_millis(),
+                        );
                     }
                     _ => continue,
                 }
             };
 
-            let mut sink: Box<dyn CaptureSink> = Box::new(
-                crate::encoder::Mp4EncoderSink::new(
-                    output_path.clone(),
-                    width,
-                    height,
-                    settings.fps,
-                    settings.quality,
-                    settings.audio,
-                    start_ms,
-                )?,
-            );
-            sink.on_frame(&Frame { width, height, data: first_data, timestamp_ms: first_ts })?;
+            let mut sink: Box<dyn CaptureSink> = Box::new(crate::encoder::Mp4EncoderSink::new(
+                output_path.clone(),
+                width,
+                height,
+                settings.fps,
+                settings.quality,
+                settings.audio,
+                start_ms,
+            )?);
+            sink.on_frame(&Frame {
+                width,
+                height,
+                data: first_data,
+                timestamp_ms: first_ts,
+            })?;
 
             while running_thread.load(Ordering::Relaxed) {
                 match capturer.get_next_frame() {
@@ -197,16 +189,65 @@ impl ScreenCaptureSession {
             sink.finalize()
         });
 
-        Ok(Self { running, handle: Some(handle), start_ms })
+        Ok(Self {
+            running,
+            handle: Some(handle),
+            start_ms,
+        })
     }
 
     pub fn stop(mut self) -> Result<VideoMetadata, String> {
         self.running.store(false, Ordering::Relaxed);
         let handle = self.handle.take().ok_or("already stopped")?;
-        handle.join().map_err(|_| "capture thread panicked".to_string())?
+        handle
+            .join()
+            .map_err(|_| "capture thread panicked".to_string())?
     }
 
+    #[allow(dead_code)] // future callers / debugging — keep public
     pub fn start_ms(&self) -> i64 {
         self.start_ms
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fake_sink_collects_frames_and_reports_duration() {
+        let frames_handle: Arc<Mutex<Vec<Frame>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut sink = Box::new(FakeSink {
+            frames: Arc::clone(&frames_handle),
+            start_ms: 1000,
+            fps: 30,
+        });
+        sink.on_frame(&Frame {
+            width: 640,
+            height: 360,
+            data: vec![0; 640 * 360 * 4],
+            timestamp_ms: 1000,
+        })
+        .unwrap();
+        sink.on_frame(&Frame {
+            width: 640,
+            height: 360,
+            data: vec![0; 640 * 360 * 4],
+            timestamp_ms: 1033,
+        })
+        .unwrap();
+        sink.on_frame(&Frame {
+            width: 640,
+            height: 360,
+            data: vec![0; 640 * 360 * 4],
+            timestamp_ms: 1066,
+        })
+        .unwrap();
+
+        let meta = sink.finalize().unwrap();
+        assert_eq!(meta.duration_ms, 66);
+        assert_eq!(meta.width, 640);
+        assert_eq!(meta.fps, 30);
+        assert_eq!(frames_handle.lock().unwrap().len(), 3);
     }
 }

@@ -1,4 +1,4 @@
-import { useEffect, RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 import { useWindowResize } from "./useWindow";
 
 interface UseAutoResizeOptions {
@@ -52,20 +52,20 @@ export const useAutoResize = ({
 
     const updateSize = () => {
       if (!contentRef.current) return;
-      
+
       // Measure actual content dimensions
       const contentHeight = contentRef.current.scrollHeight;
       const contentWidth = contentRef.current.scrollWidth;
-      
+
       // Calculate total dimensions
       // Padding: pt-4 (16px) + pb-4 (16px) = 32px
       // Header: ~60px (increased from 42px)
       // Gap: 12px
       const totalHeight = 60 + 12 + contentHeight + 32;
-      
+
       // Width: content width + mx-2 padding (16px total)
       const totalWidth = Math.max(400, contentWidth + 16);
-      
+
       resizeWindow(totalWidth, totalHeight);
     };
 
@@ -89,7 +89,6 @@ export const useAutoResize = ({
     return () => {
       observer.disconnect();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isExpanded, resizeWindow, JSON.stringify(dependencies)]);
 };
-

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { InputEvent } from "@/types";
+import type { InputEvent } from "@/types";
 
 export const useInputEventListener = (onEvent: (event: InputEvent) => void) => {
   useEffect(() => {
@@ -13,4 +13,3 @@ export const useInputEventListener = (onEvent: (event: InputEvent) => void) => {
     };
   }, [onEvent]);
 };
-

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Recording } from "@/types";
+import type { Recording } from "@/types";
 
 export const useRecordingTitle = (recording: Recording | null, isEditing: boolean) => {
   const [titleValue, setTitleValue] = useState(recording?.name || "");
@@ -15,4 +15,3 @@ export const useRecordingTitle = (recording: Recording | null, isEditing: boolea
 
   return { titleValue, setTitleValue };
 };
-

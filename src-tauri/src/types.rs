@@ -1,11 +1,10 @@
 //! Core types and data structures
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
-use rdev::{Key, Button};
+use std::sync::Arc;
 
-use crate::capture::ScreenCaptureSession;
+use crate::playback::PlaybackEngine;
+use crate::recording_session::RecordingSession;
 
 /// Represents a single input event captured during recording
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,35 +72,22 @@ pub struct Recording {
     pub video: Option<VideoMetadata>,
 }
 
-/// Shared application state for recording and playback
+/// Shared application state. Two cohesive halves:
+///   - `session`: the recording-side state machine (idle / active).
+///   - `engine`: the playback-side state machine.
+///
+/// Modifier/button/mouse-position state for the input listener lives inside
+/// `event_capture::EventCapture` on the listener thread itself.
 pub struct RecordingState {
-    pub is_recording: Arc<Mutex<bool>>,
-    pub current_events: Arc<Mutex<Vec<InputEvent>>>,
-    pub last_mouse_position: Arc<Mutex<Option<(f64, f64)>>>,
-    pub pressed_modifiers: Arc<Mutex<HashSet<Key>>>,
-    pub pressed_buttons: Arc<Mutex<HashSet<Button>>>,
-    pub is_playing: Arc<Mutex<bool>>,
-    pub playback_position: Arc<Mutex<Option<usize>>>,
-    pub loop_count: Arc<Mutex<usize>>,
-    pub current_id: Arc<Mutex<Option<String>>>,
-    pub capture_session: Arc<Mutex<Option<ScreenCaptureSession>>>,
-    pub last_video_meta: Arc<Mutex<Option<VideoMetadata>>>,
+    pub session: Arc<RecordingSession>,
+    pub engine: Arc<PlaybackEngine>,
 }
 
 impl Default for RecordingState {
     fn default() -> Self {
         Self {
-            is_recording: Arc::new(Mutex::new(false)),
-            current_events: Arc::new(Mutex::new(Vec::new())),
-            last_mouse_position: Arc::new(Mutex::new(None)),
-            pressed_modifiers: Arc::new(Mutex::new(HashSet::new())),
-            pressed_buttons: Arc::new(Mutex::new(HashSet::new())),
-            is_playing: Arc::new(Mutex::new(false)),
-            playback_position: Arc::new(Mutex::new(None)),
-            loop_count: Arc::new(Mutex::new(0)),
-            current_id: Arc::new(Mutex::new(None)),
-            capture_session: Arc::new(Mutex::new(None)),
-            last_video_meta: Arc::new(Mutex::new(None)),
+            session: Arc::new(RecordingSession::new()),
+            engine: Arc::new(PlaybackEngine::new()),
         }
     }
 }
@@ -152,7 +138,11 @@ pub struct CaptureSettings {
 
 impl Default for CaptureSettings {
     fn default() -> Self {
-        Self { fps: 30, quality: CaptureQuality::Med, audio: true }
+        Self {
+            fps: 30,
+            quality: CaptureQuality::Med,
+            audio: true,
+        }
     }
 }
 
@@ -161,4 +151,3 @@ pub struct AppSettings {
     #[serde(default)]
     pub capture: CaptureSettings,
 }
-

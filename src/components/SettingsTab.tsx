@@ -42,7 +42,9 @@ export const SettingsTab = () => {
               {SHORTCUTS.map((s) => (
                 <div key={s.keys} className="flex items-center justify-between text-sm">
                   <span className="text-xs text-muted-foreground">{s.description}</span>
-                  <kbd className="text-xs font-mono px-2 py-0.5 rounded bg-secondary/50 text-secondary-foreground">{s.keys}</kbd>
+                  <kbd className="text-xs font-mono px-2 py-0.5 rounded bg-secondary/50 text-secondary-foreground">
+                    {s.keys}
+                  </kbd>
                 </div>
               ))}
             </div>
@@ -56,9 +58,8 @@ export const SettingsTab = () => {
             </h4>
             {isWindows && (
               <p className="text-xs text-muted-foreground italic">
-                Video capture is temporarily unavailable on Windows (upstream library
-                issue). Event recording still works. These settings apply once video
-                support ships.
+                Video capture is temporarily unavailable on Windows (upstream library issue). Event
+                recording still works. These settings apply once video support ships.
               </p>
             )}
             {settings ? (
@@ -114,13 +115,28 @@ export const SettingsTab = () => {
           <div className="space-y-2">
             <h4 className="text-xs font-medium text-muted-foreground">Theme</h4>
             <div className="flex gap-2">
-              <Button variant={theme === "light" ? "default" : "outline"} size="sm" onClick={() => setTheme("light")} className="flex items-center gap-2">
+              <Button
+                variant={theme === "light" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTheme("light")}
+                className="flex items-center gap-2"
+              >
                 <Sun className="h-3.5 w-3.5" /> Light
               </Button>
-              <Button variant={theme === "dark" ? "default" : "outline"} size="sm" onClick={() => setTheme("dark")} className="flex items-center gap-2">
+              <Button
+                variant={theme === "dark" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTheme("dark")}
+                className="flex items-center gap-2"
+              >
                 <Moon className="h-3.5 w-3.5" /> Dark
               </Button>
-              <Button variant={theme === "system" ? "default" : "outline"} size="sm" onClick={() => setTheme("system")} className="flex items-center gap-2">
+              <Button
+                variant={theme === "system" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTheme("system")}
+                className="flex items-center gap-2"
+              >
                 <Monitor className="h-3.5 w-3.5" /> System
               </Button>
             </div>
@@ -133,11 +149,14 @@ export const SettingsTab = () => {
               <Shield className="h-3 w-3" /> Permissions
             </h4>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Macroni needs <span className="font-medium text-foreground">Accessibility</span> permission to capture keyboard and mouse input
+              Macroni needs <span className="font-medium text-foreground">Accessibility</span>{" "}
+              permission to capture keyboard and mouse input
               {isMac ? " and " : ""}
-              {isMac ? (<span className="font-medium text-foreground">Screen Recording</span>) : null}
+              {isMac ? <span className="font-medium text-foreground">Screen Recording</span> : null}
               {isMac ? " permission to capture screen video." : "."}
-              {isMac ? " Go to System Settings → Privacy & Security to enable Macroni." : " Grant input access in your system settings."}
+              {isMac
+                ? " Go to System Settings → Privacy & Security to enable Macroni."
+                : " Grant input access in your system settings."}
             </p>
           </div>
         </div>

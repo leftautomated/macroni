@@ -6,6 +6,57 @@ on:
   pull_request:
 
 jobs:
+  frontend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript typecheck
+        run: pnpm typecheck
+
+      - name: Biome lint + format check
+        run: pnpm lint
+
+  rust-lint:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install NASM (openh264-sys2 native assembly)
+        run: brew install nasm
+
+      - name: cargo fmt --check
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: cargo clippy -D warnings
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
   test:
     strategy:
       fail-fast: false
@@ -51,3 +102,87 @@ jobs:
 
       - name: Run frontend tests
         run: pnpm test
+
+  coverage:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install NASM (openh264-sys2)
+        run: brew install nasm
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Rust coverage gate (fail under 62% lines)
+        working-directory: src-tauri
+        run: cargo llvm-cov --fail-under-lines 62 --summary-only
+
+      - name: Frontend coverage gate (vitest thresholds in vitest.config.ts)
+        run: pnpm test:coverage
+
+  mutation:
+    # Mutation testing on the four deepened modules (see mutants.toml).
+    # Runs on PRs only against changed files for tractable runtime;
+    # main pushes run the full scoped sweep.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need base ref for --in-diff
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install NASM (openh264-sys2)
+        run: brew install nasm
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+
+      - name: Mutation gate (PR — changed files only)
+        if: github.event_name == 'pull_request'
+        working-directory: src-tauri
+        run: |
+          # Two-dot diff (base..HEAD) gives exactly what this PR's commits
+          # changed, regardless of whether the branch is up-to-date with base.
+          # Three-dot would anchor on the merge base and include unrelated
+          # commits from main if the branch is behind.
+          git diff ${{ github.event.pull_request.base.sha }}..HEAD > /tmp/pr.diff
+          cargo mutants --in-diff /tmp/pr.diff --no-shuffle
+
+      - name: Mutation gate (main — full scoped sweep)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: src-tauri
+        run: cargo mutants --no-shuffle

@@ -1,5 +1,5 @@
 import { useRef, useCallback } from "react";
-import { InputEvent, InputEventType } from "@/types";
+import { type InputEvent, InputEventType } from "@/types";
 
 interface Props {
   events: InputEvent[];

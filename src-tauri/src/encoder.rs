@@ -163,13 +163,13 @@ impl CaptureSink for Mp4EncoderSink {
         };
         writer.add_track(&track).map_err(|e| e.to_string())?;
 
-        let frame_duration = (1000 / self.fps).max(1) as u32;
+        let frame_duration = (1000 / self.fps).max(1);
         let frames = &self.encoded_frames;
         for (idx, ef) in frames.iter().enumerate() {
             let duration = if idx + 1 < frames.len() {
                 (frames[idx + 1].pts_ms - ef.pts_ms).max(1) as u32
             } else {
-                frame_duration.max(1) as u32
+                frame_duration.max(1)
             };
             let sample = mp4::Mp4Sample {
                 start_time: ef.pts_ms.max(0) as u64,
@@ -213,7 +213,10 @@ fn strip_annex_b_prefix(nal: &[u8]) -> &[u8] {
 
 /// BGRA → I420 planar conversion. Standard BT.601 coefficients.
 fn bgra_to_i420(bgra: &[u8], width: usize, height: usize) -> Vec<u8> {
-    debug_assert!(width % 2 == 0 && height % 2 == 0, "bgra_to_i420 requires even dimensions");
+    debug_assert!(
+        width.is_multiple_of(2) && height.is_multiple_of(2),
+        "bgra_to_i420 requires even dimensions"
+    );
     debug_assert_eq!(bgra.len(), width * height * 4, "bgra buffer size mismatch");
     let y_size = width * height;
     let uv_size = y_size / 4;
@@ -254,7 +257,7 @@ mod tests {
     #[test]
     fn bgra_to_i420_produces_correct_plane_sizes() {
         // 4x4 I420 = 16 Y bytes + 4 U bytes + 4 V bytes = 24 total.
-        let out = bgra_to_i420(&vec![128u8; 4 * 4 * 4], 4, 4);
+        let out = bgra_to_i420(&[128u8; 4 * 4 * 4], 4, 4);
         assert_eq!(out.len(), 4 * 4 + 4 + 4);
     }
 
@@ -267,7 +270,8 @@ mod tests {
                 .unwrap(),
         );
         for i in 0..10 {
-            sink.on_frame(&synthetic_frame(320, 240, 1000 + i * 33)).unwrap();
+            sink.on_frame(&synthetic_frame(320, 240, 1000 + i * 33))
+                .unwrap();
         }
         let meta = sink.finalize().unwrap();
         assert!(path.exists());

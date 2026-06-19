@@ -1,7 +1,19 @@
-import { Moon, Sun, Monitor, Keyboard, Shield, Video } from "lucide-react";
+import {
+  Moon,
+  Sun,
+  Monitor,
+  Keyboard,
+  Shield,
+  Video,
+  CheckCircle2,
+  XCircle,
+  ExternalLink,
+  RotateCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme-provider";
 import { useAppSettings } from "@/hooks/useAppSettings";
+import { usePermissionStatus } from "@/hooks/usePermissionStatus";
 import type { CaptureQuality, CaptureSettings } from "@/types";
 
 const isMac = navigator.userAgent.includes("Mac");
@@ -20,6 +32,7 @@ const QUALITY_OPTIONS: CaptureQuality[] = ["low", "med", "high"];
 export const SettingsTab = () => {
   const { setTheme, theme } = useTheme();
   const { settings, update } = useAppSettings();
+  const perms = usePermissionStatus();
 
   const setCapture = (partial: Partial<CaptureSettings>) => {
     if (!settings) return;
@@ -151,13 +164,43 @@ export const SettingsTab = () => {
             <p className="text-xs text-muted-foreground leading-relaxed">
               Macroni needs <span className="font-medium text-foreground">Accessibility</span>{" "}
               permission to capture keyboard and mouse input
-              {isMac ? " and " : ""}
-              {isMac ? <span className="font-medium text-foreground">Screen Recording</span> : null}
-              {isMac ? " permission to capture screen video." : "."}
-              {isMac
-                ? " Go to System Settings → Privacy & Security to enable Macroni."
-                : " Grant input access in your system settings."}
+              {isMac ? (
+                <>
+                  {" and "}
+                  <span className="font-medium text-foreground">Screen Recording</span> permission
+                  to capture screen video.
+                </>
+              ) : (
+                "."
+              )}
             </p>
+            {isMac && (
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <div className="flex items-center gap-2 text-xs">
+                  {perms.state.screenRecording === null ? (
+                    <span className="text-muted-foreground">Checking…</span>
+                  ) : perms.state.screenRecording ? (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>Screen Recording: granted</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-3.5 w-3.5 text-destructive" />
+                      <span>Screen Recording: not granted</span>
+                    </>
+                  )}
+                </div>
+                <div className="flex gap-1.5">
+                  <Button size="sm" variant="outline" onClick={perms.recheck}>
+                    <RotateCw className="h-3 w-3 mr-1" /> Re-check
+                  </Button>
+                  <Button size="sm" variant="default" onClick={perms.openSystemSettings}>
+                    <ExternalLink className="h-3 w-3 mr-1" /> Open Settings
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

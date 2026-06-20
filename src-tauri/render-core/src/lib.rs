@@ -1,6 +1,8 @@
 //! Host-agnostic rendering core for the studio editor.
 //! MUST NOT depend on `tauri`.
 
+pub mod decode;
+
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }

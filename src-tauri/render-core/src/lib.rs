@@ -1,0 +1,14 @@
+//! Host-agnostic rendering core for the studio editor.
+//! MUST NOT depend on `tauri`.
+
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn version_is_nonempty() {
+        assert!(!super::version().is_empty());
+    }
+}

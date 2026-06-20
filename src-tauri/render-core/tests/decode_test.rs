@@ -3,7 +3,7 @@ use std::path::Path;
 
 #[test]
 fn decodes_fixture_dimensions_and_count() {
-    let mut src = Mp4FrameSource::open(Path::new("tests/fixtures/solid.mp4")).unwrap();
+    let src = Mp4FrameSource::open(Path::new("tests/fixtures/solid.mp4")).unwrap();
     assert_eq!(src.dimensions(), (64, 48));
     assert_eq!(src.frame_count(), 3);
 }

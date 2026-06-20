@@ -4405,7 +4405,6 @@ dependencies = [
  "mp4",
  "openh264",
  "pollster",
- "serde",
  "wgpu",
 ]
 

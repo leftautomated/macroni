@@ -94,8 +94,11 @@ Expected: both `render-core` and `macroni` compile. No `tauri` in `render-core`'
 
 - [ ] **Step 6: Verify the boundary**
 
-Run: `cd src-tauri && cargo tree -p render-core | grep -c tauri`
+Run: `cd src-tauri && cargo tree -p render-core | tail -n +2 | grep -ci tauri`
 Expected: `0`
+
+> NOTE: drop the root line with `tail -n +2` — a bare `grep tauri` matches the
+> `src-tauri/` directory in the crate's own path and reports a false `1`.
 
 - [ ] **Step 7: Run the placeholder test**
 

@@ -13,3 +13,4 @@ pollster = "0.3"
 
 [dev-dependencies]
 pollster = "0.3"
+image = "0.25"

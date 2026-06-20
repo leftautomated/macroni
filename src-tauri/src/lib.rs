@@ -5,6 +5,9 @@ mod event_capture;
 mod key_mapping;
 mod permissions;
 mod playback;
+// Phase 0 spike (Task 5) — THROWAWAY native preview surface. macOS-only.
+#[cfg(target_os = "macos")]
+mod preview_surface;
 mod recording_session;
 mod recordings_store;
 mod settings;
@@ -313,7 +316,7 @@ pub fn run() {
         builder = builder.plugin(tauri_nspanel::init());
     }
 
-    builder
+    let builder = builder
         .setup(move |app| {
             // Register global shortcuts inside setup using the correct Tauri v2 pattern
             #[cfg(desktop)]
@@ -426,7 +429,13 @@ pub fn run() {
 
             Ok(())
         })
-        .manage(state)
+        .manage(state);
+
+    // Phase 0 spike (Task 5) — manage the native preview surface state (macOS).
+    #[cfg(target_os = "macos")]
+    let builder = builder.manage(preview_surface::SpikeState::default());
+
+    builder
         .invoke_handler(tauri::generate_handler![
             start_recording,
             stop_recording,
@@ -446,6 +455,9 @@ pub fn run() {
             permissions::request_screen_recording,
             open_playback_window,
             get_app_data_dir,
+            // Phase 0 spike (Task 5) — macOS-only native preview surface command.
+            #[cfg(target_os = "macos")]
+            preview_surface::spike_show_surface,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2812,7 +2812,12 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "mp4",
+ "objc2 0.6.3",
+ "objc2-app-kit",
+ "objc2-foundation 0.3.2",
+ "objc2-quartz-core 0.3.2",
  "openh264",
+ "pollster",
  "rdev",
  "render-core",
  "scap",
@@ -2824,6 +2829,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-opener",
  "tempfile",
+ "wgpu",
 ]
 
 [[package]]
@@ -3463,8 +3469,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96c1358452b371bf9f104e21ec536d37a650eb10f7ee379fff67d2e08d537f1f"
 dependencies = [
  "bitflags 2.10.0",
+ "block2 0.6.2",
+ "libc",
  "objc2 0.6.3",
  "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-core-video",
  "objc2-foundation 0.3.2",
  "objc2-metal 0.3.2",
 ]

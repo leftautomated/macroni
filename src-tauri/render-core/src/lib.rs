@@ -2,6 +2,7 @@
 //! MUST NOT depend on `tauri`.
 
 pub mod decode;
+pub mod gpu;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

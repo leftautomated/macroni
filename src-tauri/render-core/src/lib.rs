@@ -1,6 +1,7 @@
 //! Host-agnostic rendering core for the studio editor.
 //! MUST NOT depend on `tauri`.
 
+pub mod compositor;
 pub mod decode;
 pub mod doc;
 pub mod gpu;

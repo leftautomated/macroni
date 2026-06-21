@@ -86,7 +86,7 @@ impl Gpu {
 /// # Errors
 /// Returns [`GpuError::Readback`] if the device poll, buffer-map callback, or
 /// channel recv fails.
-fn read_target_rgba(
+pub(crate) fn read_target_rgba(
     gpu: &Gpu,
     texture: &wgpu::Texture,
     w: u32,

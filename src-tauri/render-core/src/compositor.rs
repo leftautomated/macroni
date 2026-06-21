@@ -1,4 +1,4 @@
-//! GPU compositor — background fill (solid, linear gradient).
+//! GPU compositor — background fill (solid, linear gradient, wallpaper).
 //!
 //! The [`Compositor`] builds a reusable render pipeline from `background.wgsl`
 //! and exposes [`Compositor::render_background`] to produce an off-screen
@@ -173,9 +173,10 @@ impl Compositor {
     ///
     /// The returned texture has usages `RENDER_ATTACHMENT | COPY_SRC | TEXTURE_BINDING`.
     ///
-    /// For [`Background::Wallpaper`] a solid mid-gray `[128, 128, 128, 255]` is
-    /// rendered as a placeholder.
-    /// # TODO(Task 8): real wallpaper compositing
+    /// For [`Background::Wallpaper`] the image at `path` is loaded via the
+    /// `image` crate, uploaded as a GPU texture, and drawn **cover-fit**: the
+    /// image is scaled uniformly so that it fills the entire output rect, then
+    /// centred and cropped. This matches CSS `background-size: cover`.
     ///
     /// # Errors
     /// Returns [`GpuError`] if device operations fail.
@@ -186,6 +187,11 @@ impl Compositor {
         out_w: u32,
         out_h: u32,
     ) -> Result<wgpu::Texture, GpuError> {
+        // ── Wallpaper: handled separately — load image + cover-fit quad draw ─
+        if let Background::Wallpaper { path } = bg {
+            return self.render_wallpaper(gpu, path, out_w, out_h);
+        }
+
         let device = &gpu.device;
         let queue = &gpu.queue;
 
@@ -210,12 +216,9 @@ impl Compositor {
                     out_h as f32,
                 ],
             },
-            // TODO(Task 8): real wallpaper compositing
-            Background::Wallpaper { .. } => BgUniform {
-                color0: rgba_to_f32(&Rgba([128, 128, 128, 255])),
-                color1: [0.0; 4],
-                params: [0.0, 0.0, out_w as f32, out_h as f32],
-            },
+            // Wallpaper is handled by the early-return above; this arm is
+            // unreachable but required for exhaustive matching.
+            Background::Wallpaper { .. } => unreachable!("wallpaper handled above"),
         };
 
         // ── Upload uniform to a GPU buffer ───────────────────────────────────
@@ -285,6 +288,288 @@ impl Compositor {
             pass.set_bind_group(0, &bind_group, &[]);
             // Full-screen triangle: 3 vertices, no vertex buffer.
             pass.draw(0..3, 0..1);
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+
+        Ok(target)
+    }
+
+    /// Load a wallpaper image from `path`, upload it to the GPU, and draw it
+    /// **cover-fit** into a fresh `out_w × out_h` `Rgba8Unorm` texture.
+    ///
+    /// Cover-fit: scale the image uniformly so that both dimensions are at least
+    /// as large as the output, then centre and crop. UV coordinates outside
+    /// `[0, 1]` are clamped by the sampler (ClampToEdge), so no explicit UV
+    /// crop is needed — instead we compute UV extents that map the _visible_
+    /// output window onto the portion of the image we want to show.
+    ///
+    /// # Errors
+    /// Returns [`GpuError::Readback`] wrapping an image-load message if the
+    /// file cannot be opened or decoded.
+    fn render_wallpaper(
+        &self,
+        gpu: &Gpu,
+        path: &str,
+        out_w: u32,
+        out_h: u32,
+    ) -> Result<wgpu::Texture, GpuError> {
+        let device = &gpu.device;
+        let queue = &gpu.queue;
+
+        // ── Load + convert image to RGBA8 ─────────────────────────────────────
+        let img = image::open(path)
+            .map_err(|e| GpuError::Readback(format!("wallpaper load error '{path}': {e}")))?
+            .into_rgba8();
+        let img_w = img.width();
+        let img_h = img.height();
+
+        // ── Upload image as a GPU texture ─────────────────────────────────────
+        let img_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("wallpaper_texture"),
+            size: wgpu::Extent3d {
+                width: img_w,
+                height: img_h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &img_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            img.as_raw(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(img_w * 4),
+                rows_per_image: Some(img_h),
+            },
+            wgpu::Extent3d {
+                width: img_w,
+                height: img_h,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let img_view = img_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // ── Cover-fit UV computation ──────────────────────────────────────────
+        //
+        // We want to fill out_w × out_h with the image while preserving aspect.
+        // The scale that achieves "cover" is max(out_w/img_w, out_h/img_h).
+        //
+        // After scaling, the image occupies (img_w*s) × (img_h*s) pixels.
+        // We centre the output window inside that scaled image.
+        //
+        // UV for a pixel at (px, py) in the output:
+        //   u = (px - offset_x) / (img_w * s)
+        //   v = (py - offset_y) / (img_h * s)
+        //
+        // The UV range for the full output rectangle:
+        //   u: [u_min, u_max]  where u_min = offset_x / (img_w*s) and
+        //                            u_max = (offset_x + out_w) / (img_w*s)
+        //
+        // We express these as the UV values at the four corners of the full-screen quad.
+        let scale =
+            (out_w as f32 / img_w as f32).max(out_h as f32 / img_h as f32);
+        let scaled_w = img_w as f32 * scale;
+        let scaled_h = img_h as f32 * scale;
+        // Offset in *scaled* image pixels of the top-left of the output rect.
+        let offset_x = (scaled_w - out_w as f32) / 2.0;
+        let offset_y = (scaled_h - out_h as f32) / 2.0;
+
+        let u_min = offset_x / scaled_w;
+        let u_max = (offset_x + out_w as f32) / scaled_w;
+        let v_min = offset_y / scaled_h;
+        let v_max = (offset_y + out_h as f32) / scaled_h;
+
+        // Full-screen quad: two triangles (CCW), NDC [-1,1].
+        // TL, BL, TR, TR, BL, BR
+        #[rustfmt::skip]
+        let vertices: &[f32] = &[
+            -1.0,  1.0,  u_min, v_min,  // TL
+            -1.0, -1.0,  u_min, v_max,  // BL
+             1.0,  1.0,  u_max, v_min,  // TR
+             1.0,  1.0,  u_max, v_min,  // TR
+            -1.0, -1.0,  u_min, v_max,  // BL
+             1.0, -1.0,  u_max, v_max,  // BR
+        ];
+
+        // ── Sampler: clamp so any edge UV rounding stays clean ────────────────
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("wallpaper_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        // ── Bind group: texture + sampler ─────────────────────────────────────
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("wallpaper_bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("wallpaper_bg"),
+            layout: &bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&img_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        // ── Pipeline: reuse the existing framed_video shader (tex + sampler) ──
+        //
+        // `framed_video.wgsl` expects group(0): texture+sampler, group(1): VideoUniform.
+        // We use a dedicated inline shader instead so we can keep the wallpaper
+        // path independent and avoid the VideoUniform binding requirement.
+        let shader_src = include_str!("shaders/quad.wgsl");
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("wallpaper_shader"),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("wallpaper_pipeline_layout"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("wallpaper_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: 16, // 4 × f32: pos_x, pos_y, uv_u, uv_v
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 8,
+                            shader_location: 1,
+                        },
+                    ],
+                }],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: None, // opaque: wallpaper fills the whole background
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        // ── Vertex buffer ─────────────────────────────────────────────────────
+        let vertex_bytes = bytemuck::cast_slice(vertices);
+        let vertex_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("wallpaper_vbuf"),
+            size: vertex_bytes.len() as u64,
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&vertex_buffer, 0, vertex_bytes);
+
+        // ── Render target ─────────────────────────────────────────────────────
+        let target = device.create_texture(&TextureDescriptor {
+            label: Some("wallpaper_target"),
+            size: Extent3d {
+                width: out_w,
+                height: out_h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::RENDER_ATTACHMENT
+                | TextureUsages::COPY_SRC
+                | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let target_view = target.create_view(&TextureViewDescriptor::default());
+
+        // ── Render pass ───────────────────────────────────────────────────────
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("wallpaper_encoder"),
+        });
+
+        {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("wallpaper_pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(wgpu::Color::BLACK),
+                        store: StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            pass.draw(0..6, 0..1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));

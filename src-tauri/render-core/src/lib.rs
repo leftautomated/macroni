@@ -4,6 +4,7 @@
 pub mod compositor;
 pub mod decode;
 pub mod doc;
+pub mod engine;
 pub mod gpu;
 
 pub fn version() -> &'static str {

@@ -2,6 +2,7 @@
 //! MUST NOT depend on `tauri`.
 
 pub mod decode;
+pub mod doc;
 pub mod gpu;
 
 pub fn version() -> &'static str {

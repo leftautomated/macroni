@@ -93,12 +93,18 @@ struct StopResult {
 }
 
 #[tauri::command]
-fn stop_recording(state: State<RecordingState>) -> Result<StopResult, String> {
+fn stop_recording(app: AppHandle, state: State<RecordingState>) -> Result<StopResult, String> {
     let stopped = state.session.stop().map_err(|e| e.to_string())?;
     let video = stopped.capture.and_then(|s| match s.stop() {
         Ok(meta) => Some(meta),
         Err(e) => {
+            // The capture session started (permission appeared granted) but
+            // finalize produced no usable video — e.g. zero frames reached the
+            // encoder. This used to be swallowed (eprintln only), so the user
+            // got a recording with no video and NO feedback. Surface it to the
+            // UI via the same `capture-failed` event the start path uses.
             eprintln!("capture finalize failed: {e}");
+            let _ = app.emit("capture-failed", e.clone());
             None
         }
     });

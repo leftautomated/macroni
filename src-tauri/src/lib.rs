@@ -10,6 +10,7 @@ mod playback;
 mod preview_surface;
 mod project_store;
 mod recording_session;
+mod studio_export;
 mod recordings_store;
 mod settings;
 mod types;
@@ -458,6 +459,7 @@ pub fn run() {
             get_app_data_dir,
             project_store::studio_load_project,
             project_store::studio_save_project,
+            studio_export::studio_export,
             // Native studio preview surface (Phase 1, Task 11) — macOS-only.
             #[cfg(target_os = "macos")]
             preview_surface::studio_attach_surface,

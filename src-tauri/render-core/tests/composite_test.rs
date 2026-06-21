@@ -7,7 +7,7 @@ fn composites_frame_centered_on_bg() {
     let gpu = Gpu::headless().unwrap();
     let mut src = Mp4FrameSource::open(Path::new("tests/fixtures/solid.mp4")).unwrap();
     let frame = src.decode_frame(0).unwrap(); // 64x48
-    let out = composite_frame_on_bg(&gpu, &frame, [0, 0, 0, 255], 128, 96); // 2x canvas, black bg
+    let out = composite_frame_on_bg(&gpu, &frame, [0, 0, 0, 255], 128, 96).unwrap(); // 2x canvas, black bg
     assert_eq!(out.len(), 128 * 96 * 4);
     // a corner pixel should be background (black), center should be the frame's color
     let corner = &out[0..4];
@@ -24,7 +24,7 @@ fn write_png() {
     let gpu = Gpu::headless().unwrap();
     let mut src = Mp4FrameSource::open(Path::new("tests/fixtures/solid.mp4")).unwrap();
     let frame = src.decode_frame(0).unwrap();
-    let out = composite_frame_on_bg(&gpu, &frame, [0, 0, 0, 255], 128, 96);
+    let out = composite_frame_on_bg(&gpu, &frame, [0, 0, 0, 255], 128, 96).unwrap();
     // Tests run with cwd = render-core/; src-tauri/target/ is one level up.
     image::save_buffer(
         "../target/composite_preview.png",

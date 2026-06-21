@@ -20,13 +20,18 @@ pub struct Gpu {
     pub queue: wgpu::Queue,
 }
 
-/// Errors that can arise when creating a [`Gpu`].
+/// Errors that can arise when creating a [`Gpu`] or performing GPU operations.
 #[derive(Debug)]
 pub enum GpuError {
     /// No suitable adapter was found (e.g. no GPU in the environment).
     NoAdapter,
     /// The adapter was found but device creation failed.
     Device(String),
+    /// A GPU readback operation failed (device poll, buffer mapping, or channel
+    /// recv). The inner string carries the wgpu / channel error message.
+    Readback(String),
+    /// A surface / swapchain operation failed.
+    Surface(String),
 }
 
 impl std::fmt::Display for GpuError {
@@ -34,6 +39,8 @@ impl std::fmt::Display for GpuError {
         match self {
             GpuError::NoAdapter => write!(f, "no GPU adapter found"),
             GpuError::Device(e) => write!(f, "device creation failed: {e}"),
+            GpuError::Readback(e) => write!(f, "GPU readback failed: {e}"),
+            GpuError::Surface(e) => write!(f, "GPU surface error: {e}"),
         }
     }
 }
@@ -75,7 +82,16 @@ impl Gpu {
 /// allocating a padded staging buffer and stripping padding after mapping.
 ///
 /// `texture` must have `TextureUsages::COPY_SRC` and be `Rgba8Unorm`.
-fn read_target_rgba(gpu: &Gpu, texture: &wgpu::Texture, w: u32, h: u32) -> Vec<u8> {
+///
+/// # Errors
+/// Returns [`GpuError::Readback`] if the device poll, buffer-map callback, or
+/// channel recv fails.
+fn read_target_rgba(
+    gpu: &Gpu,
+    texture: &wgpu::Texture,
+    w: u32,
+    h: u32,
+) -> Result<Vec<u8>, GpuError> {
     let device = &gpu.device;
     let queue = &gpu.queue;
 
@@ -125,16 +141,20 @@ fn read_target_rgba(gpu: &Gpu, texture: &wgpu::Texture, w: u32, h: u32) -> Vec<u
     let buffer_slice = readback_buffer.slice(..);
     let (tx, rx) = std::sync::mpsc::channel();
     buffer_slice.map_async(MapMode::Read, move |result| {
-        tx.send(result).unwrap();
+        // The channel send can only fail if the receiver was dropped before the
+        // callback fires, which cannot happen in this synchronous flow. Ignore
+        // the send error; the recv side will surface a "callback never fired"
+        // error instead.
+        let _ = tx.send(result);
     });
 
     device
         .poll(PollType::wait_indefinitely())
-        .expect("device poll failed");
+        .map_err(|e| GpuError::Readback(e.to_string()))?;
 
     rx.recv()
-        .expect("mapping callback never fired")
-        .expect("buffer mapping failed");
+        .map_err(|_| GpuError::Readback("buffer-map callback never fired".into()))?
+        .map_err(|e| GpuError::Readback(e.to_string()))?;
 
     // Strip the per-row alignment padding to produce tightly-packed RGBA8.
     let mapped = buffer_slice.get_mapped_range();
@@ -147,7 +167,7 @@ fn read_target_rgba(gpu: &Gpu, texture: &wgpu::Texture, w: u32, h: u32) -> Vec<u
     drop(mapped);
     readback_buffer.unmap();
 
-    output
+    Ok(output)
 }
 
 /// Render a solid clear-color to an offscreen `w × h` texture and return the
@@ -157,7 +177,9 @@ fn read_target_rgba(gpu: &Gpu, texture: &wgpu::Texture, w: u32, h: u32) -> Vec<u
 /// `bytes_per_row` must be a multiple of [`COPY_BYTES_PER_ROW_ALIGNMENT`]
 /// (256). Rows are padded in the staging buffer, then un-padded when the
 /// final `Vec<u8>` is assembled.
-pub fn render_solid(gpu: &Gpu, w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
+/// # Errors
+/// Returns [`GpuError::Readback`] if the GPU readback fails.
+pub fn render_solid(gpu: &Gpu, w: u32, h: u32, rgba: [u8; 4]) -> Result<Vec<u8>, GpuError> {
     let device = &gpu.device;
     let queue = &gpu.queue;
 
@@ -217,6 +239,7 @@ pub fn render_solid(gpu: &Gpu, w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
     read_target_rgba(gpu, &texture, w, h)
 }
 
+
 /// Composite `frame` centered over a `bg` clear-color into an `out_w × out_h`
 /// offscreen render target and return the pixels as a `Vec<u8>` of length
 /// `out_w * out_h * 4` in RGBA8 order.
@@ -228,13 +251,15 @@ pub fn render_solid(gpu: &Gpu, w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
 /// # Channel order
 /// The returned bytes are `Rgba8Unorm` — R, G, B, A — matching the frame's
 /// source format.
+/// # Errors
+/// Returns [`GpuError::Readback`] if the GPU readback fails.
 pub fn composite_frame_on_bg(
     gpu: &Gpu,
     frame: &RgbaFrame,
     bg: [u8; 4],
     out_w: u32,
     out_h: u32,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, GpuError> {
     let device = &gpu.device;
     let queue = &gpu.queue;
 

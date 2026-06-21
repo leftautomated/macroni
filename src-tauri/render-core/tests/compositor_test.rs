@@ -13,7 +13,7 @@ fn solid_background_fills() {
     let gpu = Gpu::headless().unwrap();
     let c = Compositor::new(&gpu).unwrap();
     let tex = c
-        .render_background(&gpu, &Background::Solid { color: Rgba([200, 50, 50, 255]) }, 32, 16)
+        .render_background(&gpu, &Background::Solid { color: Rgba([200, 50, 50, 255]) }, None, 32, 16)
         .unwrap();
     let buf = c.read_texture(&gpu, &tex).unwrap();
     let p = px(&buf, 32, 16, 8);
@@ -38,7 +38,7 @@ fn padding_insets_video_over_background() {
     };
     // Solid red video frame 64×48
     let video = RgbaFrame { width: 64, height: 48, data: vec![255, 0, 0, 255].repeat(64 * 48) };
-    let out = c.render_frame(&gpu, &framing, &video, 200, 120).unwrap();
+    let out = c.render_frame(&gpu, &framing, &video, None, 200, 120).unwrap();
     let p = |x: u32, y: u32| {
         let i = ((y * 200 + x) * 4) as usize;
         [out[i], out[i + 1], out[i + 2], out[i + 3]]
@@ -67,7 +67,7 @@ fn rounded_corners_show_background_at_corner() {
         shadow: render_core::doc::Shadow { blur_px: 0.0, offset_y_px: 0.0, opacity: 0.0 },
     };
     let video = RgbaFrame { width: 200, height: 120, data: vec![255, 0, 0, 255].repeat(200 * 120) };
-    let out = c.render_frame(&gpu, &framing, &video, 200, 120).unwrap();
+    let out = c.render_frame(&gpu, &framing, &video, None, 200, 120).unwrap();
     let p = |x: u32, y: u32| {
         let i = ((y * 200 + x) * 4) as usize;
         [out[i], out[i + 1], out[i + 2], out[i + 3]]
@@ -86,7 +86,7 @@ fn horizontal_gradient_goes_dark_to_light() {
         to: Rgba([255, 255, 255, 255]),
         angle_deg: 0.0,
     };
-    let tex = c.render_background(&gpu, &bg, 64, 8).unwrap();
+    let tex = c.render_background(&gpu, &bg, None, 64, 8).unwrap();
     let buf = c.read_texture(&gpu, &tex).unwrap();
     let left = px(&buf, 64, 1, 4)[0] as i32;
     let right = px(&buf, 64, 62, 4)[0] as i32;
@@ -107,8 +107,8 @@ fn drop_shadow_darkens_below_video() {
         shadow: render_core::doc::Shadow { blur_px: 16.0, offset_y_px: 12.0, opacity: op },
     };
     let video = RgbaFrame { width: 100, height: 60, data: vec![255, 0, 0, 255].repeat(100 * 60) };
-    let with = c.render_frame(&gpu, &mk(0.5), &video, 200, 160).unwrap();
-    let without = c.render_frame(&gpu, &mk(0.0), &video, 200, 160).unwrap();
+    let with = c.render_frame(&gpu, &mk(0.5), &video, None, 200, 160).unwrap();
+    let without = c.render_frame(&gpu, &mk(0.0), &video, None, 200, 160).unwrap();
     // sample a point just below the video rect, within the shadow band
     let idx = ((120u32 * 200 + 100) * 4) as usize; // x=100 (center col), y=120 (below video)
     assert!(

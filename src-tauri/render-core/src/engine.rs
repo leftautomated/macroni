@@ -10,8 +10,8 @@
 
 use crate::{
     compositor::Compositor,
-    decode::{DecodeError, FrameSource},
-    doc::ProjectDoc,
+    decode::{DecodeError, FrameSource, RgbaFrame},
+    doc::{Background, ProjectDoc},
     gpu::{Gpu, GpuError},
 };
 
@@ -52,6 +52,25 @@ impl From<GpuError> for EngineError {
     }
 }
 
+// ── Wallpaper loader ──────────────────────────────────────────────────────────
+
+/// Load a wallpaper image from `path` and convert it to an [`RgbaFrame`].
+///
+/// File I/O and decoding live here — in the engine — so that failures surface
+/// as [`EngineError::Image`] rather than being mislabelled as GPU errors.
+///
+/// # Errors
+/// Returns [`EngineError::Image`] if the file cannot be opened or its format
+/// is unsupported / corrupt.
+fn load_wallpaper(path: &str) -> Result<RgbaFrame, EngineError> {
+    let img = image::open(path)
+        .map_err(|e| EngineError::Image(format!("wallpaper '{path}': {e}")))?
+        .into_rgba8();
+    let width = img.width();
+    let height = img.height();
+    Ok(RgbaFrame { width, height, data: img.into_raw() })
+}
+
 // ── Engine ────────────────────────────────────────────────────────────────────
 
 /// Offscreen render engine: decodes a frame, composites it, returns RGBA8 pixels.
@@ -86,9 +105,14 @@ impl Engine {
     /// Decode `frame_index` from the source, composite per `doc.framing`, and
     /// return the result as tightly-packed `RGBA8` bytes (`out_w * out_h * 4`).
     ///
+    /// When `doc.framing.background` is [`Background::Wallpaper`] the image at
+    /// the given path is loaded here (before the GPU phase) so that file-system
+    /// errors surface as [`EngineError::Image`] rather than a GPU error.
+    ///
     /// # Errors
-    /// Returns [`EngineError::Decode`] if the frame cannot be decoded, or
-    /// [`EngineError::Gpu`] if a GPU operation fails.
+    /// - [`EngineError::Decode`] if the video frame cannot be decoded.
+    /// - [`EngineError::Image`] if a wallpaper file cannot be opened or decoded.
+    /// - [`EngineError::Gpu`] if a GPU operation fails.
     pub fn render_to_texture(
         &mut self,
         doc: &ProjectDoc,
@@ -96,9 +120,24 @@ impl Engine {
     ) -> Result<Vec<u8>, EngineError> {
         let (out_w, out_h) = self.output_size();
         let frame = self.source.frame(frame_index)?;
-        let pixels = self
-            .compositor
-            .render_frame(&self.gpu, &doc.framing, &frame, out_w, out_h)?;
+
+        // Load wallpaper pixels ahead of the GPU phase so that I/O failures
+        // are reported as EngineError::Image, not EngineError::Gpu.
+        let wallpaper_frame: Option<RgbaFrame> =
+            if let Background::Wallpaper { path } = &doc.framing.background {
+                Some(load_wallpaper(path)?)
+            } else {
+                None
+            };
+
+        let pixels = self.compositor.render_frame(
+            &self.gpu,
+            &doc.framing,
+            &frame,
+            wallpaper_frame.as_ref(),
+            out_w,
+            out_h,
+        )?;
         Ok(pixels)
     }
 }

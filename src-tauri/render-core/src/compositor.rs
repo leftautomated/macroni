@@ -60,6 +60,12 @@ use crate::{
     gpu::{read_target_rgba, Gpu, GpuError},
 };
 
+// Mid-gray fallback fill used when Background::Wallpaper is requested but no
+// pre-decoded wallpaper pixels are supplied to the compositor.  This should
+// never happen in production (the engine always loads the image first), but
+// having a graceful fallback prevents any panic in library code.
+const FALLBACK_GRAY: [f32; 4] = [0.5, 0.5, 0.5, 1.0];
+
 // ── Uniform buffer ────────────────────────────────────────────────────────────
 //
 // Must be 16-byte aligned. Three vec4<f32> = 48 bytes total.
@@ -173,10 +179,12 @@ impl Compositor {
     ///
     /// The returned texture has usages `RENDER_ATTACHMENT | COPY_SRC | TEXTURE_BINDING`.
     ///
-    /// For [`Background::Wallpaper`] the image at `path` is loaded via the
-    /// `image` crate, uploaded as a GPU texture, and drawn **cover-fit**: the
-    /// image is scaled uniformly so that it fills the entire output rect, then
-    /// centred and cropped. This matches CSS `background-size: cover`.
+    /// For [`Background::Wallpaper`] the caller must supply pre-decoded RGBA8
+    /// pixels via `wallpaper`.  File loading is intentionally the engine's
+    /// responsibility so that load errors surface as [`EngineError::Image`]
+    /// rather than a GPU error.  If `wallpaper` is `None` when the background
+    /// is `Wallpaper` (which should not happen in production), a mid-gray fill
+    /// is rendered instead — no panic.
     ///
     /// # Errors
     /// Returns [`GpuError`] if device operations fail.
@@ -184,12 +192,13 @@ impl Compositor {
         &self,
         gpu: &Gpu,
         bg: &Background,
+        wallpaper: Option<&RgbaFrame>,
         out_w: u32,
         out_h: u32,
     ) -> Result<wgpu::Texture, GpuError> {
-        // ── Wallpaper: handled separately — load image + cover-fit quad draw ─
-        if let Background::Wallpaper { path } = bg {
-            return self.render_wallpaper(gpu, path, out_w, out_h);
+        // ── Wallpaper: handled separately — upload pre-decoded pixels + cover-fit quad draw ─
+        if let Background::Wallpaper { .. } = bg {
+            return self.render_wallpaper(gpu, wallpaper, out_w, out_h);
         }
 
         let device = &gpu.device;
@@ -216,9 +225,14 @@ impl Compositor {
                     out_h as f32,
                 ],
             },
-            // Wallpaper is handled by the early-return above; this arm is
-            // unreachable but required for exhaustive matching.
-            Background::Wallpaper { .. } => unreachable!("wallpaper handled above"),
+            // Wallpaper is handled by the early-return above; this branch is
+            // defensive dead code — use a mid-gray solid fill so the library
+            // never panics regardless of call order.
+            Background::Wallpaper { .. } => BgUniform {
+                color0: FALLBACK_GRAY,
+                color1: FALLBACK_GRAY,
+                params: [0.0, 0.0, out_w as f32, out_h as f32],
+            },
         };
 
         // ── Upload uniform to a GPU buffer ───────────────────────────────────
@@ -295,7 +309,7 @@ impl Compositor {
         Ok(target)
     }
 
-    /// Load a wallpaper image from `path`, upload it to the GPU, and draw it
+    /// Upload pre-decoded wallpaper pixels to the GPU and draw them
     /// **cover-fit** into a fresh `out_w × out_h` `Rgba8Unorm` texture.
     ///
     /// Cover-fit: scale the image uniformly so that both dimensions are at least
@@ -304,27 +318,38 @@ impl Compositor {
     /// crop is needed — instead we compute UV extents that map the _visible_
     /// output window onto the portion of the image we want to show.
     ///
+    /// When `wallpaper` is `None` (defensive: caller should always supply pixels
+    /// when the background is Wallpaper), a mid-gray solid fill is rendered
+    /// instead.  No panic.
+    ///
     /// # Errors
-    /// Returns [`GpuError::Readback`] wrapping an image-load message if the
-    /// file cannot be opened or decoded.
+    /// Returns [`GpuError`] if any GPU device operation fails.
     fn render_wallpaper(
         &self,
         gpu: &Gpu,
-        path: &str,
+        wallpaper: Option<&RgbaFrame>,
         out_w: u32,
         out_h: u32,
     ) -> Result<wgpu::Texture, GpuError> {
+        // Graceful fallback: if no pre-decoded pixels were supplied, fall back
+        // to a mid-gray solid fill rather than panicking.
+        let frame = match wallpaper {
+            Some(f) => f,
+            None => {
+                let bg = crate::doc::Background::Solid {
+                    color: crate::doc::Rgba([128, 128, 128, 255]),
+                };
+                return self.render_background(gpu, &bg, None, out_w, out_h);
+            }
+        };
+
         let device = &gpu.device;
         let queue = &gpu.queue;
 
-        // ── Load + convert image to RGBA8 ─────────────────────────────────────
-        let img = image::open(path)
-            .map_err(|e| GpuError::Readback(format!("wallpaper load error '{path}': {e}")))?
-            .into_rgba8();
-        let img_w = img.width();
-        let img_h = img.height();
+        let img_w = frame.width;
+        let img_h = frame.height;
 
-        // ── Upload image as a GPU texture ─────────────────────────────────────
+        // ── Upload pre-decoded RGBA8 pixels as a GPU texture ──────────────────
         let img_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("wallpaper_texture"),
             size: wgpu::Extent3d {
@@ -347,7 +372,7 @@ impl Compositor {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            img.as_raw(),
+            &frame.data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(img_w * 4),
@@ -596,6 +621,12 @@ impl Compositor {
     /// Render `video` composited over the background defined in `framing`, with
     /// `framing.padding_px` inset on every side and aspect-fit centering.
     ///
+    /// `wallpaper` must be `Some` when `framing.background` is
+    /// [`Background::Wallpaper`]; for `Solid` / `LinearGradient` backgrounds
+    /// it is ignored and should be `None`.  File-loading is intentionally the
+    /// caller's responsibility so that I/O errors can be surfaced as
+    /// [`EngineError::Image`] rather than a GPU error.
+    ///
     /// **Phase 1:** plain rect — no rounded corners, no shadow (Tasks 6–7).
     ///
     /// # How the fit rect is computed
@@ -612,6 +643,7 @@ impl Compositor {
         gpu: &Gpu,
         framing: &Framing,
         video: &RgbaFrame,
+        wallpaper: Option<&RgbaFrame>,
         out_w: u32,
         out_h: u32,
     ) -> Result<Vec<u8>, GpuError> {
@@ -619,7 +651,8 @@ impl Compositor {
         let queue = &gpu.queue;
 
         // ── Step 1: Render background into a texture ─────────────────────────
-        let bg_texture = self.render_background(gpu, &framing.background, out_w, out_h)?;
+        let bg_texture =
+            self.render_background(gpu, &framing.background, wallpaper, out_w, out_h)?;
 
         // ── Step 2: Upload video frame as a GPU texture ───────────────────────
         //

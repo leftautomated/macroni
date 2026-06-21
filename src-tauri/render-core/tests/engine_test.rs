@@ -77,3 +77,25 @@ fn engine_error_from_impls_compile() {
     let _: EngineError = EngineError::from(GpuError::NoAdapter);
     let _: EngineError = EngineError::Image("test".into());
 }
+
+/// Engine::render_to_texture with Background::Wallpaper pointing at a nonexistent
+/// path returns Err(EngineError::Image(_)), not a GPU error or a panic.
+#[test]
+fn render_to_texture_bad_wallpaper_path_returns_image_error() {
+    let src = render_core::decode::Mp4FrameSource::open(&fixture("solid.mp4"))
+        .expect("open solid.mp4");
+    let mut engine = Engine::new(Box::new(src)).expect("Engine::new");
+
+    let mut doc = render_core::doc::ProjectDoc::new_default("solid.mp4".into());
+    doc.framing.background =
+        render_core::doc::Background::Wallpaper { path: "/nonexistent/none.png".into() };
+
+    let err = engine
+        .render_to_texture(&mut doc, 0)
+        .expect_err("expected Err for bad wallpaper path");
+
+    assert!(
+        matches!(err, EngineError::Image(_)),
+        "expected EngineError::Image, got: {err}"
+    );
+}

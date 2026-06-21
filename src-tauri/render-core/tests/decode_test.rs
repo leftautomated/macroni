@@ -17,20 +17,65 @@ fn first_frame_is_rgba_correct_size() {
     assert_eq!(frame.data.len(), 64 * 48 * 4);
 }
 
+/// Extract the center pixel RGB from an RgbaFrame.
+fn center_rgb(f: &render_core::decode::RgbaFrame) -> [u8; 3] {
+    let (w, h) = (f.width as usize, f.height as usize);
+    let off = ((h / 2) * w + w / 2) * 4;
+    [f.data[off], f.data[off + 1], f.data[off + 2]]
+}
+
+/// Return the index of the largest channel (0=R, 1=G, 2=B).
+fn max_channel(c: [u8; 3]) -> usize {
+    (0..3).max_by_key(|&i| c[i]).unwrap()
+}
+
 /// Decode all frames sequentially via the FrameSource trait, then a backwards
 /// access. The forward path must NOT replay from frame 0 each time.
+///
+/// Strengthened: verifies per-frame content (red→green→blue) to prove
+/// the forward-cursor returns the CORRECT frame, not a stale/duplicate one.
 #[test]
 fn sequential_access_does_not_replay_from_zero() {
     let mut src = Mp4FrameSource::open(Path::new("tests/fixtures/solid.mp4")).unwrap();
     // Decode all frames in order via the trait; each must return the right frame.
     let n = render_core::decode::FrameSource::frame_count(&src);
+    let mut colors: Vec<[u8; 3]> = Vec::with_capacity(n);
     for i in 0..n {
         let f = render_core::decode::FrameSource::frame(&mut src, i).unwrap();
         assert_eq!((f.width, f.height), (64, 48));
+        colors.push(center_rgb(&f));
     }
-    // Random-access backwards still works (resets internally).
+
+    // Consecutive frames must be DISTINCT — a stale cursor returning the same
+    // frame every time would produce identical pixels and fail here.
+    assert!(
+        colors.windows(2).all(|w| w[0] != w[1]),
+        "consecutive frames must have distinct center pixels; got {:?}",
+        colors
+    );
+
+    // The fixture encodes solid red (frame 0), green (frame 1), blue (frame 2).
+    // After YUV round-trip the dominant channel must still match the expected order.
+    let expected_dominant = [0usize, 1, 2]; // R, G, B
+    for (i, (color, &expected)) in colors.iter().zip(expected_dominant.iter()).enumerate() {
+        let dominant = max_channel(*color);
+        assert_eq!(
+            dominant, expected,
+            "frame {i} dominant channel: expected {} got {} (rgb={:?})",
+            expected, dominant, color
+        );
+    }
+
+    // Random-access backwards still works (reset path returns the right frame).
     let f0 = render_core::decode::FrameSource::frame(&mut src, 0).unwrap();
     assert_eq!((f0.width, f0.height), (64, 48));
+    let color0 = center_rgb(&f0);
+    assert_eq!(
+        max_channel(color0),
+        0,
+        "after backward seek, frame 0 must still be dominant-red; got {:?}",
+        color0
+    );
 }
 
 /// Throughput benchmark — only runs when MACRONI_SAMPLE_MP4 is set.

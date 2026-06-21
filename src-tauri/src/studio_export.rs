@@ -32,11 +32,12 @@ pub fn studio_export(app: AppHandle, recording_id: String) -> Result<String, Str
         .find(|r| r.id == recording_id)
         .ok_or_else(|| format!("recording '{}' not found", recording_id))?;
 
+    // Fix #4: return a clear error instead of empty-string path when video is absent.
     let screen_path = recording
         .video
         .as_ref()
         .map(|v| v.path.clone())
-        .unwrap_or_default();
+        .ok_or_else(|| "recording has no video track".to_string())?;
 
     // Compute output path: <app_data>/exports/<recording_id>-<timestamp_ms>.mp4
     let exports_dir = app_data.join("exports");
@@ -61,35 +62,45 @@ pub fn studio_export(app: AppHandle, recording_id: String) -> Result<String, Str
     // Clone everything the thread needs.
     let thread_app = app.clone();
     let thread_out = out_path.clone();
-    let thread_out_str = out_path_str.clone();
     let thread_screen = screen_path.clone();
 
     std::thread::spawn(move || {
-        let result = (|| -> Result<(), String> {
-            // Open decoder + build headless engine on this thread.
-            // Mp4FrameSource is !Send, but it is created and consumed entirely on
-            // this single worker thread, so this is safe.
-            let src = Mp4FrameSource::open(std::path::Path::new(&thread_screen))
-                .map_err(|e| format!("open source: {e}"))?;
-            let mut engine = Engine::new(Box::new(src))
-                .map_err(|e| format!("engine init: {e}"))?;
+        // Fix #5: catch panics from Engine::new / engine.export so the frontend
+        // never gets stuck in isExporting=true on an unexpected crash.
+        let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let result = (|| -> Result<(), String> {
+                // Open decoder + build headless engine on this thread.
+                // Mp4FrameSource is !Send, but it is created and consumed entirely on
+                // this single worker thread, so this is safe.
+                let src = Mp4FrameSource::open(std::path::Path::new(&thread_screen))
+                    .map_err(|e| format!("open source: {e}"))?;
+                let mut engine = Engine::new(Box::new(src))
+                    .map_err(|e| format!("engine init: {e}"))?;
 
-            engine
-                .export(&doc, &thread_out, |p| {
-                    let _ = thread_app.emit("studio-export-progress", p);
-                })
-                .map_err(|e| format!("export: {e}"))?;
+                engine
+                    .export(&doc, &thread_out, |p| {
+                        let _ = thread_app.emit("studio-export-progress", p);
+                    })
+                    .map_err(|e| format!("export: {e}"))?;
 
-            Ok(())
-        })();
+                Ok(())
+            })();
 
-        match result {
-            Ok(()) => {
-                let _ = thread_app.emit("studio-export-done", thread_out_str);
+            match result {
+                Ok(()) => {
+                    let _ = thread_app.emit(
+                        "studio-export-done",
+                        thread_out.to_string_lossy().into_owned(),
+                    );
+                }
+                Err(e) => {
+                    let _ = thread_app.emit("studio-export-error", e);
+                }
             }
-            Err(e) => {
-                let _ = thread_app.emit("studio-export-error", e);
-            }
+        }));
+
+        if let Err(_) = panic_result {
+            let _ = app.emit("studio-export-error", "export crashed".to_string());
         }
     });
 

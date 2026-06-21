@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { type UnlistenFn, listen } from '@tauri-apps/api/event'
 
 interface Props {
   recordingId: string | null
@@ -10,57 +10,50 @@ export function ExportButton({ recordingId }: Props) {
   const [progress, setProgress] = useState<number | null>(null)
   const [outputPath, setOutputPath] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isExporting, setExporting] = useState(false)
 
+  // Register all three listeners once on mount so they're live before any export
+  // fires. A fast export can emit studio-export-done before listeners registered
+  // sequentially in a click handler have a chance to subscribe.
   useEffect(() => {
-    const unlisteners: UnlistenFn[] = []
-
-    const setup = async () => {
-      const ulProgress = await listen<number>('studio-export-progress', (e) => {
-        setProgress(e.payload * 100)
-      })
-      unlisteners.push(ulProgress)
-
-      const ulDone = await listen<string>('studio-export-done', (e) => {
-        setProgress(100)
+    let cancelled = false
+    const uls: UnlistenFn[] = []
+    Promise.all([
+      listen<number>('studio-export-progress', (e) => setProgress(e.payload * 100)),
+      listen<string>('studio-export-done', (e) => {
         setOutputPath(e.payload)
-      })
-      unlisteners.push(ulDone)
-
-      const ulError = await listen<string>('studio-export-error', (e) => {
+        setProgress(100)
+        setExporting(false)
+      }),
+      listen<string>('studio-export-error', (e) => {
         setError(e.payload)
-        setProgress(null)
-      })
-      unlisteners.push(ulError)
-    }
-
-    void setup()
-
+        setExporting(false)
+      }),
+    ]).then((list) => {
+      if (cancelled) list.forEach((u) => u())
+      else uls.push(...list)
+    })
     return () => {
-      for (const ul of unlisteners) ul()
+      cancelled = true
+      uls.forEach((u) => u())
     }
   }, [])
 
-  async function handleExport() {
+  function handleExport() {
     if (!recordingId) return
-    setProgress(0)
+    setProgress(null)
     setOutputPath(null)
     setError(null)
-    try {
-      await invoke('studio_export', { recordingId })
-    } catch (e) {
-      setError(String(e))
-      setProgress(null)
-    }
+    setExporting(true)
+    void invoke('studio_export', { recordingId })
   }
-
-  const isExporting = progress !== null && progress < 100
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <button
         type="button"
         disabled={!recordingId || isExporting}
-        onClick={() => void handleExport()}
+        onClick={handleExport}
         style={{
           padding: '8px 16px',
           borderRadius: 8,

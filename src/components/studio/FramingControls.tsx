@@ -1,7 +1,7 @@
 import { type Framing, type ProjectDoc } from '../../types/project'
 
 interface Props {
-  doc: ProjectDoc | null
+  doc: ProjectDoc
   onChange: (p: Partial<Framing>) => void
 }
 
@@ -36,13 +36,13 @@ function Slider({ label, value, min, max, step = 1, onValue, display }: SliderPr
 }
 
 export function FramingControls({ doc, onChange }: Props) {
-  const f = doc?.framing
+  const f = doc.framing
 
-  const paddingPx = f?.paddingPx ?? 64
-  const borderRadiusPx = f?.borderRadiusPx ?? 12
-  const blurPx = f?.shadow.blurPx ?? 32
-  const offsetYPx = f?.shadow.offsetYPx ?? 16
-  const opacity = f?.shadow.opacity ?? 0.35
+  const paddingPx = f.paddingPx
+  const borderRadiusPx = f.borderRadiusPx
+  const blurPx = f.shadow.blurPx
+  const offsetYPx = f.shadow.offsetYPx
+  const opacity = f.shadow.opacity
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -78,7 +78,7 @@ export function FramingControls({ doc, onChange }: Props) {
         min={0}
         max={80}
         onValue={(v) =>
-          onChange({ shadow: { ...doc!.framing.shadow, blurPx: v } })
+          onChange({ shadow: { ...doc.framing.shadow, blurPx: v } })
         }
         display={`${Math.round(blurPx)}px`}
       />
@@ -89,7 +89,7 @@ export function FramingControls({ doc, onChange }: Props) {
         min={0}
         max={60}
         onValue={(v) =>
-          onChange({ shadow: { ...doc!.framing.shadow, offsetYPx: v } })
+          onChange({ shadow: { ...doc.framing.shadow, offsetYPx: v } })
         }
         display={`${Math.round(offsetYPx)}px`}
       />
@@ -101,7 +101,7 @@ export function FramingControls({ doc, onChange }: Props) {
         max={1}
         step={0.05}
         onValue={(v) =>
-          onChange({ shadow: { ...doc!.framing.shadow, opacity: v } })
+          onChange({ shadow: { ...doc.framing.shadow, opacity: v } })
         }
         display={opacity.toFixed(2)}
       />

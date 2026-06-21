@@ -54,7 +54,12 @@ export function StudioEditor() {
       })
   }, [])
 
-  // Open preview once we have both recordingId and the hole in the DOM
+  // Open preview once per recordingId. Reset the guard whenever recordingId
+  // changes so a future recording switch re-opens the preview correctly.
+  useEffect(() => {
+    previewOpenedRef.current = false
+  }, [recordingId])
+
   useEffect(() => {
     if (!recordingId || previewOpenedRef.current) return
     const el = holeRef.current

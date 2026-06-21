@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { type Background, type Framing, type ProjectDoc, type Rgba } from '../../types/project'
 
 function hexToRgba(hex: string): Rgba {
@@ -17,34 +16,28 @@ function rgbaToHex(rgba: Rgba): string {
 type BgType = 'solid' | 'linear_gradient' | 'wallpaper'
 
 interface Props {
-  doc: ProjectDoc | null
+  doc: ProjectDoc
   onChange: (p: Partial<Framing>) => void
 }
 
 export function BackgroundPicker({ doc, onChange }: Props) {
-  const bg = doc?.framing.background
+  const bg = doc.framing.background
 
   // Derive current tab from the doc bg type, default to 'solid'
-  const currentType: BgType = bg?.type ?? 'solid'
-
-  // Local state for the tab selector (in case doc is null during init)
-  const [tab, setTab] = useState<BgType>(currentType)
+  const currentType: BgType = bg.type
 
   // Use doc's values when available, otherwise sensible defaults
   const solidColor: Rgba =
-    bg?.type === 'solid' ? bg.color : [30, 30, 30, 255]
+    bg.type === 'solid' ? bg.color : [30, 30, 30, 255]
 
   const gradFrom: Rgba =
-    bg?.type === 'linear_gradient' ? bg.from : [0, 0, 0, 255]
+    bg.type === 'linear_gradient' ? bg.from : [0, 0, 0, 255]
   const gradTo: Rgba =
-    bg?.type === 'linear_gradient' ? bg.to : [255, 255, 255, 255]
+    bg.type === 'linear_gradient' ? bg.to : [255, 255, 255, 255]
   const gradAngle: number =
-    bg?.type === 'linear_gradient' ? bg.angleDeg : 135
+    bg.type === 'linear_gradient' ? bg.angleDeg : 135
 
-  const wallpaperPath: string = bg?.type === 'wallpaper' ? bg.path : ''
-
-  // Keep tab in sync with doc (when doc loads after mount)
-  const effectiveTab = doc ? currentType : tab
+  const wallpaperPath: string = bg.type === 'wallpaper' ? bg.path : ''
 
   function emitBackground(background: Background) {
     onChange({ background })
@@ -73,9 +66,8 @@ export function BackgroundPicker({ doc, onChange }: Props) {
           <button
             key={t}
             type="button"
-            style={tabStyle(effectiveTab === t)}
+            style={tabStyle(currentType === t)}
             onClick={() => {
-              setTab(t)
               if (t === 'solid') {
                 emitBackground({ type: 'solid', color: solidColor })
               } else if (t === 'linear_gradient') {
@@ -91,7 +83,7 @@ export function BackgroundPicker({ doc, onChange }: Props) {
       </div>
 
       {/* Solid */}
-      {effectiveTab === 'solid' && (
+      {currentType === 'solid' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input
             type="color"
@@ -106,7 +98,7 @@ export function BackgroundPicker({ doc, onChange }: Props) {
       )}
 
       {/* Linear gradient */}
-      {effectiveTab === 'linear_gradient' && (
+      {currentType === 'linear_gradient' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', minWidth: 32 }}>From</label>
@@ -149,7 +141,7 @@ export function BackgroundPicker({ doc, onChange }: Props) {
       )}
 
       {/* Wallpaper */}
-      {effectiveTab === 'wallpaper' && (
+      {currentType === 'wallpaper' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Image path</label>
           <input

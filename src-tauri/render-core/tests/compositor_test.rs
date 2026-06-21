@@ -1,4 +1,5 @@
 use render_core::compositor::Compositor;
+use render_core::decode::RgbaFrame;
 use render_core::doc::{Background, Rgba};
 use render_core::gpu::Gpu;
 
@@ -22,6 +23,36 @@ fn solid_background_fills() {
             && (p[2] as i32 - 50).abs() <= 2,
         "expected ~(200,50,50) got {:?}",
         p
+    );
+}
+
+#[test]
+fn padding_insets_video_over_background() {
+    let gpu = Gpu::headless().unwrap();
+    let c = Compositor::new(&gpu).unwrap();
+    let framing = render_core::doc::Framing {
+        background: Background::Solid { color: Rgba([0, 0, 255, 255]) },
+        padding_px: 20.0,
+        border_radius_px: 0.0,
+        shadow: render_core::doc::Shadow { blur_px: 0.0, offset_y_px: 0.0, opacity: 0.0 },
+    };
+    // Solid red video frame 64×48
+    let video = RgbaFrame { width: 64, height: 48, data: vec![255, 0, 0, 255].repeat(64 * 48) };
+    let out = c.render_frame(&gpu, &framing, &video, 200, 120).unwrap();
+    let p = |x: u32, y: u32| {
+        let i = ((y * 200 + x) * 4) as usize;
+        [out[i], out[i + 1], out[i + 2], out[i + 3]]
+    };
+    // Corner pixel (2,2) must be blue background — inside the 20px padding band
+    assert_eq!(p(2, 2)[2], 255, "corner should be blue bg, got {:?}", p(2, 2));
+    // (10, 60) is in the left padding band — must also be blue
+    assert_eq!(p(10, 60)[2], 255, "left padding should be blue bg, got {:?}", p(10, 60));
+    // Center (100, 60) must be red video
+    let center = p(100, 60);
+    assert!(
+        center[0] > 200 && center[2] < 60,
+        "center should be red video, got {:?}",
+        center
     );
 }
 

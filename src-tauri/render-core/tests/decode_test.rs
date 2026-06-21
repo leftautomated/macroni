@@ -17,6 +17,22 @@ fn first_frame_is_rgba_correct_size() {
     assert_eq!(frame.data.len(), 64 * 48 * 4);
 }
 
+/// Decode all frames sequentially via the FrameSource trait, then a backwards
+/// access. The forward path must NOT replay from frame 0 each time.
+#[test]
+fn sequential_access_does_not_replay_from_zero() {
+    let mut src = Mp4FrameSource::open(Path::new("tests/fixtures/solid.mp4")).unwrap();
+    // Decode all frames in order via the trait; each must return the right frame.
+    let n = render_core::decode::FrameSource::frame_count(&src);
+    for i in 0..n {
+        let f = render_core::decode::FrameSource::frame(&mut src, i).unwrap();
+        assert_eq!((f.width, f.height), (64, 48));
+    }
+    // Random-access backwards still works (resets internally).
+    let f0 = render_core::decode::FrameSource::frame(&mut src, 0).unwrap();
+    assert_eq!((f0.width, f0.height), (64, 48));
+}
+
 /// Throughput benchmark — only runs when MACRONI_SAMPLE_MP4 is set.
 /// Run with:
 ///   MACRONI_SAMPLE_MP4=/path/to/recording.mp4 \

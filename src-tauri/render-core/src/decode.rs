@@ -42,13 +42,33 @@ impl std::fmt::Display for DecodeError {
 
 impl std::error::Error for DecodeError {}
 
+/// A source of decoded RGBA frames backed by a media file or synthetic generator.
+///
+/// Implementations are free to cache or decode lazily. The only contract is:
+/// - `frame(i)` returns the correct RGBA frame for index `i`.
+/// - Sequential access (`0, 1, 2, …`) SHOULD be efficient; random-access MUST be correct.
+pub trait FrameSource {
+    /// Returns `(width, height)` in pixels.
+    fn dimensions(&self) -> (u32, u32);
+
+    /// Total number of frames available.
+    fn frame_count(&self) -> usize;
+
+    /// Decode and return the RGBA frame at `index`.
+    ///
+    /// # Errors
+    /// Returns [`DecodeError::NoFrame`] when `index >= frame_count()`.
+    fn frame(&mut self, index: usize) -> Result<RgbaFrame, DecodeError>;
+}
+
 /// Reads an MP4 file on `open`, demuxes all H.264 samples into Annex-B access
 /// units (held in memory), and decodes them one at a time via openh264.
 ///
-/// # Sequential decode
-/// openh264 is a stateful decoder: it must receive frames in order. For this
-/// spike, `decode_frame(index)` feeds all samples from 0 through `index`,
-/// returning the last decoded RGBA frame. Frame-level caching is a Phase-1 concern.
+/// # Forward-cursor cache
+/// The decoder is kept alive between calls. `cursor` records the last frame index
+/// that was produced. When `frame(i)` is called with `i == cursor + 1` the decoder
+/// just receives the next access unit (O(1)). Any backwards or non-sequential
+/// access resets the decoder and re-feeds from the beginning (O(n)).
 pub struct Mp4FrameSource {
     decoder: Decoder,
     /// SPS + PPS packed as Annex-B (prepended to the first keyframe access unit).
@@ -57,6 +77,85 @@ pub struct Mp4FrameSource {
     samples_annexb: Vec<Vec<u8>>,
     width: u32,
     height: u32,
+    /// Index of the last frame that was successfully produced, or `None` if the
+    /// decoder has never produced a frame since the last reset.
+    cursor: Option<usize>,
+}
+
+impl FrameSource for Mp4FrameSource {
+    fn dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn frame_count(&self) -> usize {
+        self.samples_annexb.len()
+    }
+
+    /// Decode and return the frame at `index` using a forward-cursor strategy.
+    ///
+    /// # Forward path (O(1) amortised)
+    /// When `index == cursor + 1` the existing decoder receives only the next
+    /// access unit. This is the hot path for sequential export.
+    ///
+    /// # Reset path (O(n))
+    /// Any other `index` (backwards seek, gap, or first call) recreates the
+    /// decoder, feeds the Annex-B SPS+PPS header, then replays samples `0..=index`.
+    fn frame(&mut self, index: usize) -> Result<RgbaFrame, DecodeError> {
+        if index >= self.samples_annexb.len() {
+            return Err(DecodeError::NoFrame);
+        }
+
+        // Determine whether we can use the forward path.
+        let forward = matches!(self.cursor, Some(c) if index == c + 1);
+
+        if forward {
+            // Fast path: feed only the next access unit.
+            let yuv_opt = self
+                .decoder
+                .decode(&self.samples_annexb[index])
+                .map_err(|e| DecodeError::Codec(e.to_string()))?;
+
+            if let Some(yuv) = yuv_opt {
+                let frame = yuv_to_rgba(&yuv);
+                self.cursor = Some(index);
+                return Ok(frame);
+            }
+            // Decoder returned None despite feeding a real sample (warm-up artefact
+            // on forward path is unexpected, but handle it defensively by falling
+            // through to the reset path so the caller always gets a frame).
+        }
+
+        // Reset path: recreate decoder and replay from the beginning.
+        self.decoder = Decoder::new().map_err(|e| DecodeError::Codec(e.to_string()))?;
+        self.cursor = None;
+
+        let mut last_frame: Option<RgbaFrame> = None;
+
+        for i in 0..=index {
+            // Prepend SPS+PPS header to the first access unit so the decoder has
+            // parameter sets before it sees any slice data.
+            let packet: Vec<u8> = if i == 0 {
+                let mut p = self.annexb_header.clone();
+                p.extend_from_slice(&self.samples_annexb[i]);
+                p
+            } else {
+                self.samples_annexb[i].clone()
+            };
+
+            let yuv_opt = self
+                .decoder
+                .decode(&packet)
+                .map_err(|e| DecodeError::Codec(e.to_string()))?;
+
+            if let Some(yuv) = yuv_opt {
+                last_frame = Some(yuv_to_rgba(&yuv));
+            }
+        }
+
+        let frame = last_frame.ok_or(DecodeError::NoFrame)?;
+        self.cursor = Some(index);
+        Ok(frame)
+    }
 }
 
 impl Mp4FrameSource {
@@ -132,64 +231,43 @@ impl Mp4FrameSource {
             samples_annexb,
             width,
             height,
+            cursor: None,
         })
     }
 
     /// Returns `(width, height)` in pixels.
+    ///
+    /// This is a convenience forwarder to [`FrameSource::dimensions`].
     pub fn dimensions(&self) -> (u32, u32) {
-        (self.width, self.height)
+        FrameSource::dimensions(self)
     }
 
     /// Number of video frames (samples) in the file.
+    ///
+    /// This is a convenience forwarder to [`FrameSource::frame_count`].
     pub fn frame_count(&self) -> usize {
-        self.samples_annexb.len()
+        FrameSource::frame_count(self)
     }
 
     /// Decode and return the frame at `index`.
     ///
-    /// Because openh264 is stateful this resets the decoder and feeds all
-    /// samples from 0 through `index`, returning the RGBA frame for `index`.
-    /// This is the correct spike behaviour; caching is deferred to Phase 1.
+    /// Delegates to [`FrameSource::frame`], which uses a forward-cursor strategy
+    /// (O(1) amortised for sequential access, O(n) on rewind/seek).
     pub fn decode_frame(&mut self, index: usize) -> Result<RgbaFrame, DecodeError> {
-        if index >= self.samples_annexb.len() {
-            return Err(DecodeError::NoFrame);
-        }
+        FrameSource::frame(self, index)
+    }
+}
 
-        // Reset the decoder so we can seek to any index safely.
-        self.decoder = Decoder::new().map_err(|e| DecodeError::Codec(e.to_string()))?;
-
-        let mut last_frame: Option<RgbaFrame> = None;
-
-        for i in 0..=index {
-            // For the very first sample prepend the SPS+PPS Annex-B header so
-            // the decoder has parameter sets before it sees slice data.
-            let packet: Vec<u8> = if i == 0 {
-                let mut p = self.annexb_header.clone();
-                p.extend_from_slice(&self.samples_annexb[i]);
-                p
-            } else {
-                self.samples_annexb[i].clone()
-            };
-
-            let yuv_opt = self
-                .decoder
-                .decode(&packet)
-                .map_err(|e| DecodeError::Codec(e.to_string()))?;
-
-            if let Some(yuv) = yuv_opt {
-                use openh264::formats::YUVSource;
-                let (w, h) = yuv.dimensions(); // (usize, usize) from YUVSource trait
-                let mut buf = vec![0u8; w * h * 4];
-                yuv.write_rgba8(&mut buf);
-                last_frame = Some(RgbaFrame {
-                    width: w as u32,
-                    height: h as u32,
-                    data: buf,
-                });
-            }
-        }
-
-        last_frame.ok_or(DecodeError::NoFrame)
+/// Convert a decoded YUV frame into an [`RgbaFrame`].
+fn yuv_to_rgba(yuv: &openh264::decoder::DecodedYUV<'_>) -> RgbaFrame {
+    use openh264::formats::YUVSource;
+    let (w, h) = yuv.dimensions();
+    let mut buf = vec![0u8; w * h * 4];
+    yuv.write_rgba8(&mut buf);
+    RgbaFrame {
+        width: w as u32,
+        height: h as u32,
+        data: buf,
     }
 }
 

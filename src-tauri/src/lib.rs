@@ -8,6 +8,7 @@ mod playback;
 // Phase 0 spike (Task 5) — THROWAWAY native preview surface. macOS-only.
 #[cfg(target_os = "macos")]
 mod preview_surface;
+mod project_store;
 mod recording_session;
 mod recordings_store;
 mod settings;
@@ -455,6 +456,8 @@ pub fn run() {
             permissions::request_screen_recording,
             open_playback_window,
             get_app_data_dir,
+            project_store::studio_load_project,
+            project_store::studio_save_project,
             // Phase 0 spike (Task 5) — macOS-only native preview surface command.
             #[cfg(target_os = "macos")]
             preview_surface::spike_show_surface,

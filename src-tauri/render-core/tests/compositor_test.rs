@@ -95,3 +95,26 @@ fn horizontal_gradient_goes_dark_to_light() {
         "expected strong L→R ramp, got {left}->{right}"
     );
 }
+
+#[test]
+fn drop_shadow_darkens_below_video() {
+    let gpu = Gpu::headless().unwrap();
+    let c = Compositor::new(&gpu).unwrap();
+    let mk = |op: f32| render_core::doc::Framing {
+        background: Background::Solid { color: Rgba([255, 255, 255, 255]) },
+        padding_px: 30.0,
+        border_radius_px: 0.0,
+        shadow: render_core::doc::Shadow { blur_px: 16.0, offset_y_px: 12.0, opacity: op },
+    };
+    let video = RgbaFrame { width: 100, height: 60, data: vec![255, 0, 0, 255].repeat(100 * 60) };
+    let with = c.render_frame(&gpu, &mk(0.5), &video, 200, 160).unwrap();
+    let without = c.render_frame(&gpu, &mk(0.0), &video, 200, 160).unwrap();
+    // sample a point just below the video rect, within the shadow band
+    let idx = ((120u32 * 200 + 100) * 4) as usize; // x=100 (center col), y=120 (below video)
+    assert!(
+        (with[idx] as i32) < (without[idx] as i32) - 20,
+        "shadow should darken below the video: with={}, without={}",
+        with[idx],
+        without[idx]
+    );
+}

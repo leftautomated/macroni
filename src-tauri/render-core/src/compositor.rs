@@ -28,6 +28,32 @@ struct VideoUniform {
     _pad: f32,
 }
 
+// ── Shadow uniform ────────────────────────────────────────────────────────────
+//
+// Passed to `shadow.wgsl` as group(0)/binding(0).
+// Must be 16-byte aligned. Total = 48 bytes (3 × vec4<f32>).
+//   [0..8]   rect_min    (vec2<f32>: top-left pixel of shadow rect)
+//   [8..16]  rect_size   (vec2<f32>: pixel width, height of the shadow rect)
+//   [16..20] radius_px   (f32)
+//   [20..24] blur_px     (f32)
+//   [24..28] opacity     (f32)
+//   [28..36] target_size (vec2<f32>: render target pixel dimensions)
+//   [36..40] _pad0       (f32)
+//   [40..48] _pad1       (f32 × 2 — fills to the next 16-byte boundary)
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct ShadowUniform {
+    rect_min: [f32; 2],    // 8 bytes
+    rect_size: [f32; 2],   // 8 bytes  → 16 total
+    radius_px: f32,        // 4 bytes
+    blur_px: f32,          // 4 bytes
+    opacity: f32,          // 4 bytes
+    _pad0: f32,            // 4 bytes  → 32 total
+    target_size: [f32; 2], // 8 bytes
+    _pad1: [f32; 2],       // 8 bytes  → 48 total
+}
+
 use crate::{
     decode::RgbaFrame,
     doc::{Background, Framing, Rgba},
@@ -358,8 +384,10 @@ impl Compositor {
         let avail_w = out_w as f32 - 2.0 * pad;
         let avail_h = out_h as f32 - 2.0 * pad;
 
-        // Uniform scale that fits the video within the available area:
-        let scale = (avail_w / video.width as f32).min(avail_h / video.height as f32);
+        // Uniform scale that fits the video within the available area.
+        // Capped at 1.0: the compositor downscales to fit but never upscales.
+        let scale =
+            (avail_w / video.width as f32).min(avail_h / video.height as f32).min(1.0);
         let fit_w = video.width as f32 * scale;
         let fit_h = video.height as f32 * scale;
 
@@ -547,6 +575,137 @@ impl Compositor {
             mapped_at_creation: false,
         });
         queue.write_buffer(&vertex_buffer, 0, vertex_bytes);
+
+        // ── Step 5b: Shadow pass — blend soft drop shadow over the background ─
+        //
+        // Only run if shadow opacity > 0 to avoid unnecessary GPU work on
+        // zero-opacity shadows (also preserves existing test behaviour).
+        if framing.shadow.opacity > 0.0 {
+            // Shadow rect = video fit rect, shifted DOWN by offset_y_px.
+            // In render-target pixel space, "down" = increasing Y.
+            let shadow_rect_min = [px_left, px_top + framing.shadow.offset_y_px];
+            let shadow_rect_size = [fit_w, fit_h];
+
+            let shadow_uniform = ShadowUniform {
+                rect_min: shadow_rect_min,
+                rect_size: shadow_rect_size,
+                radius_px: framing.border_radius_px,
+                blur_px: framing.shadow.blur_px,
+                opacity: framing.shadow.opacity,
+                _pad0: 0.0,
+                target_size: [out_w as f32, out_h as f32],
+                _pad1: [0.0, 0.0],
+            };
+            let shadow_bytes: &[u8] = bytemuck::bytes_of(&shadow_uniform);
+            let shadow_buf = device.create_buffer(&BufferDescriptor {
+                label: Some("shadow_uniform"),
+                size: shadow_bytes.len() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            queue.write_buffer(&shadow_buf, 0, shadow_bytes);
+
+            let shadow_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("shadow_bgl"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+            let shadow_bind_group = device.create_bind_group(&BindGroupDescriptor {
+                label: Some("shadow_bg"),
+                layout: &shadow_bgl,
+                entries: &[BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Buffer(shadow_buf.as_entire_buffer_binding()),
+                }],
+            });
+
+            let shadow_shader_src = include_str!("shaders/shadow.wgsl");
+            let shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("shadow_shader"),
+                source: wgpu::ShaderSource::Wgsl(shadow_shader_src.into()),
+            });
+
+            let shadow_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("shadow_pipeline_layout"),
+                    bind_group_layouts: &[Some(&shadow_bgl)],
+                    immediate_size: 0,
+                });
+
+            // Alpha blending: src_alpha + (1 - src_alpha) * dst
+            // Shadow writes (0,0,0,a); blends black at `a` over the background.
+            let shadow_pipeline =
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("shadow_pipeline"),
+                    layout: Some(&shadow_pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shadow_shader,
+                        entry_point: Some("vs"),
+                        buffers: &[], // full-screen triangle, no vertex buffer
+                        compilation_options: Default::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shadow_shader,
+                        entry_point: Some("fs"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: TextureFormat::Rgba8Unorm,
+                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
+                });
+
+            let shadow_view = bg_texture.create_view(&TextureViewDescriptor::default());
+            let mut shadow_encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("shadow_encoder"),
+            });
+
+            {
+                let mut shadow_pass =
+                    shadow_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("shadow_pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &shadow_view,
+                            resolve_target: None,
+                            depth_slice: None,
+                            ops: wgpu::Operations {
+                                // Load the background; shadow blends on top.
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+
+                shadow_pass.set_pipeline(&shadow_pipeline);
+                shadow_pass.set_bind_group(0, &shadow_bind_group, &[]);
+                // Full-screen triangle: 3 vertices, no vertex buffer.
+                shadow_pass.draw(0..3, 0..1);
+            }
+
+            queue.submit(std::iter::once(shadow_encoder.finish()));
+        }
 
         // ── Step 6: Render pass — load bg texture, draw video quad ───────────
         //

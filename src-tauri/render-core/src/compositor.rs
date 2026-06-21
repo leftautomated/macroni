@@ -12,6 +12,22 @@ use wgpu::{
     TextureFormat, TextureUsages, TextureViewDescriptor,
 };
 
+// ── Video uniform ─────────────────────────────────────────────────────────────
+//
+// Passed to `framed_video.wgsl` as group(1)/binding(0).
+// Must be 16-byte aligned.
+//   [0..8]   size_px   (vec2<f32>: pixel width, height of the video quad)
+//   [8..12]  radius_px (f32: corner radius; 0 = square)
+//   [12..16] _pad      (f32: padding to reach 16 bytes)
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct VideoUniform {
+    size_px: [f32; 2],
+    radius_px: f32,
+    _pad: f32,
+}
+
 use crate::{
     decode::RgbaFrame,
     doc::{Background, Framing, Rgba},
@@ -377,7 +393,7 @@ impl Compositor {
             ndc_right, ndc_bot,  1.0, 1.0,  // BR
         ];
 
-        // ── Step 4: Build sampler + bind group + pipeline ────────────────────
+        // ── Step 4: Build sampler + bind groups + pipeline ───────────────────
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("framed_video_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -388,6 +404,7 @@ impl Compositor {
             ..Default::default()
         });
 
+        // group(0): texture + sampler
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("framed_video_bgl"),
             entries: &[
@@ -425,6 +442,44 @@ impl Compositor {
             ],
         });
 
+        // group(1): VideoUniform — quad pixel size + corner radius for the SDF mask.
+        let video_uniform = VideoUniform {
+            size_px: [fit_w, fit_h],
+            radius_px: framing.border_radius_px,
+            _pad: 0.0,
+        };
+        let video_uniform_bytes: &[u8] = bytemuck::bytes_of(&video_uniform);
+        let video_uniform_buf = device.create_buffer(&BufferDescriptor {
+            label: Some("framed_video_uniform"),
+            size: video_uniform_bytes.len() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&video_uniform_buf, 0, video_uniform_bytes);
+
+        let video_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("framed_video_uniform_bgl"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        let video_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("framed_video_uniform_bg"),
+            layout: &video_bgl,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Buffer(video_uniform_buf.as_entire_buffer_binding()),
+            }],
+        });
+
         let shader_src = include_str!("shaders/framed_video.wgsl");
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("framed_video_shader"),
@@ -433,7 +488,7 @@ impl Compositor {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("framed_video_pipeline_layout"),
-            bind_group_layouts: &[Some(&bgl)],
+            bind_group_layouts: &[Some(&bgl), Some(&video_bgl)],
             immediate_size: 0,
         });
 
@@ -524,6 +579,7 @@ impl Compositor {
 
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
+            pass.set_bind_group(1, &video_bind_group, &[]);
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             pass.draw(0..6, 0..1);
         }

@@ -57,6 +57,27 @@ fn padding_insets_video_over_background() {
 }
 
 #[test]
+fn rounded_corners_show_background_at_corner() {
+    let gpu = Gpu::headless().unwrap();
+    let c = Compositor::new(&gpu).unwrap();
+    let framing = render_core::doc::Framing {
+        background: Background::Solid { color: Rgba([0, 0, 255, 255]) },
+        padding_px: 0.0,
+        border_radius_px: 40.0,
+        shadow: render_core::doc::Shadow { blur_px: 0.0, offset_y_px: 0.0, opacity: 0.0 },
+    };
+    let video = RgbaFrame { width: 200, height: 120, data: vec![255, 0, 0, 255].repeat(200 * 120) };
+    let out = c.render_frame(&gpu, &framing, &video, 200, 120).unwrap();
+    let p = |x: u32, y: u32| {
+        let i = ((y * 200 + x) * 4) as usize;
+        [out[i], out[i + 1], out[i + 2], out[i + 3]]
+    };
+    assert_eq!(p(1, 1)[2], 255, "corner should be background (blue) due to radius, got {:?}", p(1, 1));
+    let center = p(100, 60);
+    assert!(center[0] > 200 && center[2] < 60, "center should be red video, got {:?}", center);
+}
+
+#[test]
 fn horizontal_gradient_goes_dark_to_light() {
     let gpu = Gpu::headless().unwrap();
     let c = Compositor::new(&gpu).unwrap();

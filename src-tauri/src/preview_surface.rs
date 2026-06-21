@@ -139,17 +139,23 @@ pub fn spike_show_surface(
             //
             //   x_pt = x / scale
             //   w_pt = w / scale,  h_pt = h / scale
-            //   content height in points = contentView.bounds.height
+            //   content height in points = window content-rect height (below title bar)
             //   appkit_y = content_height_pt - (y_pt + h_pt)
             //
-            // contentView is the WKWebview's superview and uses the same
-            // top-of-window reference as the web layout, so this maps the div's
-            // top-left (web) to the NSView's bottom-left (AppKit).
+            // NOTE: we must flip against the *content rect* height, NOT
+            // contentView.bounds().height. Tauri/wry uses a full-size content
+            // view, so contentView spans *under* the title bar while the
+            // WKWebview (the reference for the web layout / getBoundingClientRect)
+            // is inset below it. Flipping against the full contentView height
+            // shifts the surface UP by the title-bar height. contentRectForFrameRect
+            // yields the correct content-area height for both full-size and
+            // standard decorated windows.
             let x_pt = x / scale;
             let y_pt = y / scale;
             let w_pt = (w / scale).max(1.0);
             let h_pt = (h / scale).max(1.0);
-            let content_h_pt = content_view.bounds().size.height;
+            let content_rect = ns_window.contentRectForFrameRect(ns_window.frame());
+            let content_h_pt = content_rect.size.height;
             let appkit_y = content_h_pt - (y_pt + h_pt);
             let frame = NSRect::new(NSPoint::new(x_pt, appkit_y), NSSize::new(w_pt, h_pt));
 

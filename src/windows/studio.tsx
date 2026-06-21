@@ -2,6 +2,16 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { StudioSpike } from '@/components/studio/StudioSpike'
 
+// Reset default margins and forbid document scroll so the transparent hole
+// stays at a fixed viewport position (the native surface is positioned in
+// window coords and does not follow scroll).
+for (const el of [document.documentElement, document.body]) {
+  el.style.margin = '0'
+  el.style.height = '100%'
+  el.style.overflow = 'hidden'
+  el.style.background = 'transparent'
+}
+
 // Phase 0 spike (Task 5) entry point. THROWAWAY discovery code.
 //
 // This window proves whether a native wgpu/Metal surface can render UNDER a

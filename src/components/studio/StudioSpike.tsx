@@ -54,8 +54,12 @@ export function StudioSpike() {
   return (
     <div
       style={{
-        width: '100vw',
-        height: '100vh',
+        // Pin to the viewport and forbid scrolling: an editor preview is a
+        // fixed region. If the document could scroll, the hole div would move
+        // while the native surface (positioned in window coords) stayed put.
+        position: 'fixed',
+        inset: 0,
+        overflow: 'hidden',
         // Transparent so the native layer can show through the hole. A faint
         // tint on the chrome (NOT the hole) helps the human see the webview vs.
         // the native surface boundary.

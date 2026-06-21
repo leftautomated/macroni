@@ -5,7 +5,7 @@ mod event_capture;
 mod key_mapping;
 mod permissions;
 mod playback;
-// Phase 0 spike (Task 5) — THROWAWAY native preview surface. macOS-only.
+// Native studio preview surface (Phase 1, Task 11). macOS-only.
 #[cfg(target_os = "macos")]
 mod preview_surface;
 mod project_store;
@@ -432,9 +432,9 @@ pub fn run() {
         })
         .manage(state);
 
-    // Phase 0 spike (Task 5) — manage the native preview surface state (macOS).
+    // Native studio preview surface (Phase 1, Task 11) — managed state (macOS).
     #[cfg(target_os = "macos")]
-    let builder = builder.manage(preview_surface::SpikeState::default());
+    let builder = builder.manage(preview_surface::StudioState::default());
 
     builder
         .invoke_handler(tauri::generate_handler![
@@ -458,9 +458,13 @@ pub fn run() {
             get_app_data_dir,
             project_store::studio_load_project,
             project_store::studio_save_project,
-            // Phase 0 spike (Task 5) — macOS-only native preview surface command.
+            // Native studio preview surface (Phase 1, Task 11) — macOS-only.
             #[cfg(target_os = "macos")]
-            preview_surface::spike_show_surface,
+            preview_surface::studio_attach_surface,
+            #[cfg(target_os = "macos")]
+            preview_surface::studio_open_preview,
+            #[cfg(target_os = "macos")]
+            preview_surface::studio_render_preview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

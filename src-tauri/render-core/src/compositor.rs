@@ -647,6 +647,38 @@ impl Compositor {
         out_w: u32,
         out_h: u32,
     ) -> Result<Vec<u8>, GpuError> {
+        // Render the full scene into an offscreen Rgba8Unorm texture, then read
+        // it back to CPU. The texture-producing path is shared with
+        // [`Compositor::render_to_texture_handle`] so the surface (preview) path
+        // can keep the texture handle instead of reading back.
+        let target =
+            self.render_to_texture_handle(gpu, framing, video, wallpaper, out_w, out_h)?;
+        read_target_rgba(gpu, &target, out_w, out_h)
+    }
+
+    /// Render `video` composited over `framing`'s background (plus optional
+    /// shadow) into a fresh `out_w × out_h` `Rgba8Unorm` texture, returning the
+    /// **texture handle** (not read back to CPU).
+    ///
+    /// This is the shared scene-rendering body used by both
+    /// [`Compositor::render_frame`] (which reads back to a `Vec<u8>`) and the
+    /// host preview surface path (which blits the texture onto a swapchain).
+    /// The returned texture has usages
+    /// `RENDER_ATTACHMENT | COPY_SRC | TEXTURE_BINDING`.
+    ///
+    /// See [`Compositor::render_frame`] for the fit-rect math and pass details.
+    ///
+    /// # Errors
+    /// Returns [`GpuError`] if any GPU operation fails.
+    pub fn render_to_texture_handle(
+        &self,
+        gpu: &Gpu,
+        framing: &Framing,
+        video: &RgbaFrame,
+        wallpaper: Option<&RgbaFrame>,
+        out_w: u32,
+        out_h: u32,
+    ) -> Result<wgpu::Texture, GpuError> {
         let device = &gpu.device;
         let queue = &gpu.queue;
 
@@ -1063,7 +1095,9 @@ impl Compositor {
 
         queue.submit(std::iter::once(encoder.finish()));
 
-        // ── Step 7: Read back from the bg_texture (now has video on top) ─────
-        read_target_rgba(gpu, &bg_texture, out_w, out_h)
+        // ── Step 7: Return the composited texture handle ─────────────────────
+        // `bg_texture` now holds background + shadow + video. The caller either
+        // reads it back (render_frame) or blits it to a surface (preview path).
+        Ok(bg_texture)
     }
 }

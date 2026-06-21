@@ -14,8 +14,15 @@ use wgpu::{
 
 use crate::decode::RgbaFrame;
 
-/// A headless GPU context (device + queue pair).
+/// A headless GPU context (instance + adapter + device + queue).
+///
+/// The `instance` and `adapter` are retained (not just used transiently) so a
+/// host can create a presentation [`wgpu::Surface`] on the *same* device the
+/// compositor renders with — cross-device texture use is illegal in wgpu, so the
+/// preview surface MUST share this GPU.
 pub struct Gpu {
+    pub instance: wgpu::Instance,
+    pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
 }
@@ -72,7 +79,7 @@ impl Gpu {
                 .await
                 .map_err(|e| GpuError::Device(e.to_string()))?;
 
-            Ok(Gpu { device, queue })
+            Ok(Gpu { instance, adapter, device, queue })
         })
     }
 }

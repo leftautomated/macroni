@@ -8,10 +8,13 @@
 //! shadow, border radius) is applied by the compositor. The caller obtains raw
 //! `RGBA8` bytes ready for encoding or snapshot testing.
 
+use std::path::Path;
+
 use crate::{
     compositor::Compositor,
     decode::{DecodeError, FrameSource, RgbaFrame},
     doc::{Background, ProjectDoc},
+    encode::Mp4Encoder,
     gpu::{Gpu, GpuError},
 };
 
@@ -26,6 +29,8 @@ pub enum EngineError {
     Gpu(GpuError),
     /// Image loading or format error (e.g. bad wallpaper path or unsupported format).
     Image(String),
+    /// H.264 encode or MP4 mux failure.
+    Encode(String),
 }
 
 impl std::fmt::Display for EngineError {
@@ -34,6 +39,7 @@ impl std::fmt::Display for EngineError {
             EngineError::Decode(e) => write!(f, "decode error: {e}"),
             EngineError::Gpu(e) => write!(f, "GPU error: {e}"),
             EngineError::Image(s) => write!(f, "image error: {s}"),
+            EngineError::Encode(s) => write!(f, "encode error: {s}"),
         }
     }
 }
@@ -139,5 +145,40 @@ impl Engine {
             out_h,
         )?;
         Ok(pixels)
+    }
+
+    /// Render every frame of the source through the compositor, encode as
+    /// H.264, and mux the result into an MP4 file at `out`.
+    ///
+    /// `progress` is called after each frame with a value in `(0.0, 1.0]`
+    /// (1.0 means all frames encoded, before the final mux write).
+    ///
+    /// # Errors
+    /// - [`EngineError::Decode`] if any frame cannot be decoded.
+    /// - [`EngineError::Gpu`] if a GPU operation fails.
+    /// - [`EngineError::Image`] if a wallpaper file cannot be opened.
+    /// - [`EngineError::Encode`] if encoding or muxing fails.
+    pub fn export(
+        &mut self,
+        doc: &ProjectDoc,
+        out: &Path,
+        mut progress: impl FnMut(f32),
+    ) -> Result<(), EngineError> {
+        let (w, h) = self.output_size();
+        let n = self.source.frame_count();
+
+        // Use 30 fps as the Phase 1 default; the source FPS is not yet exposed
+        // by the FrameSource trait.
+        const FPS: u32 = 30;
+        let mut enc = Mp4Encoder::new(w, h, FPS)?;
+
+        for i in 0..n {
+            let rgba = self.render_to_texture(doc, i)?;
+            enc.encode_rgba(&rgba)?;
+            progress((i + 1) as f32 / n as f32);
+        }
+
+        enc.finish(out)?;
+        Ok(())
     }
 }

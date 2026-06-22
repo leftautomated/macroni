@@ -115,6 +115,7 @@ const App = () => {
             <div className="h-4 w-px bg-border" data-tauri-drag-region />
             <RecordingControls
               isRecording={recorder.isRecording}
+              isProcessing={recorder.isProcessing}
               onStartRecording={handleStartRecording}
               onStopRecording={handleStopRecording}
             />

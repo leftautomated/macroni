@@ -1,6 +1,7 @@
 export enum RecordingStatus {
   Idle = "idle",
   Recording = "recording",
+  Processing = "processing",
   Stopped = "stopped",
 }
 

@@ -163,10 +163,13 @@ impl ScreenCaptureSession {
                 };
                 capturer.start_capture();
 
+                let mut received: u64 = 0;
+                let mut dropped: u64 = 0;
                 while running.load(Ordering::Relaxed) {
                     match capturer.get_next_frame() {
                         // scap emits empty 0x0 BGRA frames for SCK `.idle` status; skip.
                         Ok(ScapFrame::BGRA(f)) if f.width > 0 && !f.data.is_empty() => {
+                            received += 1;
                             let frame = CapturedFrame {
                                 width: f.width as u32,
                                 height: f.height as u32,
@@ -176,7 +179,7 @@ impl ScreenCaptureSession {
                             match frame_tx.try_send(frame) {
                                 Ok(()) => {}
                                 // Encoder behind — drop this frame, keep draining.
-                                Err(mpsc::TrySendError::Full(_)) => {}
+                                Err(mpsc::TrySendError::Full(_)) => dropped += 1,
                                 Err(mpsc::TrySendError::Disconnected(_)) => break,
                             }
                         }
@@ -188,6 +191,9 @@ impl ScreenCaptureSession {
                     }
                 }
                 capturer.stop_capture();
+                eprintln!(
+                    "capture: SCK delivered {received} frames, dropped {dropped} (encoder behind)"
+                );
                 // frame_tx dropped here -> encoder sees Disconnected.
             });
         }

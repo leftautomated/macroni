@@ -318,13 +318,15 @@ impl ScreenCaptureSession {
     }
 }
 
-/// Fit `(w, h)` into openh264's encode box (longer side <= 3840, shorter <=
-/// 2160), preserving aspect, never upscaling, rounded to even dimensions
-/// (required by I420 chroma subsampling).
+/// Pick the encode resolution: fit `(w, h)` into a 1080p box (longer side <=
+/// 1920, shorter <= 1080), preserving aspect, never upscaling, rounded to even
+/// dimensions (I420 requirement). This is well within openh264's 4K hard limit
+/// AND keeps software encode real-time — encoding native 4K/5K on the CPU only
+/// manages a few fps, whereas 1080p is plenty to review a macro recording.
 #[cfg(not(target_os = "windows"))]
 fn encode_target(w: u32, h: u32) -> (u32, u32) {
-    const MAX_LONG: f64 = 3840.0;
-    const MAX_SHORT: f64 = 2160.0;
+    const MAX_LONG: f64 = 1920.0;
+    const MAX_SHORT: f64 = 1080.0;
     let (wf, hf) = (w as f64, h as f64);
     let (long, short) = if wf >= hf { (wf, hf) } else { (hf, wf) };
     let scale = (MAX_LONG / long).min(MAX_SHORT / short).min(1.0);
@@ -335,9 +337,10 @@ fn encode_target(w: u32, h: u32) -> (u32, u32) {
     (round_even(wf), round_even(hf))
 }
 
-/// Downscale a BGRA frame to `(tw, th)`. No-op if already that size. A separable
-/// bilinear resize filters each byte-lane independently, so BGRA channel order
-/// is preserved (no need to reorder to RGBA).
+/// Downscale a BGRA frame to `(tw, th)`. No-op if already that size. Uses
+/// nearest-neighbor: it's far faster than a filtered resize (the encoder must
+/// keep up with ~30fps) and the slight quality loss is invisible for screen
+/// content. Channel order is irrelevant to a per-pixel copy, so BGRA stays BGRA.
 #[cfg(not(target_os = "windows"))]
 fn fit_bgra(data: Vec<u8>, w: u32, h: u32, tw: u32, th: u32) -> Vec<u8> {
     if (w, h) == (tw, th) {
@@ -345,7 +348,7 @@ fn fit_bgra(data: Vec<u8>, w: u32, h: u32, tw: u32, th: u32) -> Vec<u8> {
     }
     match image::RgbaImage::from_raw(w, h, data) {
         Some(img) => {
-            image::imageops::resize(&img, tw, th, image::imageops::FilterType::Triangle).into_raw()
+            image::imageops::resize(&img, tw, th, image::imageops::FilterType::Nearest).into_raw()
         }
         // Length mismatch should be impossible for a BGRA frame; degrade to an
         // empty buffer, which surfaces a visible encoder error rather than a panic.
@@ -396,23 +399,23 @@ mod tests {
 
     #[cfg(not(target_os = "windows"))]
     #[test]
-    fn encode_target_fits_openh264_box() {
-        // 16:9 5K / 6K -> exactly 4K
-        assert_eq!(encode_target(5120, 2880), (3840, 2160));
-        assert_eq!(encode_target(6016, 3384), (3840, 2160));
-        // 16:10 wider-than-4K -> height clamped to 2160, aspect preserved
-        let (w, h) = encode_target(3840, 2400);
-        assert!(w <= 3840 && h <= 2160, "got {w}x{h}");
-        assert_eq!(h, 2160);
+    fn encode_target_caps_at_1080p() {
+        // 16:9 displays -> exactly 1080p
+        assert_eq!(encode_target(5120, 2880), (1920, 1080));
+        assert_eq!(encode_target(3840, 2160), (1920, 1080));
+        // 16:10 -> longer<=1920, shorter<=1080, aspect preserved
+        let (w, h) = encode_target(3456, 2234); // the test machine's display
+        assert!(w <= 1920 && h <= 1080, "got {w}x{h}");
+        assert_eq!(h, 1080);
         // already within the box -> unchanged; never upscale a small source
         assert_eq!(encode_target(1920, 1080), (1920, 1080));
         assert_eq!(encode_target(1280, 720), (1280, 720));
         // portrait within the rotated box -> unchanged; tall portrait -> clamped
-        assert_eq!(encode_target(2160, 3840), (2160, 3840));
+        assert_eq!(encode_target(1080, 1920), (1080, 1920));
         let (w, h) = encode_target(2880, 5120);
-        assert!(w <= 2160 && h <= 3840, "got {w}x{h}");
+        assert!(w <= 1080 && h <= 1920, "got {w}x{h}");
         // dimensions are always even (I420 requirement)
-        let (w, h) = encode_target(5121, 2881);
+        let (w, h) = encode_target(3457, 2235);
         assert_eq!((w % 2, h % 2), (0, 0));
     }
 }

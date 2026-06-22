@@ -123,7 +123,13 @@ impl ScreenCaptureSession {
                 target: None,
                 crop_area: None,
                 output_type: FrameType::BGRAFrame,
-                output_resolution: scap::capturer::Resolution::Captured,
+                // Cap capture at 4K. openh264 rejects anything above its max of
+                // 3840x2160 (or 2160x3840 vertical), which silently killed every
+                // recording on >4K displays (e.g. 5K/6K/Studio Display). scap's
+                // mac engine clamps with `min(native, preset)` and preserves
+                // aspect, so this only DOWNSCALES large displays and never
+                // upscales smaller ones (those still capture at native).
+                output_resolution: scap::capturer::Resolution::_2160p,
                 captures_audio: settings.audio,
                 ..Default::default()
             };

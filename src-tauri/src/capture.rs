@@ -21,6 +21,12 @@ pub struct Frame {
 /// (real encoder) or to memory (test fake).
 pub trait CaptureSink: Send {
     fn on_frame(&mut self, frame: &Frame) -> Result<(), String>;
+    /// Re-emit the most recent frame at `timestamp_ms`, to hold a steady frame
+    /// rate during static periods. Default no-op (sinks that don't encode video
+    /// can ignore it).
+    fn repeat_last(&mut self, _timestamp_ms: i64) -> Result<(), String> {
+        Ok(())
+    }
     fn finalize(self: Box<Self>) -> Result<VideoMetadata, String>;
 }
 
@@ -100,7 +106,9 @@ impl ScreenCaptureSession {
     #[cfg(not(target_os = "windows"))]
     pub fn start(config: CaptureConfig) -> Result<Self, String> {
         use scap::capturer::{Capturer, Options};
-        use scap::frame::{Frame as ScapFrame, FrameType, VideoFrame};
+        // In open-gpui-scap, `Frame` is an alias for `VideoFrame`, so BGRA frames
+        // are matched as `ScapFrame::BGRA(_)` directly (no `Frame::Video` wrapper).
+        use scap::frame::{Frame as ScapFrame, FrameType};
 
         if !scap::is_supported() {
             return Err("Screen capture is not supported on this platform".to_string());
@@ -123,25 +131,25 @@ impl ScreenCaptureSession {
                 target: None,
                 crop_area: None,
                 output_type: FrameType::BGRAFrame,
-                // Cap capture at 4K. openh264 rejects anything above its max of
-                // 3840x2160 (or 2160x3840 vertical), which silently killed every
-                // recording on >4K displays (e.g. 5K/6K/Studio Display). scap's
-                // mac engine clamps with `min(native, preset)` and preserves
-                // aspect, so this only DOWNSCALES large displays and never
-                // upscales smaller ones (those still capture at native).
-                output_resolution: scap::capturer::Resolution::_2160p,
-                captures_audio: settings.audio,
+                // Capture at native resolution. ScreenCaptureKit's *scaled* output
+                // path (output_resolution != Captured) appears to stall frame
+                // delivery in scap 0.1.0-beta (only one frame arrives). We capture
+                // native and downscale on the CPU (`fit_bgra`) to stay within
+                // openh264's 4K limit instead.
+                output_resolution: scap::capturer::Resolution::Captured,
+                // (open-gpui-scap has no audio capture; not needed for v1.)
                 ..Default::default()
             };
             let mut capturer = Capturer::build(opts).map_err(|e| format!("{:?}", e))?;
             capturer.start_capture();
 
-            // Pull frames until we see the first BGRA video frame — scap 0.1 may
-            // interleave audio frames, so we skip those rather than bailing.
+            // Pull frames until we see the first non-empty BGRA video frame. scap
+            // 0.1 interleaves audio frames (skip) and emits empty 0x0 BGRA frames
+            // for ScreenCaptureKit `.idle` (no-change) status (also skip).
             let (width, height, first_data, first_ts) = loop {
                 let frame = capturer.get_next_frame().map_err(|e| format!("{:?}", e))?;
                 match frame {
-                    ScapFrame::Video(VideoFrame::BGRA(f)) => {
+                    ScapFrame::BGRA(f) if f.width > 0 && !f.data.is_empty() => {
                         break (
                             f.width as u32,
                             f.height as u32,
@@ -177,11 +185,34 @@ impl ScreenCaptureSession {
                 timestamp_ms: first_ts,
             })?;
 
+            // ScreenCaptureKit only delivers a frame when screen content changes,
+            // so to keep a steady frame rate we re-emit the previous frame at the
+            // target interval to fill the gap before each new real frame (and
+            // after the last one, below). `backfill` caps a single gap so a clock
+            // anomaly can't enqueue an unbounded number of frames.
+            let frame_interval_ms = (1000 / settings.fps.max(1)).max(1) as i64;
+            let mut prev_ts = first_ts;
+            let backfill = |sink: &mut Box<dyn CaptureSink>, from: i64, to: i64| {
+                let mut t = from + frame_interval_ms;
+                let mut filled = 0u32;
+                while t < to && filled < 36_000 {
+                    if let Err(e) = sink.repeat_last(t) {
+                        eprintln!("capture: repeat error {e}");
+                        break;
+                    }
+                    t += frame_interval_ms;
+                    filled += 1;
+                }
+            };
+
+            let mut frame_count: u32 = 1; // real frames only (backfill not counted)
             while running_thread.load(Ordering::Relaxed) {
                 match capturer.get_next_frame() {
-                    Ok(ScapFrame::Video(VideoFrame::BGRA(f))) => {
+                    Ok(ScapFrame::BGRA(f)) if f.width > 0 && !f.data.is_empty() => {
+                        frame_count += 1;
                         let ts = Utc::now().timestamp_millis();
                         let (fw, fh) = (f.width as u32, f.height as u32);
+                        backfill(&mut sink, prev_ts, ts);
                         if let Err(e) = sink.on_frame(&Frame {
                             width: enc_w,
                             height: enc_h,
@@ -191,14 +222,20 @@ impl ScreenCaptureSession {
                             eprintln!("capture: sink error {e}");
                             break;
                         }
+                        prev_ts = ts;
                     }
-                    Ok(_) => continue, // audio frame or other video format — ignore for now
+                    Ok(_) => continue, // audio / idle (empty) frame — ignore
                     Err(e) => {
                         eprintln!("capture: frame error {:?}", e);
                         break;
                     }
                 }
             }
+            // Fill the final gap from the last real frame to stop time so the
+            // video runs the full recording length even if the screen was static
+            // at the end.
+            backfill(&mut sink, prev_ts, Utc::now().timestamp_millis());
+            eprintln!("capture: {frame_count} real frames captured (gaps filled to steady fps)");
 
             capturer.stop_capture();
             sink.finalize()

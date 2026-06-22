@@ -71,12 +71,24 @@ use crate::types::CaptureSettings;
 use chrono::Utc;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 /// Configuration for starting a capture session. Built from AppSettings at runtime.
 pub struct CaptureConfig {
     pub output_path: PathBuf,
     pub settings: CaptureSettings,
+}
+
+/// A raw frame handed from the acquisition thread to the encoder thread. Holds
+/// native-resolution BGRA; the resize/encode happens on the encoder side.
+#[cfg(not(target_os = "windows"))]
+struct CapturedFrame {
+    width: u32,
+    height: u32,
+    data: Vec<u8>,
+    ts: i64,
 }
 
 /// A live capture session. Start spawns a scap thread; stop signals it to finish
@@ -105,11 +117,6 @@ impl ScreenCaptureSession {
 
     #[cfg(not(target_os = "windows"))]
     pub fn start(config: CaptureConfig) -> Result<Self, String> {
-        use scap::capturer::{Capturer, Options};
-        // In open-gpui-scap, `Frame` is an alias for `VideoFrame`, so BGRA frames
-        // are matched as `ScapFrame::BGRA(_)` directly (no `Frame::Video` wrapper).
-        use scap::frame::{Frame as ScapFrame, FrameType};
-
         if !scap::is_supported() {
             return Err("Screen capture is not supported on this platform".to_string());
         }
@@ -119,127 +126,170 @@ impl ScreenCaptureSession {
 
         let start_ms = Utc::now().timestamp_millis();
         let running = Arc::new(AtomicBool::new(true));
-        let running_thread = Arc::clone(&running);
         let settings = config.settings;
         let output_path = config.output_path.clone();
 
-        let handle = std::thread::spawn(move || -> Result<VideoMetadata, String> {
-            let opts = Options {
-                fps: settings.fps,
-                show_cursor: true,
-                show_highlight: false,
-                target: None,
-                crop_area: None,
-                output_type: FrameType::BGRAFrame,
-                // Capture at native resolution. ScreenCaptureKit's *scaled* output
-                // path (output_resolution != Captured) appears to stall frame
-                // delivery in scap 0.1.0-beta (only one frame arrives). We capture
-                // native and downscale on the CPU (`fit_bgra`) to stay within
-                // openh264's 4K limit instead.
-                output_resolution: scap::capturer::Resolution::Captured,
-                // (open-gpui-scap has no audio capture; not needed for v1.)
-                ..Default::default()
-            };
-            let mut capturer = Capturer::build(opts).map_err(|e| format!("{:?}", e))?;
-            capturer.start_capture();
+        // Raw frames flow acquisition -> encoder over a small bounded channel.
+        // We DROP frames on backpressure rather than block acquisition: blocking
+        // acquisition is exactly what stalls ScreenCaptureKit, because each
+        // get_next_frame() holds an SCK IOSurface until it returns, and SCK's
+        // pool is small. Draining fast keeps the stream delivering.
+        let (frame_tx, frame_rx) = mpsc::sync_channel::<CapturedFrame>(3);
 
-            // Pull frames until we see the first non-empty BGRA video frame. scap
-            // 0.1 interleaves audio frames (skip) and emits empty 0x0 BGRA frames
-            // for ScreenCaptureKit `.idle` (no-change) status (also skip).
-            let (width, height, first_data, first_ts) = loop {
-                let frame = capturer.get_next_frame().map_err(|e| format!("{:?}", e))?;
-                match frame {
-                    ScapFrame::BGRA(f) if f.width > 0 && !f.data.is_empty() => {
-                        break (
-                            f.width as u32,
-                            f.height as u32,
-                            f.data,
-                            Utc::now().timestamp_millis(),
-                        );
+        // ── Acquisition thread: drain scap as fast as possible. ──────────────
+        {
+            let running = Arc::clone(&running);
+            let fps = settings.fps;
+            std::thread::spawn(move || {
+                use scap::capturer::{Capturer, Options};
+                // In open-gpui-scap, `Frame` is an alias for `VideoFrame`, so BGRA
+                // frames are matched as `ScapFrame::BGRA(_)` (no `Video` wrapper).
+                use scap::frame::{Frame as ScapFrame, FrameType};
+
+                let opts = Options {
+                    fps,
+                    show_cursor: true,
+                    show_highlight: false,
+                    output_type: FrameType::BGRAFrame,
+                    output_resolution: scap::capturer::Resolution::Captured,
+                    ..Default::default()
+                };
+                let mut capturer = match Capturer::build(opts) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("capture: build failed {e:?}");
+                        return; // frame_tx drops -> encoder finishes with "no frames"
                     }
-                    _ => continue,
-                }
-            };
+                };
+                capturer.start_capture();
 
-            // openh264 rejects anything above 3840x2160 (or 2160x3840). scap's
-            // _2160p preset clamps most displays, but for non-16:9 aspects the
-            // height can still exceed 2160, so compute a guaranteed-fitting,
-            // aspect-preserving, even-valued target and downscale frames to it.
-            // This is a no-op when capture is already within the box.
-            let (enc_w, enc_h) = encode_target(width, height);
-            eprintln!("capture: source {width}x{height} -> encode {enc_w}x{enc_h}");
-
-            let mut sink: Box<dyn CaptureSink> = Box::new(crate::encoder::Mp4EncoderSink::new(
-                output_path.clone(),
-                enc_w,
-                enc_h,
-                settings.fps,
-                settings.quality,
-                settings.audio,
-                start_ms,
-            )?);
-            sink.on_frame(&Frame {
-                width: enc_w,
-                height: enc_h,
-                data: fit_bgra(first_data, width, height, enc_w, enc_h),
-                timestamp_ms: first_ts,
-            })?;
-
-            // ScreenCaptureKit only delivers a frame when screen content changes,
-            // so to keep a steady frame rate we re-emit the previous frame at the
-            // target interval to fill the gap before each new real frame (and
-            // after the last one, below). `backfill` caps a single gap so a clock
-            // anomaly can't enqueue an unbounded number of frames.
-            let frame_interval_ms = (1000 / settings.fps.max(1)).max(1) as i64;
-            let mut prev_ts = first_ts;
-            let backfill = |sink: &mut Box<dyn CaptureSink>, from: i64, to: i64| {
-                let mut t = from + frame_interval_ms;
-                let mut filled = 0u32;
-                while t < to && filled < 36_000 {
-                    if let Err(e) = sink.repeat_last(t) {
-                        eprintln!("capture: repeat error {e}");
-                        break;
-                    }
-                    t += frame_interval_ms;
-                    filled += 1;
-                }
-            };
-
-            let mut frame_count: u32 = 1; // real frames only (backfill not counted)
-            while running_thread.load(Ordering::Relaxed) {
-                match capturer.get_next_frame() {
-                    Ok(ScapFrame::BGRA(f)) if f.width > 0 && !f.data.is_empty() => {
-                        frame_count += 1;
-                        let ts = Utc::now().timestamp_millis();
-                        let (fw, fh) = (f.width as u32, f.height as u32);
-                        backfill(&mut sink, prev_ts, ts);
-                        if let Err(e) = sink.on_frame(&Frame {
-                            width: enc_w,
-                            height: enc_h,
-                            data: fit_bgra(f.data, fw, fh, enc_w, enc_h),
-                            timestamp_ms: ts,
-                        }) {
-                            eprintln!("capture: sink error {e}");
+                while running.load(Ordering::Relaxed) {
+                    match capturer.get_next_frame() {
+                        // scap emits empty 0x0 BGRA frames for SCK `.idle` status; skip.
+                        Ok(ScapFrame::BGRA(f)) if f.width > 0 && !f.data.is_empty() => {
+                            let frame = CapturedFrame {
+                                width: f.width as u32,
+                                height: f.height as u32,
+                                data: f.data,
+                                ts: Utc::now().timestamp_millis(),
+                            };
+                            match frame_tx.try_send(frame) {
+                                Ok(()) => {}
+                                // Encoder behind — drop this frame, keep draining.
+                                Err(mpsc::TrySendError::Full(_)) => {}
+                                Err(mpsc::TrySendError::Disconnected(_)) => break,
+                            }
+                        }
+                        Ok(_) => continue, // audio / idle frame
+                        Err(e) => {
+                            eprintln!("capture: frame error {e:?}");
                             break;
                         }
-                        prev_ts = ts;
-                    }
-                    Ok(_) => continue, // audio / idle (empty) frame — ignore
-                    Err(e) => {
-                        eprintln!("capture: frame error {:?}", e);
-                        break;
                     }
                 }
-            }
-            // Fill the final gap from the last real frame to stop time so the
-            // video runs the full recording length even if the screen was static
-            // at the end.
-            backfill(&mut sink, prev_ts, Utc::now().timestamp_millis());
-            eprintln!("capture: {frame_count} real frames captured (gaps filled to steady fps)");
+                capturer.stop_capture();
+                // frame_tx dropped here -> encoder sees Disconnected.
+            });
+        }
 
-            capturer.stop_capture();
-            sink.finalize()
-        });
+        // ── Encoder thread: resize + encode at a steady fps. ─────────────────
+        let handle = {
+            let running = Arc::clone(&running);
+            std::thread::spawn(move || -> Result<VideoMetadata, String> {
+                let interval = Duration::from_millis((1000 / settings.fps.max(1)).max(1) as u64);
+                let interval_ms = interval.as_millis() as i64;
+
+                // Wait for the first real frame, checking `running` so a dead
+                // capture (no frames) doesn't hang stop.
+                let first = loop {
+                    match frame_rx.recv_timeout(Duration::from_millis(200)) {
+                        Ok(f) => break f,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            if !running.load(Ordering::Relaxed) {
+                                return Err("no video frames captured".to_string());
+                            }
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            return Err("capture ended before any frame".to_string());
+                        }
+                    }
+                };
+
+                // Downscale target so openh264 (max 3840x2160 / 2160x3840) accepts
+                // any display, aspect-preserving and even-valued.
+                let (enc_w, enc_h) = encode_target(first.width, first.height);
+                eprintln!(
+                    "capture: source {}x{} -> encode {enc_w}x{enc_h}",
+                    first.width, first.height
+                );
+
+                let mut sink: Box<dyn CaptureSink> = Box::new(crate::encoder::Mp4EncoderSink::new(
+                    output_path,
+                    enc_w,
+                    enc_h,
+                    settings.fps,
+                    settings.quality,
+                    settings.audio,
+                    start_ms,
+                )?);
+                sink.on_frame(&Frame {
+                    width: enc_w,
+                    height: enc_h,
+                    data: fit_bgra(first.data, first.width, first.height, enc_w, enc_h),
+                    timestamp_ms: first.ts,
+                })?;
+
+                // Re-emit the last frame to cover any gap, keeping a steady rate.
+                let backfill = |sink: &mut Box<dyn CaptureSink>, from: i64, to: i64| {
+                    let mut t = from + interval_ms;
+                    let mut filled = 0u32;
+                    while t < to && filled < 36_000 {
+                        if sink.repeat_last(t).is_err() {
+                            break;
+                        }
+                        t += interval_ms;
+                        filled += 1;
+                    }
+                };
+
+                let mut prev_ts = first.ts;
+                let mut real_frames: u32 = 1;
+                loop {
+                    match frame_rx.recv_timeout(interval) {
+                        Ok(f) => {
+                            real_frames += 1;
+                            backfill(&mut sink, prev_ts, f.ts);
+                            if let Err(e) = sink.on_frame(&Frame {
+                                width: enc_w,
+                                height: enc_h,
+                                data: fit_bgra(f.data, f.width, f.height, enc_w, enc_h),
+                                timestamp_ms: f.ts,
+                            }) {
+                                eprintln!("capture: sink error {e}");
+                                break;
+                            }
+                            prev_ts = f.ts;
+                        }
+                        // No new frame this interval: if still recording, hold the
+                        // last frame (screen was static); else finish.
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            if !running.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            let t = prev_ts + interval_ms;
+                            if sink.repeat_last(t).is_err() {
+                                break;
+                            }
+                            prev_ts = t;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+                backfill(&mut sink, prev_ts, Utc::now().timestamp_millis());
+                eprintln!("capture: {real_frames} real frames encoded (steady fps)");
+                sink.finalize()
+            })
+        };
 
         Ok(Self {
             running,

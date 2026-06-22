@@ -56,8 +56,6 @@ rayon = "1"
 # single frame on macOS (its SCStream silently stalls after frame 1). The
 # Open-GPUI fork fixes frame delivery. Package-renamed so code still uses `scap`.
 scap = { package = "open-gpui-scap", version = "0.1.0-beta.1" }
-# Downscale captured frames above openh264's 4K limit before encoding.
-image = { version = "0.25", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

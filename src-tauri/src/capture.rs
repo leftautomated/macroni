@@ -238,10 +238,12 @@ impl ScreenCaptureSession {
                     settings.audio,
                     start_ms,
                 )?);
+                // Pass native frames straight through; the encoder fuses the
+                // downscale-to-(enc_w,enc_h) into its I420 conversion.
                 sink.on_frame(&Frame {
-                    width: enc_w,
-                    height: enc_h,
-                    data: fit_bgra(first.data, first.width, first.height, enc_w, enc_h),
+                    width: first.width,
+                    height: first.height,
+                    data: first.data,
                     timestamp_ms: first.ts,
                 })?;
 
@@ -266,9 +268,9 @@ impl ScreenCaptureSession {
                             real_frames += 1;
                             backfill(&mut sink, prev_ts, f.ts);
                             if let Err(e) = sink.on_frame(&Frame {
-                                width: enc_w,
-                                height: enc_h,
-                                data: fit_bgra(f.data, f.width, f.height, enc_w, enc_h),
+                                width: f.width,
+                                height: f.height,
+                                data: f.data,
                                 timestamp_ms: f.ts,
                             }) {
                                 eprintln!("capture: sink error {e}");
@@ -335,25 +337,6 @@ fn encode_target(w: u32, h: u32) -> (u32, u32) {
         (n - n % 2).max(2)
     };
     (round_even(wf), round_even(hf))
-}
-
-/// Downscale a BGRA frame to `(tw, th)`. No-op if already that size. Uses
-/// nearest-neighbor: it's far faster than a filtered resize (the encoder must
-/// keep up with ~30fps) and the slight quality loss is invisible for screen
-/// content. Channel order is irrelevant to a per-pixel copy, so BGRA stays BGRA.
-#[cfg(not(target_os = "windows"))]
-fn fit_bgra(data: Vec<u8>, w: u32, h: u32, tw: u32, th: u32) -> Vec<u8> {
-    if (w, h) == (tw, th) {
-        return data;
-    }
-    match image::RgbaImage::from_raw(w, h, data) {
-        Some(img) => {
-            image::imageops::resize(&img, tw, th, image::imageops::FilterType::Nearest).into_raw()
-        }
-        // Length mismatch should be impossible for a BGRA frame; degrade to an
-        // empty buffer, which surfaces a visible encoder error rather than a panic.
-        None => Vec::new(),
-    }
 }
 
 #[cfg(test)]

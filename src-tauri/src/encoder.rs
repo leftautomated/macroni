@@ -83,8 +83,17 @@ impl Mp4EncoderSink {
     }
 
     fn encode_frame(&mut self, frame: &Frame) -> Result<(), String> {
+        // The frame is native resolution; scale it to the encode size while
+        // converting to I420 in a single fused parallel pass (no intermediate
+        // resize buffer). self.width/height are the (smaller) encode dimensions.
         let t = std::time::Instant::now();
-        let yuv = bgra_to_i420(&frame.data, self.width as usize, self.height as usize);
+        let yuv = bgra_to_i420_scaled(
+            &frame.data,
+            frame.width as usize,
+            frame.height as usize,
+            self.width as usize,
+            self.height as usize,
+        );
         self.convert_ns += t.elapsed().as_nanos();
         self.convert_count += 1;
         self.last_i420 = Some(yuv.clone());
@@ -260,53 +269,57 @@ fn strip_annex_b_prefix(nal: &[u8]) -> &[u8] {
     }
 }
 
-/// BGRA → I420 planar conversion, BT.601, fixed-point integer math, parallelized
-/// across rows with rayon. Float math + a single thread was the encode-pipeline
-/// bottleneck; this keeps software encode real-time at 1080p.
-fn bgra_to_i420(bgra: &[u8], width: usize, height: usize) -> Vec<u8> {
+/// Fused nearest-neighbor downscale + BGRA→I420 conversion (BT.601, fixed-point),
+/// parallelized across rows with rayon. Reads the native frame once and writes
+/// I420 at `(dst_w, dst_h)` directly — no intermediate resize buffer, no image
+/// crate. `dst_w`/`dst_h` must be even and `<= src`. This single pass is what
+/// makes software encode real-time at 1080p from a 4K/5K source.
+fn bgra_to_i420_scaled(
+    src: &[u8],
+    src_w: usize,
+    src_h: usize,
+    dst_w: usize,
+    dst_h: usize,
+) -> Vec<u8> {
     use rayon::prelude::*;
 
-    debug_assert!(
-        width.is_multiple_of(2) && height.is_multiple_of(2),
-        "bgra_to_i420 requires even dimensions"
-    );
-    debug_assert_eq!(bgra.len(), width * height * 4, "bgra buffer size mismatch");
+    debug_assert!(dst_w.is_multiple_of(2) && dst_h.is_multiple_of(2));
+    debug_assert_eq!(src.len(), src_w * src_h * 4, "bgra buffer size mismatch");
 
-    let y_size = width * height;
-    let uv_w = width / 2;
-    let uv_h = height / 2;
+    let y_size = dst_w * dst_h;
+    let uv_w = dst_w / 2;
+    let uv_h = dst_h / 2;
     let uv_size = uv_w * uv_h;
     let mut out = vec![0u8; y_size + uv_size * 2];
+
+    // Source byte-offset for each destination column (avoids a per-pixel divide).
+    let xmap: Vec<usize> = (0..dst_w).map(|dx| (dx * src_w / dst_w) * 4).collect();
+
     let (y_plane, uv_planes) = out.split_at_mut(y_size);
     let (u_plane, v_plane) = uv_planes.split_at_mut(uv_size);
 
-    // Y plane: one output row per source row, computed in parallel.
-    y_plane
-        .par_chunks_mut(width)
-        .enumerate()
-        .for_each(|(y, row)| {
-            let base = y * width * 4;
-            for (x, yv) in row.iter_mut().enumerate() {
-                let i = base + x * 4;
-                let b = bgra[i] as i32;
-                let g = bgra[i + 1] as i32;
-                let r = bgra[i + 2] as i32;
-                *yv = (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16).clamp(0, 255) as u8;
-            }
-        });
+    y_plane.par_chunks_mut(dst_w).enumerate().for_each(|(dy, row)| {
+        let srow = (dy * src_h / dst_h) * src_w * 4;
+        for (dx, yv) in row.iter_mut().enumerate() {
+            let i = srow + xmap[dx];
+            let b = src[i] as i32;
+            let g = src[i + 1] as i32;
+            let r = src[i + 2] as i32;
+            *yv = (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16).clamp(0, 255) as u8;
+        }
+    });
 
-    // U/V planes: 4:2:0 subsampling, top-left of each 2x2 block, in parallel.
     u_plane
         .par_chunks_mut(uv_w)
         .zip(v_plane.par_chunks_mut(uv_w))
         .enumerate()
         .for_each(|(uy, (urow, vrow))| {
-            let base = (uy * 2) * width * 4;
+            let srow = ((uy * 2) * src_h / dst_h) * src_w * 4;
             for ux in 0..uv_w {
-                let i = base + (ux * 2) * 4;
-                let b = bgra[i] as i32;
-                let g = bgra[i + 1] as i32;
-                let r = bgra[i + 2] as i32;
+                let i = srow + xmap[ux * 2];
+                let b = src[i] as i32;
+                let g = src[i + 1] as i32;
+                let r = src[i + 2] as i32;
                 urow[ux] = (((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128).clamp(0, 255) as u8;
                 vrow[ux] = (((112 * r - 94 * g - 18 * b + 128) >> 8) + 128).clamp(0, 255) as u8;
             }
@@ -331,8 +344,15 @@ mod tests {
 
     #[test]
     fn bgra_to_i420_produces_correct_plane_sizes() {
-        // 4x4 I420 = 16 Y bytes + 4 U bytes + 4 V bytes = 24 total.
-        let out = bgra_to_i420(&[128u8; 4 * 4 * 4], 4, 4);
+        // 4x4 I420 = 16 Y + 4 U + 4 V = 24 bytes (no scaling: src == dst).
+        let out = bgra_to_i420_scaled(&[128u8; 4 * 4 * 4], 4, 4, 4, 4);
+        assert_eq!(out.len(), 4 * 4 + 4 + 4);
+    }
+
+    #[test]
+    fn bgra_to_i420_scaled_downscales_to_target_size() {
+        // 8x8 source -> 4x4 target: output is the 4x4 I420 size (24 bytes).
+        let out = bgra_to_i420_scaled(&[200u8; 8 * 8 * 4], 8, 8, 4, 4);
         assert_eq!(out.len(), 4 * 4 + 4 + 4);
     }
 

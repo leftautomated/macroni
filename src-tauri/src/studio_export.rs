@@ -38,6 +38,8 @@ pub fn studio_export(app: AppHandle, recording_id: String) -> Result<String, Str
         .as_ref()
         .map(|v| v.path.clone())
         .ok_or_else(|| "recording has no video track".to_string())?;
+    // VideoMetadata.path is relative to <app_data>/videos/ (see useVideoAssetUrl).
+    let screen_file = app_data.join("videos").join(&screen_path);
 
     // Compute output path: <app_data>/exports/<recording_id>-<timestamp_ms>.mp4
     let exports_dir = app_data.join("exports");
@@ -62,7 +64,7 @@ pub fn studio_export(app: AppHandle, recording_id: String) -> Result<String, Str
     // Clone everything the thread needs.
     let thread_app = app.clone();
     let thread_out = out_path.clone();
-    let thread_screen = screen_path.clone();
+    let thread_screen = screen_file;
 
     std::thread::spawn(move || {
         // Fix #5: catch panics from Engine::new / engine.export so the frontend
@@ -72,8 +74,8 @@ pub fn studio_export(app: AppHandle, recording_id: String) -> Result<String, Str
                 // Open decoder + build headless engine on this thread.
                 // Mp4FrameSource is !Send, but it is created and consumed entirely on
                 // this single worker thread, so this is safe.
-                let src = Mp4FrameSource::open(std::path::Path::new(&thread_screen))
-                    .map_err(|e| format!("open source: {e}"))?;
+                let src = Mp4FrameSource::open(&thread_screen)
+                    .map_err(|e| format!("open source '{}': {e}", thread_screen.display()))?;
                 let mut engine = Engine::new(Box::new(src))
                     .map_err(|e| format!("engine init: {e}"))?;
 

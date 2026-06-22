@@ -204,6 +204,9 @@ pub fn studio_open_preview(
         .as_ref()
         .map(|v| v.path.clone())
         .ok_or_else(|| format!("recording '{}' has no screen video", recording_id))?;
+    // VideoMetadata.path is RELATIVE to <app_data>/videos/ (same convention as
+    // the frontend's useVideoAssetUrl). Resolve the full path to decode it.
+    let screen_file = app_data.join("videos").join(&screen_mp4);
 
     // Load the persisted doc, or fall back to a default built from the mp4 path.
     let doc = match crate::project_store::load_project(&app_data, &recording_id)? {
@@ -212,8 +215,8 @@ pub fn studio_open_preview(
     };
 
     // ── Build the Engine over the screen mp4 (off the main thread). ──────────
-    let source = Mp4FrameSource::open(std::path::Path::new(&screen_mp4))
-        .map_err(|e| format!("open mp4 '{screen_mp4}': {e}"))?;
+    let source = Mp4FrameSource::open(&screen_file)
+        .map_err(|e| format!("open mp4 '{}': {e}", screen_file.display()))?;
     let engine = Engine::new(Box::new(source)).map_err(|e| format!("engine init: {e}"))?;
 
     // Store the engine in state, replacing any prior recording's engine.

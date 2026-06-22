@@ -26,6 +26,15 @@ pub struct Mp4EncoderSink {
     encoded_frames: Vec<EncodedFrame>,
     sps: Vec<u8>,
     pps: Vec<u8>,
+    /// I420 of the most recent real frame, cached so static gaps can be filled
+    /// by re-emitting it (ScreenCaptureKit only delivers frames on content
+    /// change, so without this a static screen produces a 1-frame video).
+    last_i420: Option<Vec<u8>>,
+    // Perf instrumentation, averaged + logged on finalize.
+    convert_ns: u128,
+    convert_count: u64,
+    encode_ns: u128,
+    encode_count: u64,
 }
 
 struct EncodedFrame {
@@ -65,15 +74,35 @@ impl Mp4EncoderSink {
             encoded_frames: Vec::new(),
             sps: Vec::new(),
             pps: Vec::new(),
+            last_i420: None,
+            convert_ns: 0,
+            convert_count: 0,
+            encode_ns: 0,
+            encode_count: 0,
         })
     }
 
     fn encode_frame(&mut self, frame: &Frame) -> Result<(), String> {
+        let t = std::time::Instant::now();
+        let yuv = bgra_to_i420(&frame.data, self.width as usize, self.height as usize);
+        self.convert_ns += t.elapsed().as_nanos();
+        self.convert_count += 1;
+        self.last_i420 = Some(yuv.clone());
+        self.last_frame_ms = frame.timestamp_ms;
+        let pts_ms = frame.timestamp_ms - self.start_ms;
+        self.encode_yuv(yuv, pts_ms)
+    }
+
+    /// Encode one I420 buffer at the given (start-relative) pts and buffer the
+    /// resulting access unit. Shared by `encode_frame` and `repeat_last`.
+    fn encode_yuv(&mut self, yuv: Vec<u8>, pts_ms: i64) -> Result<(), String> {
         use openh264::formats::YUVBuffer;
 
-        let yuv = bgra_to_i420(&frame.data, self.width as usize, self.height as usize);
         let yuv_buf = YUVBuffer::from_vec(yuv, self.width as usize, self.height as usize);
+        let t = std::time::Instant::now();
         let bs = self.encoder.encode(&yuv_buf).map_err(|e| e.to_string())?;
+        self.encode_ns += t.elapsed().as_nanos();
+        self.encode_count += 1;
 
         // openh264 emits NAL units in Annex-B format (start-code prefixed). MP4
         // (AVCC / avc1) requires length-prefixed NAL units with SPS/PPS stored
@@ -121,10 +150,9 @@ impl Mp4EncoderSink {
             self.encoded_frames.push(EncodedFrame {
                 data: sample_payload,
                 is_keyframe,
-                pts_ms: frame.timestamp_ms - self.start_ms,
+                pts_ms,
             });
         }
-        self.last_frame_ms = frame.timestamp_ms;
         Ok(())
     }
 }
@@ -132,6 +160,17 @@ impl Mp4EncoderSink {
 impl CaptureSink for Mp4EncoderSink {
     fn on_frame(&mut self, frame: &Frame) -> Result<(), String> {
         self.encode_frame(frame)
+    }
+
+    /// Re-emit the last real frame at `timestamp_ms` to fill a static gap.
+    /// No-op until the first real frame has been encoded.
+    fn repeat_last(&mut self, timestamp_ms: i64) -> Result<(), String> {
+        let Some(yuv) = self.last_i420.clone() else {
+            return Ok(());
+        };
+        self.last_frame_ms = timestamp_ms;
+        let pts_ms = timestamp_ms - self.start_ms;
+        self.encode_yuv(yuv, pts_ms)
     }
 
     fn finalize(self: Box<Self>) -> Result<VideoMetadata, String> {
@@ -182,6 +221,16 @@ impl CaptureSink for Mp4EncoderSink {
         }
         writer.write_end().map_err(|e| e.to_string())?;
 
+        if self.convert_count > 0 && self.encode_count > 0 {
+            eprintln!(
+                "encoder: avg convert {}ms ({} frames), encode {}ms ({} frames)",
+                self.convert_ns / 1_000_000 / self.convert_count as u128,
+                self.convert_count,
+                self.encode_ns / 1_000_000 / self.encode_count as u128,
+                self.encode_count,
+            );
+        }
+
         Ok(VideoMetadata {
             path: self
                 .output_path
@@ -211,32 +260,58 @@ fn strip_annex_b_prefix(nal: &[u8]) -> &[u8] {
     }
 }
 
-/// BGRA → I420 planar conversion. Standard BT.601 coefficients.
+/// BGRA → I420 planar conversion, BT.601, fixed-point integer math, parallelized
+/// across rows with rayon. Float math + a single thread was the encode-pipeline
+/// bottleneck; this keeps software encode real-time at 1080p.
 fn bgra_to_i420(bgra: &[u8], width: usize, height: usize) -> Vec<u8> {
+    use rayon::prelude::*;
+
     debug_assert!(
         width.is_multiple_of(2) && height.is_multiple_of(2),
         "bgra_to_i420 requires even dimensions"
     );
     debug_assert_eq!(bgra.len(), width * height * 4, "bgra buffer size mismatch");
+
     let y_size = width * height;
-    let uv_size = y_size / 4;
+    let uv_w = width / 2;
+    let uv_h = height / 2;
+    let uv_size = uv_w * uv_h;
     let mut out = vec![0u8; y_size + uv_size * 2];
-    for y in 0..height {
-        for x in 0..width {
-            let i = (y * width + x) * 4;
-            let (b, g, r) = (bgra[i] as f32, bgra[i + 1] as f32, bgra[i + 2] as f32);
-            let yv = (0.257 * r + 0.504 * g + 0.098 * b + 16.0).clamp(0.0, 255.0) as u8;
-            out[y * width + x] = yv;
-            if y % 2 == 0 && x % 2 == 0 {
-                let ui = y_size + (y / 2) * (width / 2) + x / 2;
-                let vi = ui + uv_size;
-                let u = (-0.148 * r - 0.291 * g + 0.439 * b + 128.0).clamp(0.0, 255.0) as u8;
-                let v = (0.439 * r - 0.368 * g - 0.071 * b + 128.0).clamp(0.0, 255.0) as u8;
-                out[ui] = u;
-                out[vi] = v;
+    let (y_plane, uv_planes) = out.split_at_mut(y_size);
+    let (u_plane, v_plane) = uv_planes.split_at_mut(uv_size);
+
+    // Y plane: one output row per source row, computed in parallel.
+    y_plane
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let base = y * width * 4;
+            for (x, yv) in row.iter_mut().enumerate() {
+                let i = base + x * 4;
+                let b = bgra[i] as i32;
+                let g = bgra[i + 1] as i32;
+                let r = bgra[i + 2] as i32;
+                *yv = (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16).clamp(0, 255) as u8;
             }
-        }
-    }
+        });
+
+    // U/V planes: 4:2:0 subsampling, top-left of each 2x2 block, in parallel.
+    u_plane
+        .par_chunks_mut(uv_w)
+        .zip(v_plane.par_chunks_mut(uv_w))
+        .enumerate()
+        .for_each(|(uy, (urow, vrow))| {
+            let base = (uy * 2) * width * 4;
+            for ux in 0..uv_w {
+                let i = base + (ux * 2) * 4;
+                let b = bgra[i] as i32;
+                let g = bgra[i + 1] as i32;
+                let r = bgra[i + 2] as i32;
+                urow[ux] = (((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128).clamp(0, 255) as u8;
+                vrow[ux] = (((112 * r - 94 * g - 18 * b + 128) >> 8) + 128).clamp(0, 255) as u8;
+            }
+        });
+
     out
 }
 

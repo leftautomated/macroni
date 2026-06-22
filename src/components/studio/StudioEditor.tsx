@@ -1,121 +1,67 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { useProjectDoc } from '../../hooks/useProjectDoc'
-import { BackgroundPicker } from './BackgroundPicker'
-import { FramingControls } from './FramingControls'
-import { ExportButton } from './ExportButton'
+import type { Recording } from '@/types'
+import { useVideoAssetUrl } from '@/hooks/useVideoAssetUrl'
 
-// Inline type so this file is self-contained even if project.ts doesn't export it.
-type Recording = { id: string; video?: string | null }
+// Simplest studio: list recordings and play the selected one. Effects
+// (background/framing/zoom) come later, one quality-checked feature at a time.
 
-function holeRectPhysical(el: HTMLElement): { x: number; y: number; w: number; h: number } {
-  const r = el.getBoundingClientRect()
-  const dpr = window.devicePixelRatio || 1
-  return {
-    x: r.left * dpr,
-    y: r.top * dpr,
-    w: r.width * dpr,
-    h: r.height * dpr,
-  }
+function formatWhen(ms: number): string {
+  const d = new Date(ms)
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function formatDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.round(ms / 1000))
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
 export function StudioEditor() {
-  const [recordingId, setRecordingId] = useState<string | null>(null)
-  const [noRecordings, setNoRecordings] = useState(false)
-  const holeRef = useRef<HTMLDivElement>(null)
-  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const previewOpenedRef = useRef(false)
+  const [recordings, setRecordings] = useState<Recording[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
 
-  const { doc, updateFraming } = useProjectDoc(recordingId)
-
-  // Resolve recordingId on mount
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const id = params.get('id')
-    if (id) {
-      setRecordingId(id)
-      return
+  const load = useCallback(async () => {
+    try {
+      const recs = await invoke<Recording[]>('load_recordings')
+      // Only video recordings are playable here; newest first (id = ms timestamp).
+      const withVideo = recs
+        .filter((r) => r.video)
+        .sort((a, b) => (b.id > a.id ? 1 : -1))
+      setRecordings(withVideo)
+      setSelectedId((prev) =>
+        prev && withVideo.some((r) => r.id === prev) ? prev : (withVideo[0]?.id ?? null),
+      )
+    } catch (e) {
+      console.error('load_recordings failed', e)
+    } finally {
+      setLoaded(true)
     }
-    // No ?id= → pick most recent recording that has a video
-    invoke<Recording[]>('load_recordings')
-      .then((recordings) => {
-        const withVideo = recordings.filter((r) => r.video)
-        if (withVideo.length === 0) {
-          setNoRecordings(true)
-          return
-        }
-        // load_recordings returns recordings sorted newest-first (or not); pick last by id (timestamp)
-        const sorted = [...withVideo].sort((a, b) => (b.id > a.id ? 1 : -1))
-        setRecordingId(sorted[0].id)
-      })
-      .catch((e) => {
-        console.error('load_recordings failed', e)
-        setNoRecordings(true)
-      })
   }, [])
 
-  // Open preview once per recordingId. Reset the guard whenever recordingId
-  // changes so a future recording switch re-opens the preview correctly.
+  // Load on mount, and refresh whenever the window regains focus so a recording
+  // made in the main window shows up without a restart.
   useEffect(() => {
-    previewOpenedRef.current = false
-  }, [recordingId])
-
+    void load()
+  }, [load])
   useEffect(() => {
-    if (!recordingId || previewOpenedRef.current) return
-    const el = holeRef.current
-    if (!el) return
-    previewOpenedRef.current = true
-    const rect = holeRectPhysical(el)
-    invoke('studio_open_preview', { recordingId, ...rect }).catch((e) =>
-      console.error('studio_open_preview failed', e),
-    )
-  }, [recordingId])
+    const onFocus = () => void load()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [load])
 
-  // Re-attach surface + re-render on resize (debounced 100ms)
-  const handleResize = useCallback(() => {
-    const el = holeRef.current
-    if (!el || !recordingId) return
-    if (resizeTimerRef.current !== null) clearTimeout(resizeTimerRef.current)
-    resizeTimerRef.current = setTimeout(() => {
-      const rect = holeRectPhysical(el)
-      invoke('studio_attach_surface', rect).catch((e) =>
-        console.error('studio_attach_surface failed', e),
-      )
-      if (doc) {
-        invoke('studio_render_preview', { doc, frameIndex: 0 }).catch((e) =>
-          console.error('studio_render_preview failed', e),
-        )
-      }
-    }, 100)
-  }, [recordingId, doc])
-
-  useEffect(() => {
-    window.addEventListener('resize', handleResize)
-    return () => {
-      window.removeEventListener('resize', handleResize)
-      if (resizeTimerRef.current !== null) clearTimeout(resizeTimerRef.current)
-    }
-  }, [handleResize])
-
-  if (noRecordings) {
-    return (
-      <div
-        style={{
-          position: 'fixed',
-          inset: 0,
-          overflow: 'hidden',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: 'system-ui, sans-serif',
-          color: 'rgba(255,255,255,0.5)',
-          fontSize: 14,
-        }}
-      >
-        No recordings found. Record something first.
-      </div>
-    )
-  }
+  const selected = useMemo(
+    () => recordings.find((r) => r.id === selectedId) ?? null,
+    [recordings, selectedId],
+  )
+  const { url } = useVideoAssetUrl(selected?.video)
 
   return (
     <div
@@ -124,57 +70,120 @@ export function StudioEditor() {
         inset: 0,
         overflow: 'hidden',
         display: 'flex',
-        fontFamily: 'system-ui, sans-serif',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
         color: '#e5e7eb',
+        background: '#0f0f14',
       }}
     >
-      {/* Left control panel */}
+      {/* Recordings list */}
       <div
         style={{
-          width: 240,
+          width: 260,
           flexShrink: 0,
           height: '100%',
-          overflowY: 'auto',
-          padding: '16px 12px',
-          background: 'rgba(15,15,20,0.92)',
           display: 'flex',
           flexDirection: 'column',
-          gap: 20,
-          boxSizing: 'border-box',
+          borderRight: '1px solid rgba(255,255,255,0.08)',
+          background: 'rgba(20,20,28,0.96)',
         }}
       >
-        {doc === null ? (
-          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Loading…</div>
-        ) : (
-          <>
-            <BackgroundPicker doc={doc} onChange={updateFraming} />
-            <div style={{ height: 1, background: 'rgba(255,255,255,0.08)' }} />
-            <FramingControls doc={doc} onChange={updateFraming} />
-            <div style={{ height: 1, background: 'rgba(255,255,255,0.08)' }} />
-            <ExportButton recordingId={recordingId} />
-          </>
-        )}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '14px 14px 10px',
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: 0.3 }}>RECORDINGS</span>
+          <button
+            type="button"
+            onClick={() => void load()}
+            title="Refresh"
+            style={{
+              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'transparent',
+              color: '#cbd5e1',
+              borderRadius: 6,
+              padding: '2px 8px',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            Refresh
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px' }}>
+          {loaded && recordings.length === 0 && (
+            <div style={{ padding: 14, fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>
+              No recordings yet. Record one in the main window, then come back.
+            </div>
+          )}
+          {recordings.map((r) => {
+            const isSel = r.id === selectedId
+            return (
+              <button
+                type="button"
+                key={r.id}
+                onClick={() => setSelectedId(r.id)}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  border: '1px solid',
+                  borderColor: isSel ? '#6366f1' : 'transparent',
+                  background: isSel ? 'rgba(99,102,241,0.18)' : 'transparent',
+                  color: 'inherit',
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  marginBottom: 4,
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
+                  {r.name && r.name !== 'Untitled' ? r.name : formatWhen(r.created_at)}
+                </div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+                  {r.video ? formatDuration(r.video.duration_ms) : '—'} · {r.events.length} actions
+                </div>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
-      {/* Centered preview hole — 70% of remaining width, 16:9 aspect ratio */}
+      {/* Player */}
       <div
         style={{
           flex: 1,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          padding: 24,
+          boxSizing: 'border-box',
         }}
       >
-        <div
-          ref={holeRef}
-          id="preview-hole"
-          style={{
-            width: '70%',
-            aspectRatio: '16 / 9',
-            background: 'transparent',
-            boxSizing: 'border-box',
-          }}
-        />
+        {selected && url ? (
+          <video
+            key={selected.id}
+            src={url}
+            controls
+            autoPlay
+            loop
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+              borderRadius: 8,
+              boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+              background: '#000',
+            }}
+          />
+        ) : (
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>
+            {loaded ? 'Select a recording to play.' : 'Loading…'}
+          </div>
+        )}
       </div>
     </div>
   )

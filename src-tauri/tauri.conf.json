@@ -39,13 +39,13 @@
       },
       {
         "label": "studio",
-        "title": "Studio (Spike)",
+        "title": "Studio",
         "url": "studio.html",
         "width": 1200,
         "height": 800,
         "minWidth": 600,
         "minHeight": 400,
-        "transparent": true,
+        "transparent": false,
         "decorations": true,
         "visible": true,
         "resizable": true

@@ -40,6 +40,8 @@ mp4 = "0.14"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 scap = "=0.1.0-beta.1"
+# Downscale captured frames above openh264's 4K limit before encoding.
+image = { version = "0.25", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

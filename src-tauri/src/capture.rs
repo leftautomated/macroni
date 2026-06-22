@@ -153,19 +153,27 @@ impl ScreenCaptureSession {
                 }
             };
 
+            // openh264 rejects anything above 3840x2160 (or 2160x3840). scap's
+            // _2160p preset clamps most displays, but for non-16:9 aspects the
+            // height can still exceed 2160, so compute a guaranteed-fitting,
+            // aspect-preserving, even-valued target and downscale frames to it.
+            // This is a no-op when capture is already within the box.
+            let (enc_w, enc_h) = encode_target(width, height);
+            eprintln!("capture: source {width}x{height} -> encode {enc_w}x{enc_h}");
+
             let mut sink: Box<dyn CaptureSink> = Box::new(crate::encoder::Mp4EncoderSink::new(
                 output_path.clone(),
-                width,
-                height,
+                enc_w,
+                enc_h,
                 settings.fps,
                 settings.quality,
                 settings.audio,
                 start_ms,
             )?);
             sink.on_frame(&Frame {
-                width,
-                height,
-                data: first_data,
+                width: enc_w,
+                height: enc_h,
+                data: fit_bgra(first_data, width, height, enc_w, enc_h),
                 timestamp_ms: first_ts,
             })?;
 
@@ -173,10 +181,11 @@ impl ScreenCaptureSession {
                 match capturer.get_next_frame() {
                     Ok(ScapFrame::Video(VideoFrame::BGRA(f))) => {
                         let ts = Utc::now().timestamp_millis();
+                        let (fw, fh) = (f.width as u32, f.height as u32);
                         if let Err(e) = sink.on_frame(&Frame {
-                            width: f.width as u32,
-                            height: f.height as u32,
-                            data: f.data,
+                            width: enc_w,
+                            height: enc_h,
+                            data: fit_bgra(f.data, fw, fh, enc_w, enc_h),
                             timestamp_ms: ts,
                         }) {
                             eprintln!("capture: sink error {e}");
@@ -213,6 +222,41 @@ impl ScreenCaptureSession {
     #[allow(dead_code)] // future callers / debugging — keep public
     pub fn start_ms(&self) -> i64 {
         self.start_ms
+    }
+}
+
+/// Fit `(w, h)` into openh264's encode box (longer side <= 3840, shorter <=
+/// 2160), preserving aspect, never upscaling, rounded to even dimensions
+/// (required by I420 chroma subsampling).
+#[cfg(not(target_os = "windows"))]
+fn encode_target(w: u32, h: u32) -> (u32, u32) {
+    const MAX_LONG: f64 = 3840.0;
+    const MAX_SHORT: f64 = 2160.0;
+    let (wf, hf) = (w as f64, h as f64);
+    let (long, short) = if wf >= hf { (wf, hf) } else { (hf, wf) };
+    let scale = (MAX_LONG / long).min(MAX_SHORT / short).min(1.0);
+    let round_even = |v: f64| {
+        let n = (v * scale).round() as u32;
+        (n - n % 2).max(2)
+    };
+    (round_even(wf), round_even(hf))
+}
+
+/// Downscale a BGRA frame to `(tw, th)`. No-op if already that size. A separable
+/// bilinear resize filters each byte-lane independently, so BGRA channel order
+/// is preserved (no need to reorder to RGBA).
+#[cfg(not(target_os = "windows"))]
+fn fit_bgra(data: Vec<u8>, w: u32, h: u32, tw: u32, th: u32) -> Vec<u8> {
+    if (w, h) == (tw, th) {
+        return data;
+    }
+    match image::RgbaImage::from_raw(w, h, data) {
+        Some(img) => {
+            image::imageops::resize(&img, tw, th, image::imageops::FilterType::Triangle).into_raw()
+        }
+        // Length mismatch should be impossible for a BGRA frame; degrade to an
+        // empty buffer, which surfaces a visible encoder error rather than a panic.
+        None => Vec::new(),
     }
 }
 
@@ -255,5 +299,27 @@ mod tests {
         assert_eq!(meta.width, 640);
         assert_eq!(meta.fps, 30);
         assert_eq!(frames_handle.lock().unwrap().len(), 3);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn encode_target_fits_openh264_box() {
+        // 16:9 5K / 6K -> exactly 4K
+        assert_eq!(encode_target(5120, 2880), (3840, 2160));
+        assert_eq!(encode_target(6016, 3384), (3840, 2160));
+        // 16:10 wider-than-4K -> height clamped to 2160, aspect preserved
+        let (w, h) = encode_target(3840, 2400);
+        assert!(w <= 3840 && h <= 2160, "got {w}x{h}");
+        assert_eq!(h, 2160);
+        // already within the box -> unchanged; never upscale a small source
+        assert_eq!(encode_target(1920, 1080), (1920, 1080));
+        assert_eq!(encode_target(1280, 720), (1280, 720));
+        // portrait within the rotated box -> unchanged; tall portrait -> clamped
+        assert_eq!(encode_target(2160, 3840), (2160, 3840));
+        let (w, h) = encode_target(2880, 5120);
+        assert!(w <= 2160 && h <= 3840, "got {w}x{h}");
+        // dimensions are always even (I420 requirement)
+        let (w, h) = encode_target(5121, 2881);
+        assert_eq!((w % 2, h % 2), (0, 0));
     }
 }

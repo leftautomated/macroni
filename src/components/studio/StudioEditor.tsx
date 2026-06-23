@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Play, Trash2 } from "lucide-react";
-import type { Recording } from "@/types";
+import { Trash2 } from "lucide-react";
+import { StudioEventList } from "@/components/studio/StudioEventList";
+import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
+import { usePlaybackSync } from "@/hooks/usePlaybackSync";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
+import type { Recording } from "@/types";
 
 // Simplest studio: list recordings and play the selected one. Effects
 // (background/framing/zoom) come later, one quality-checked feature at a time.
@@ -28,10 +31,8 @@ export function StudioEditor() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-  // The video fades in once it can paint, so switching clips reads as a soft
-  // crossfade against the dark stage rather than a hard cut to black.
-  const [videoReady, setVideoReady] = useState(false);
   const selectedRef = useRef<HTMLDivElement | null>(null);
+  const playerRef = useRef<StudioPlayerHandle>(null);
 
   const load = useCallback(async () => {
     try {
@@ -65,10 +66,10 @@ export function StudioEditor() {
     [recordings, selectedId],
   );
   const { url } = useVideoAssetUrl(selected?.video);
+  const sync = usePlaybackSync({ events: selected?.events ?? [], video: selected?.video });
 
-  // Reset the fade and keep the active clip visible in the list on every switch.
+  // Keep the active clip visible in the list on every switch.
   useEffect(() => {
-    setVideoReady(false);
     selectedRef.current?.scrollIntoView({ block: "nearest" });
   }, [selectedId]);
 
@@ -90,6 +91,14 @@ export function StudioEditor() {
   const handleReplay = useCallback((id: string) => {
     void invoke("request_replay", { id }).catch((e) => console.error("request_replay failed", e));
   }, []);
+
+  // Clicking an event seeks the video; the resulting timeupdate re-highlights it.
+  const handleEventSeek = useCallback(
+    (index: number) => {
+      playerRef.current?.seek(sync.eventVideoSeconds(index));
+    },
+    [sync.eventVideoSeconds],
+  );
 
   return (
     <div
@@ -156,21 +165,6 @@ export function StudioEditor() {
         .rec-row:hover .rec-del,
         .rec-row.sel .rec-del { opacity: 1; }
         .rec-del:hover { color: #f87171; background: rgba(248,113,113,0.14); }
-        .replay-btn {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          border: 1px solid rgba(99,102,241,0.5);
-          background: rgba(99,102,241,0.18);
-          color: #e5e7eb;
-          border-radius: 8px;
-          padding: 8px 14px;
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background 120ms ease, border-color 120ms ease;
-        }
-        .replay-btn:hover { background: rgba(99,102,241,0.28); border-color: #6366f1; }
       `}</style>
 
       {/* Recordings list */}
@@ -245,74 +239,22 @@ export function StudioEditor() {
       <div
         style={{
           flex: 1,
+          minWidth: 0,
           display: "flex",
           flexDirection: "column",
           padding: 24,
-          gap: 14,
           boxSizing: "border-box",
         }}
       >
         {selected && url ? (
-          <>
-            <div
-              style={{
-                flex: 1,
-                minHeight: 0,
-                position: "relative",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <video
-                key={selected.id}
-                src={url}
-                controls
-                autoPlay
-                loop
-                onLoadedData={() => setVideoReady(true)}
-                style={{
-                  maxWidth: "100%",
-                  maxHeight: "100%",
-                  borderRadius: 8,
-                  boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
-                  background: "#000",
-                  opacity: videoReady ? 1 : 0,
-                  transition: "opacity 180ms ease",
-                }}
-              />
-              {!videoReady && (
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    pointerEvents: "none",
-                    fontSize: 13,
-                    color: "rgba(255,255,255,0.5)",
-                  }}
-                >
-                  Loading…
-                </div>
-              )}
-            </div>
-            <div
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}
-            >
-              <button
-                type="button"
-                className="replay-btn"
-                onClick={() => handleReplay(selected.id)}
-              >
-                <Play size={14} /> Replay macro
-              </button>
-              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
-                opens it in the control bar — focus your target app, then press Play
-              </span>
-            </div>
-          </>
+          <StudioPlayer
+            key={selected.id}
+            ref={playerRef}
+            src={url}
+            fps={selected.video?.fps ?? 30}
+            onTimeUpdate={sync.onVideoTime}
+            onReplay={() => handleReplay(selected.id)}
+          />
         ) : (
           <div
             style={{
@@ -328,6 +270,18 @@ export function StudioEditor() {
           </div>
         )}
       </div>
+
+      {/* Synced events */}
+      {selected && (
+        <StudioEventList
+          events={selected.events}
+          startMs={sync.startMs}
+          activeIndex={sync.activeIndex}
+          onSeek={handleEventSeek}
+          onUserScroll={sync.noteUserScroll}
+          autoScrollEnabled={sync.shouldAutoScroll()}
+        />
+      )}
     </div>
   );
 }

@@ -165,6 +165,11 @@ export function StudioEditor() {
         .rec-row:hover .rec-del,
         .rec-row.sel .rec-del { opacity: 1; }
         .rec-del:hover { color: #f87171; background: rgba(248,113,113,0.14); }
+        .studio-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.16) transparent; }
+        .studio-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+        .studio-scroll::-webkit-scrollbar-track { background: transparent; }
+        .studio-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+        .studio-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); background-clip: padding-box; }
       `}</style>
 
       {/* Recordings list */}
@@ -198,7 +203,7 @@ export function StudioEditor() {
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "0 8px 8px" }}>
+        <div className="studio-scroll" style={{ flex: 1, overflowY: "auto", padding: "0 8px 8px" }}>
           {loaded && recordings.length === 0 && (
             <div style={{ padding: 14, fontSize: 13, color: "rgba(255,255,255,0.45)" }}>
               No recordings yet. Record one in the main window, then come back.

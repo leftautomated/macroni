@@ -232,6 +232,28 @@ fn open_playback_window(app: AppHandle, recording_id: String) -> Result<(), Stri
 }
 
 #[tauri::command]
+fn focus_studio_window(app: AppHandle) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+    // The studio is defined in tauri.conf and created at startup — just show and
+    // focus it. If the user closed the window (Tauri destroys on close), rebuild
+    // it from the same URL so the button always works.
+    if let Some(window) = app.get_webview_window("studio") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, "studio", WebviewUrl::App("studio.html".into()))
+        .title("Studio")
+        .inner_size(1200.0, 800.0)
+        .min_inner_size(600.0, 400.0)
+        .resizable(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn get_app_data_dir(app: AppHandle) -> Result<String, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok(dir.to_string_lossy().into_owned())
@@ -462,6 +484,7 @@ pub fn run() {
             permissions::check_screen_recording_permission,
             permissions::request_screen_recording,
             open_playback_window,
+            focus_studio_window,
             get_app_data_dir,
             project_store::studio_load_project,
             project_store::studio_save_project,

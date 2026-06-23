@@ -46,20 +46,29 @@ describe("App (integration root)", () => {
   it("starts collapsed — the tabs are not visible until expanded", async () => {
     render(<App />);
     await screen.findByRole("button", { name: /start/i });
-    // Live Events / Recordings / Settings are inside the expandable panel.
+    // Live Events / Settings are inside the expandable panel.
     expect(screen.queryByText("Live Events")).not.toBeInTheDocument();
-    expect(screen.queryByText("Recordings")).not.toBeInTheDocument();
     expect(screen.queryByText("Settings")).not.toBeInTheDocument();
   });
 
-  it("opens the panel and shows the three tabs when the expand toggle is clicked", async () => {
+  it("opens the panel and shows the Live Events and Settings tabs when expanded", async () => {
     render(<App />);
     const expandButton = await screen.findByRole("button", { name: /^expand$/i });
     await userEvent.click(expandButton);
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: /live events/i })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /^recordings$/i })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: /^settings$/i })).toBeInTheDocument();
+    });
+    // Recordings browsing moved to the Studio — no Recordings tab here anymore.
+    expect(screen.queryByRole("tab", { name: /^recordings$/i })).not.toBeInTheDocument();
+  });
+
+  it("exposes an Open Studio button in the header", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: /open studio/i }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("focus_studio_window");
     });
   });
 });

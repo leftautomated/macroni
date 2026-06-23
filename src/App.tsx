@@ -8,34 +8,26 @@ import { useAutoResize } from "@/hooks/useAutoResize";
 import { usePermissionStatus } from "@/hooks/usePermissionStatus";
 import { RecordingControls } from "@/components/RecordingControls";
 import { LiveEventDisplay } from "@/components/LiveEventDisplay";
-import { RecordingsList } from "@/components/RecordingsList";
 import { RecordingDetail } from "@/components/RecordingDetail";
 import { SettingsTab } from "@/components/SettingsTab";
 import { VisibilityToggle } from "@/components/VisibilityToggle";
 import { ExpandToggle } from "@/components/ExpandToggle";
 import { PermissionAlert } from "@/components/PermissionAlert";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { GripVertical } from "lucide-react";
+import { Clapperboard, GripVertical } from "lucide-react";
 
 const App = () => {
   const recorder = useRecorder();
   const recordingsManager = useRecordings();
   const permissions = usePermissionStatus();
   const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<"live" | "recordings" | "settings">("live");
-  const [lastViewedRecordingId, setLastViewedRecordingId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"live" | "settings">("live");
   const contentRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
   useInputEventListener(recorder.addEvent);
-
-  // Track the last-viewed recording so we can highlight it in the list
-  useEffect(() => {
-    if (recordingsManager.selectedRecording) {
-      setLastViewedRecordingId(recordingsManager.selectedRecording.id);
-    }
-  }, [recordingsManager.selectedRecording]);
 
   useAutoResize({
     isExpanded,
@@ -120,6 +112,15 @@ const App = () => {
               onStopRecording={handleStopRecording}
             />
             <div className="h-4 w-px bg-border" data-tauri-drag-region />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => void invoke("focus_studio_window")}
+              title="Open Studio — browse and play recordings"
+            >
+              <Clapperboard className="h-4 w-4" />
+            </Button>
             <VisibilityToggle />
             <ExpandToggle isExpanded={isExpanded} onToggle={handleToggleExpand} />
           </Card>
@@ -148,29 +149,15 @@ const App = () => {
               <Card className="p-4">
                 <Tabs
                   value={activeTab}
-                  onValueChange={(value) =>
-                    setActiveTab(value as "live" | "recordings" | "settings")
-                  }
+                  onValueChange={(value) => setActiveTab(value as "live" | "settings")}
                   className="w-full"
                 >
-                  <TabsList className="grid w-full grid-cols-3">
+                  <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="live">Live Events</TabsTrigger>
-                    <TabsTrigger value="recordings">Recordings</TabsTrigger>
                     <TabsTrigger value="settings">Settings</TabsTrigger>
                   </TabsList>
                   <TabsContent value="live" className="mt-4">
                     <LiveEventDisplay events={recorder.currentEvents} />
-                  </TabsContent>
-                  <TabsContent value="recordings" className="mt-4">
-                    <RecordingsList
-                      recordings={recordingsManager.recordings}
-                      selectedRecordingId={lastViewedRecordingId}
-                      onViewRecording={recordingsManager.setSelectedRecording}
-                      onDeleteRecording={recordingsManager.deleteRecording}
-                      onOpenPlayback={(id: string) =>
-                        invoke("open_playback_window", { recordingId: id })
-                      }
-                    />
                   </TabsContent>
                   <TabsContent value="settings" className="mt-4">
                     <SettingsTab />

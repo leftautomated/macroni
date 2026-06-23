@@ -26,18 +26,6 @@
         "acceptFirstMouse": true
       },
       {
-        "label": "playback",
-        "title": "Playback",
-        "url": "playback.html",
-        "width": 1200,
-        "height": 750,
-        "minWidth": 800,
-        "minHeight": 500,
-        "visible": false,
-        "resizable": true,
-        "decorations": true
-      },
-      {
         "label": "studio",
         "title": "Studio",
         "url": "studio.html",

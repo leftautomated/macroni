@@ -216,22 +216,6 @@ fn set_window_size(window: WebviewWindow, width: u32, height: u32) -> Result<(),
 }
 
 #[tauri::command]
-fn open_playback_window(app: AppHandle, recording_id: String) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("playback") {
-        window
-            .eval(format!(
-                "window.location.href = 'playback.html?id={}'",
-                recording_id
-            ))
-            .map_err(|e| e.to_string())?;
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-    Err("playback window not configured".to_string())
-}
-
-#[tauri::command]
 fn focus_studio_window(app: AppHandle) -> Result<(), String> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
@@ -483,7 +467,6 @@ pub fn run() {
             settings::save_settings,
             permissions::check_screen_recording_permission,
             permissions::request_screen_recording,
-            open_playback_window,
             focus_studio_window,
             get_app_data_dir,
             project_store::studio_load_project,

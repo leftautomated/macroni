@@ -163,13 +163,10 @@ impl ScreenCaptureSession {
                 };
                 capturer.start_capture();
 
-                let mut received: u64 = 0;
-                let mut dropped: u64 = 0;
                 while running.load(Ordering::Relaxed) {
                     match capturer.get_next_frame() {
                         // scap emits empty 0x0 BGRA frames for SCK `.idle` status; skip.
                         Ok(ScapFrame::BGRA(f)) if f.width > 0 && !f.data.is_empty() => {
-                            received += 1;
                             let frame = CapturedFrame {
                                 width: f.width as u32,
                                 height: f.height as u32,
@@ -179,7 +176,7 @@ impl ScreenCaptureSession {
                             match frame_tx.try_send(frame) {
                                 Ok(()) => {}
                                 // Encoder behind — drop this frame, keep draining.
-                                Err(mpsc::TrySendError::Full(_)) => dropped += 1,
+                                Err(mpsc::TrySendError::Full(_)) => {}
                                 Err(mpsc::TrySendError::Disconnected(_)) => break,
                             }
                         }
@@ -191,9 +188,6 @@ impl ScreenCaptureSession {
                     }
                 }
                 capturer.stop_capture();
-                eprintln!(
-                    "capture: SCK delivered {received} frames, dropped {dropped} (encoder behind)"
-                );
                 // frame_tx dropped here -> encoder sees Disconnected.
             });
         }
@@ -224,10 +218,6 @@ impl ScreenCaptureSession {
                 // Downscale target so openh264 (max 3840x2160 / 2160x3840) accepts
                 // any display, aspect-preserving and even-valued.
                 let (enc_w, enc_h) = encode_target(first.width, first.height);
-                eprintln!(
-                    "capture: source {}x{} -> encode {enc_w}x{enc_h}",
-                    first.width, first.height
-                );
 
                 let mut sink: Box<dyn CaptureSink> = Box::new(crate::encoder::Mp4EncoderSink::new(
                     output_path,
@@ -261,11 +251,9 @@ impl ScreenCaptureSession {
                 };
 
                 let mut prev_ts = first.ts;
-                let mut real_frames: u32 = 1;
                 loop {
                     match frame_rx.recv_timeout(interval) {
                         Ok(f) => {
-                            real_frames += 1;
                             backfill(&mut sink, prev_ts, f.ts);
                             if let Err(e) = sink.on_frame(&Frame {
                                 width: f.width,
@@ -294,7 +282,6 @@ impl ScreenCaptureSession {
                     }
                 }
                 backfill(&mut sink, prev_ts, Utc::now().timestamp_millis());
-                eprintln!("capture: {real_frames} real frames encoded (steady fps)");
                 sink.finalize()
             })
         };

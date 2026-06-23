@@ -2713,7 +2713,6 @@ name = "macroni"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "image",
  "mp4",
  "objc2 0.6.3",
  "objc2-app-kit",
@@ -2722,6 +2721,7 @@ dependencies = [
  "open-gpui-scap",
  "openh264",
  "pollster",
+ "rayon",
  "rdev",
  "render-core",
  "serde",

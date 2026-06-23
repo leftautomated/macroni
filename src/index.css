@@ -75,6 +75,15 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* This is a chrome-less, fixed-size overlay — the document must never scroll.
+     #root is clipped, but without these the html/body can still show a hairline
+     scrollbar from 100vh rounding on HiDPI or a momentarily under-sized window. */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
   #root {
     @apply overflow-hidden;
     width: 100vw;

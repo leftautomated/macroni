@@ -26,7 +26,7 @@ export const useAutoResize = ({
           // Add padding: mx-2 (8px each side) = 16px total for width
           // Add padding: pt-4 (16px) + pb-4 (16px) = 32px total for height
           const totalWidth = headerWidth + 16;
-          const totalHeight = headerHeight + 16; // pt-4 + pb-4
+          const totalHeight = headerHeight + 32; // pt-4 + pb-4
           resizeWindow(Math.max(400, totalWidth), totalHeight);
         } else {
           resizeWindow(700, 60);
@@ -57,11 +57,12 @@ export const useAutoResize = ({
       const contentHeight = contentRef.current.scrollHeight;
       const contentWidth = contentRef.current.scrollWidth;
 
-      // Calculate total dimensions
-      // Padding: pt-4 (16px) + pb-4 (16px) = 32px
-      // Header: ~60px (increased from 42px)
-      // Gap: 12px
-      const totalHeight = 60 + 12 + contentHeight + 32;
+      // Calculate total dimensions. Measure the header rather than assuming a
+      // fixed height — it grows when the permission alert is shown, and a wrong
+      // guess leaves the content clipped or a dead gap at the bottom.
+      // Gap: space-y-3 (12px). Padding: pt-4 (16px) + pb-4 (16px) = 32px.
+      const headerHeight = headerRef.current?.offsetHeight ?? 60;
+      const totalHeight = headerHeight + 12 + contentHeight + 32;
 
       // Width: content width + mx-2 padding (16px total)
       const totalWidth = Math.max(400, contentWidth + 16);

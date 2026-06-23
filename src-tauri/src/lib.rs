@@ -238,6 +238,30 @@ fn focus_studio_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn request_replay(app: AppHandle, id: String) -> Result<(), String> {
+    // Replay runs from the main control panel: it's small and non-activating, so
+    // it won't steal focus from the user's target app. Bring it forward, then
+    // tell the frontend which recording to load — the user focuses their target
+    // and presses Play when ready (we deliberately don't auto-start).
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::PanelLevel;
+        if let Ok(panel) = app.get_webview_panel("main") {
+            panel.set_level(PanelLevel::Floating.value());
+            panel.show();
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(window) = app.get_webview_window("main") {
+            window.show().map_err(|e| e.to_string())?;
+        }
+    }
+    app.emit("replay-recording", id).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn get_app_data_dir(app: AppHandle) -> Result<String, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok(dir.to_string_lossy().into_owned())
@@ -468,6 +492,7 @@ pub fn run() {
             permissions::check_screen_recording_permission,
             permissions::request_screen_recording,
             focus_studio_window,
+            request_replay,
             get_app_data_dir,
             project_store::studio_load_project,
             project_store::studio_save_project,

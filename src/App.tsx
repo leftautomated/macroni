@@ -16,6 +16,7 @@ import { PermissionAlert } from "@/components/PermissionAlert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { Recording } from "@/types";
 import { Clapperboard, GripVertical } from "lucide-react";
 
 const App = () => {
@@ -90,6 +91,22 @@ const App = () => {
       unlisten.then((fn) => fn());
     };
   }, [handleStartRecording, handleStopRecording]);
+
+  // The Studio hands a recording back here to replay it (the main panel is the
+  // focus-safe surface). Load it fresh and expand so the user can press Play.
+  useEffect(() => {
+    const unlisten = listen<string>("replay-recording", async (event) => {
+      const all = await invoke<Recording[]>("load_recordings");
+      const rec = all.find((r) => r.id === event.payload);
+      if (rec) {
+        recordingsManager.setSelectedRecording(rec);
+        setIsExpanded(true);
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [recordingsManager.setSelectedRecording]);
 
   const handleToggleExpand = () => {
     setIsExpanded(!isExpanded);

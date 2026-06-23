@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Trash2 } from "lucide-react";
+import { Play, Trash2 } from "lucide-react";
 import type { Recording } from "@/types";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 
@@ -85,6 +85,12 @@ export function StudioEditor() {
     [load],
   );
 
+  // Replay runs from the main control panel (focus-safe). Hand it the recording;
+  // the main window comes forward with it loaded, ready for the user to play.
+  const handleReplay = useCallback((id: string) => {
+    void invoke("request_replay", { id }).catch((e) => console.error("request_replay failed", e));
+  }, []);
+
   return (
     <div
       style={{
@@ -150,6 +156,21 @@ export function StudioEditor() {
         .rec-row:hover .rec-del,
         .rec-row.sel .rec-del { opacity: 1; }
         .rec-del:hover { color: #f87171; background: rgba(248,113,113,0.14); }
+        .replay-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border: 1px solid rgba(99,102,241,0.5);
+          background: rgba(99,102,241,0.18);
+          color: #e5e7eb;
+          border-radius: 8px;
+          padding: 8px 14px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 120ms ease, border-color 120ms ease;
+        }
+        .replay-btn:hover { background: rgba(99,102,241,0.28); border-color: #6366f1; }
       `}</style>
 
       {/* Recordings list */}
@@ -224,51 +245,86 @@ export function StudioEditor() {
       <div
         style={{
           flex: 1,
-          position: "relative",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          flexDirection: "column",
           padding: 24,
+          gap: 14,
           boxSizing: "border-box",
         }}
       >
         {selected && url ? (
-          <video
-            key={selected.id}
-            src={url}
-            controls
-            autoPlay
-            loop
-            onLoadedData={() => setVideoReady(true)}
-            style={{
-              maxWidth: "100%",
-              maxHeight: "100%",
-              borderRadius: 8,
-              boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
-              background: "#000",
-              opacity: videoReady ? 1 : 0,
-              transition: "opacity 180ms ease",
-            }}
-          />
+          <>
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                position: "relative",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <video
+                key={selected.id}
+                src={url}
+                controls
+                autoPlay
+                loop
+                onLoadedData={() => setVideoReady(true)}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "100%",
+                  borderRadius: 8,
+                  boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+                  background: "#000",
+                  opacity: videoReady ? 1 : 0,
+                  transition: "opacity 180ms ease",
+                }}
+              />
+              {!videoReady && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    pointerEvents: "none",
+                    fontSize: 13,
+                    color: "rgba(255,255,255,0.5)",
+                  }}
+                >
+                  Loading…
+                </div>
+              )}
+            </div>
+            <div
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}
+            >
+              <button
+                type="button"
+                className="replay-btn"
+                onClick={() => handleReplay(selected.id)}
+              >
+                <Play size={14} /> Replay macro
+              </button>
+              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
+                opens it in the control bar — focus your target app, then press Play
+              </span>
+            </div>
+          </>
         ) : (
-          <div style={{ fontSize: 14, color: "rgba(255,255,255,0.4)" }}>
-            {loaded ? "Select a recording to play." : "Loading…"}
-          </div>
-        )}
-        {selected && url && !videoReady && (
           <div
             style={{
-              position: "absolute",
-              inset: 0,
+              flex: 1,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              pointerEvents: "none",
-              fontSize: 13,
-              color: "rgba(255,255,255,0.5)",
+              fontSize: 14,
+              color: "rgba(255,255,255,0.4)",
             }}
           >
-            Loading…
+            {loaded ? "Select a recording to play." : "Loading…"}
           </div>
         )}
       </div>

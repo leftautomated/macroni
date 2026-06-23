@@ -68,6 +68,20 @@ describe("StudioEditor (recordings browser)", () => {
     expect(screen.getByText("Older clip")).toBeInTheDocument();
   });
 
+  it("hands the selected recording to the main window for replay", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    // Newest (id 2000) is auto-selected, so its player shows the Replay button.
+    fake.recordings = [makeRecording("1000", "Alpha"), makeRecording("2000", "Beta")];
+
+    render(<StudioEditor />);
+    const replayButton = await screen.findByRole("button", { name: /replay macro/i });
+    await userEvent.click(replayButton);
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("request_replay", { id: "2000" });
+    });
+  });
+
   it("deletes a recording via its row delete button", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     vi.spyOn(window, "confirm").mockReturnValue(true);

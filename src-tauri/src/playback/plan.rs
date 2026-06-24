@@ -83,10 +83,16 @@ impl PlaybackPlan {
                 continue;
             }
             push_simulate(&mut steps, event);
-            // Post-event small sleep, dropped at very high speeds.
-            steps.push(PlannedStep::Sleep {
-                ms: if speed <= 2.0 { 10 } else { 1 },
-            });
+            // Post-event settle sleep. High-frequency scroll ticks skip it so a
+            // burst replays near real-time; discrete events keep the 10ms settle.
+            let post_ms = if matches!(event, InputEvent::Scroll { .. }) {
+                1
+            } else if speed <= 2.0 {
+                10
+            } else {
+                1
+            };
+            steps.push(PlannedStep::Sleep { ms: post_ms });
         }
         Ok(Self { steps })
     }
@@ -112,7 +118,7 @@ fn min_delay_for(event: &InputEvent) -> u64 {
 /// >50ms over the most recent throttle window.
 fn should_update_position(events: &[InputEvent], index: usize) -> bool {
     match events.get(index) {
-        Some(InputEvent::MouseMove { .. }) => {
+        Some(InputEvent::MouseMove { .. }) | Some(InputEvent::Scroll { .. }) => {
             if index == 0 || index.is_multiple_of(3) {
                 true
             } else {
@@ -165,6 +171,14 @@ fn push_simulate(steps: &mut Vec<PlannedStep>, event: &InputEvent) {
         InputEvent::MouseMove { x, y, .. } => {
             steps.push(PlannedStep::Simulate(EventType::MouseMove { x: *x, y: *y }));
         }
+        InputEvent::Scroll {
+            delta_x, delta_y, ..
+        } => {
+            steps.push(PlannedStep::Simulate(EventType::Wheel {
+                delta_x: *delta_x,
+                delta_y: *delta_y,
+            }));
+        }
         InputEvent::KeyCombo { .. } => {}
     }
 }
@@ -206,6 +220,13 @@ mod tests {
         InputEvent::MouseMove {
             x,
             y,
+            timestamp: ts,
+        }
+    }
+    fn scroll(delta_x: i64, delta_y: i64, ts: i64) -> InputEvent {
+        InputEvent::Scroll {
+            delta_x,
+            delta_y,
             timestamp: ts,
         }
     }
@@ -257,6 +278,25 @@ mod tests {
             plan.steps
         );
         assert!(pos_idx < sim_idx, "EmitPosition must come before Simulate");
+    }
+
+    #[test]
+    fn scroll_is_simulated_as_wheel_with_a_short_settle() {
+        let events = vec![scroll(2, -5, 0)];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        assert!(
+            plan.steps.iter().any(|s| matches!(
+                s,
+                PlannedStep::Simulate(EventType::Wheel {
+                    delta_x: 2,
+                    delta_y: -5
+                })
+            )),
+            "scroll should simulate a Wheel: {:?}",
+            plan.steps
+        );
+        // Scroll uses a 1ms post-event settle (not the 10ms discrete-event one).
+        assert!(matches!(plan.steps.last(), Some(PlannedStep::Sleep { ms: 1 })));
     }
 
     #[test]

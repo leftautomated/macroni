@@ -117,6 +117,15 @@ impl EventCapture {
                     });
                 }
             }
+            EventType::Wheel { delta_x, delta_y } => {
+                // Record every wheel tick (trackpad or mouse) for fidelity; the
+                // UI groups consecutive scrolls for readability.
+                out.push(InputEvent::Scroll {
+                    delta_x,
+                    delta_y,
+                    timestamp: timestamp_ms,
+                });
+            }
             _ => {}
         }
         out
@@ -197,6 +206,25 @@ mod tests {
             "stale modifier should not produce combo: {:?}",
             out
         );
+    }
+
+    #[test]
+    fn wheel_emits_scroll_with_deltas() {
+        let mut cap = EventCapture::new();
+        let out = cap.on_rdev_event(EventType::Wheel { delta_x: 3, delta_y: -10 }, ts());
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            InputEvent::Scroll {
+                delta_x,
+                delta_y,
+                timestamp,
+            } => {
+                assert_eq!(*delta_x, 3);
+                assert_eq!(*delta_y, -10);
+                assert_eq!(*timestamp, ts());
+            }
+            other => panic!("expected Scroll, got {:?}", other),
+        }
     }
 
     #[test]

@@ -1,8 +1,9 @@
 import { useRef } from "react";
+import { Mouse } from "lucide-react";
 import { useAutoScrollToBottom } from "@/hooks/useAutoScrollToBottom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { type InputEvent, InputEventType } from "@/types";
-import { getEventDetails, formatTimestamp } from "@/lib/event-utils";
+import { formatTimestamp, getEventDetails, groupEvents, scrollSummary } from "@/lib/event-utils";
 
 interface LiveEventDisplayProps {
   events: InputEvent[];
@@ -12,6 +13,8 @@ export const LiveEventDisplay = ({ events }: LiveEventDisplayProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useAutoScrollToBottom(scrollRef, events);
+
+  const rows = groupEvents(events);
 
   return (
     <div className="space-y-3">
@@ -35,19 +38,48 @@ export const LiveEventDisplay = ({ events }: LiveEventDisplayProps) => {
           </div>
         ) : (
           <div className="space-y-1">
-            {events.map((event, index) => {
+            {rows.map((row, rowIdx) => {
+              if (row.kind === "scroll") {
+                return (
+                  <div
+                    key={`s${row.startIndex}`}
+                    className="flex items-center gap-3 text-sm font-mono"
+                  >
+                    <span className="text-muted-foreground w-[60px] text-xs">
+                      {row.startIndex + 1}
+                    </span>
+                    <span className="text-muted-foreground w-[40px] flex items-center">
+                      <Mouse className="h-3 w-3" />
+                    </span>
+                    <span className="font-medium px-2 py-0.5 bg-secondary/50 rounded text-xs">
+                      {scrollSummary(row.deltaX, row.deltaY)}
+                    </span>
+                    <span className="text-xs text-muted-foreground min-w-[100px]">
+                      Scroll{row.count > 1 ? ` ×${row.count}` : ""}
+                    </span>
+                    <span className="text-muted-foreground min-w-[110px] text-xs font-mono">
+                      {formatTimestamp(row.timestamp)}
+                    </span>
+                  </div>
+                );
+              }
+
+              const event = row.event;
               const details = getEventDetails(event);
               const isCombo = event.type === InputEventType.KeyCombo;
-              const prevEvent = index > 0 ? events[index - 1] : null;
-              const isNestedCombo = isCombo && prevEvent?.type === InputEventType.KeyPress;
+              const prevRow = rowIdx > 0 ? rows[rowIdx - 1] : null;
+              const isNestedCombo =
+                isCombo &&
+                prevRow?.kind === "event" &&
+                prevRow.event.type === InputEventType.KeyPress;
 
               return (
                 <div
-                  key={index}
+                  key={`e${row.index}`}
                   className={`flex items-center gap-3 text-sm font-mono ${isNestedCombo ? "opacity-75" : ""}`}
                 >
                   <span className="text-muted-foreground w-[60px] text-xs">
-                    {isNestedCombo ? "└─" : index + 1}
+                    {isNestedCombo ? "└─" : row.index + 1}
                   </span>
                   <span className="text-muted-foreground w-[40px] flex items-center">
                     {details.icon}

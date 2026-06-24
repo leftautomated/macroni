@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
-import { Keyboard, MousePointer } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
+import { Keyboard, Mouse, MousePointer } from "lucide-react";
+import { type EventRow, getEventDetails, groupEvents, scrollSummary } from "@/lib/event-utils";
 import { type InputEvent, InputEventType } from "@/types";
-import { getEventDetails } from "@/lib/event-utils";
 
 interface StudioEventListProps {
   events: InputEvent[];
@@ -27,10 +27,17 @@ const MOUSE_TYPES = new Set<InputEventType>([
   InputEventType.MouseMove,
 ]);
 
+function rowIsActive(row: EventRow, activeIndex: number): boolean {
+  return row.kind === "scroll"
+    ? activeIndex >= row.startIndex && activeIndex <= row.endIndex
+    : row.index === activeIndex;
+}
+
 /**
  * Timestamped, scrollable list of a recording's input events, synced to video
  * playback: the active event is highlighted and clicking a row seeks the video.
- * Auto-scrolls to follow playback unless the user has scrolled recently.
+ * Consecutive scrolls are grouped into one readable row (the backend keeps every
+ * tick). Auto-scrolls to follow playback unless the user scrolled recently.
  */
 export function StudioEventList({
   events,
@@ -40,12 +47,17 @@ export function StudioEventList({
   onUserScroll,
   autoScrollEnabled,
 }: StudioEventListProps) {
+  const rows = useMemo(() => groupEvents(events), [events]);
+  const activeRow = useMemo(
+    () => rows.findIndex((r) => rowIsActive(r, activeIndex)),
+    [rows, activeIndex],
+  );
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
     if (!autoScrollEnabled) return;
-    itemRefs.current[activeIndex]?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [activeIndex, autoScrollEnabled]);
+    itemRefs.current[activeRow]?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [activeRow, autoScrollEnabled]);
 
   return (
     <div
@@ -83,20 +95,41 @@ export function StudioEventList({
             No events recorded for this clip.
           </div>
         ) : (
-          events.map((e, i) => {
-            const d = getEventDetails(e);
-            const Icon = MOUSE_TYPES.has(e.type) ? MousePointer : Keyboard;
+          rows.map((row, rowIdx) => {
+            const active = rowIsActive(row, activeIndex);
+            if (row.kind === "scroll") {
+              return (
+                <button
+                  type="button"
+                  key={`s${row.startIndex}`}
+                  ref={(el) => {
+                    itemRefs.current[rowIdx] = el;
+                  }}
+                  className={`evt-row${active ? " active" : ""}`}
+                  onClick={() => onSeek(row.startIndex)}
+                >
+                  <span className="evt-time">{relTime(row.timestamp - startMs)}</span>
+                  <span className="evt-icon">
+                    <Mouse size={12} />
+                  </span>
+                  <span className="evt-desc">Scroll {scrollSummary(row.deltaX, row.deltaY)}</span>
+                  {row.count > 1 && <span className="evt-detail">×{row.count}</span>}
+                </button>
+              );
+            }
+            const d = getEventDetails(row.event);
+            const Icon = MOUSE_TYPES.has(row.event.type) ? MousePointer : Keyboard;
             return (
               <button
                 type="button"
-                key={i}
+                key={`e${row.index}`}
                 ref={(el) => {
-                  itemRefs.current[i] = el;
+                  itemRefs.current[rowIdx] = el;
                 }}
-                className={`evt-row${i === activeIndex ? " active" : ""}`}
-                onClick={() => onSeek(i)}
+                className={`evt-row${active ? " active" : ""}`}
+                onClick={() => onSeek(row.index)}
               >
-                <span className="evt-time">{relTime(e.timestamp - startMs)}</span>
+                <span className="evt-time">{relTime(row.event.timestamp - startMs)}</span>
                 <span className="evt-icon">
                   <Icon size={12} />
                 </span>

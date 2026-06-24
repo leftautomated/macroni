@@ -12,6 +12,7 @@ export enum InputEventType {
   ButtonPress = "ButtonPress",
   ButtonRelease = "ButtonRelease",
   MouseMove = "MouseMove",
+  Scroll = "Scroll",
 }
 
 export type InputEvent =
@@ -26,7 +27,8 @@ export type InputEvent =
     }
   | { type: InputEventType.ButtonPress; button: string; x: number; y: number; timestamp: number }
   | { type: InputEventType.ButtonRelease; button: string; x: number; y: number; timestamp: number }
-  | { type: InputEventType.MouseMove; x: number; y: number; timestamp: number };
+  | { type: InputEventType.MouseMove; x: number; y: number; timestamp: number }
+  | { type: InputEventType.Scroll; delta_x: number; delta_y: number; timestamp: number };
 
 export interface VideoMetadata {
   path: string;

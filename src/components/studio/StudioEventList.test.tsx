@@ -49,6 +49,31 @@ describe("StudioEventList", () => {
     expect(screen.getByText(/no events recorded/i)).toBeInTheDocument();
   });
 
+  it("groups consecutive scrolls into one row and seeks to the group start", async () => {
+    const onSeek = vi.fn();
+    const withScroll: InputEvent[] = [
+      { type: InputEventType.Scroll, delta_x: 0, delta_y: -10, timestamp: 1000 },
+      { type: InputEventType.Scroll, delta_x: 0, delta_y: -20, timestamp: 1050 },
+      { type: InputEventType.KeyPress, key: "a", timestamp: 2000 },
+    ];
+    render(
+      <StudioEventList
+        events={withScroll}
+        startMs={1000}
+        activeIndex={0}
+        onSeek={onSeek}
+        onUserScroll={noop}
+        autoScrollEnabled={false}
+      />,
+    );
+    // Two scrolls collapse into one row showing the summed delta and a ×2 count.
+    expect(screen.getByText(/scroll/i)).toBeInTheDocument();
+    expect(screen.getByText("×2")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText(/scroll/i));
+    expect(onSeek).toHaveBeenCalledWith(0);
+  });
+
   it("calls onSeek with the row index when a row is clicked", async () => {
     const onSeek = vi.fn();
     render(

@@ -165,6 +165,15 @@ export function StudioEditor() {
         .rec-row:hover .rec-del,
         .rec-row.sel .rec-del { opacity: 1; }
         .rec-del:hover { color: #f87171; background: rgba(248,113,113,0.14); }
+        /* Themed scrollbars for the whole studio window (recordings list +
+           events panel). Universal selector like the main app's index.css —
+           WKWebView applies ::-webkit-scrollbar reliably this way. Lives in a
+           component <style> so it hot-reloads with the component. */
+        * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+        *::-webkit-scrollbar { width: 8px; height: 8px; }
+        *::-webkit-scrollbar-track { background: transparent; }
+        *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+        *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.32); background-clip: padding-box; }
       `}</style>
 
       {/* Recordings list */}

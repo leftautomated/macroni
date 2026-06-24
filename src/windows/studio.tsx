@@ -1,7 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { StudioEditor } from "@/components/studio/StudioEditor";
-import "./studio.css";
 
 // Reset default margins and forbid document scroll. The studio is an opaque
 // player now (HTML5 <video>), so the window/body are dark, not transparent.

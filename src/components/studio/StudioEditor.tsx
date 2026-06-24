@@ -198,7 +198,7 @@ export function StudioEditor() {
           </button>
         </div>
 
-        <div className="studio-scroll" style={{ flex: 1, overflowY: "auto", padding: "0 8px 8px" }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 8px 8px" }}>
           {loaded && recordings.length === 0 && (
             <div style={{ padding: 14, fontSize: 13, color: "rgba(255,255,255,0.45)" }}>
               No recordings yet. Record one in the main window, then come back.

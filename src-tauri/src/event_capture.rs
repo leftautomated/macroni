@@ -126,7 +126,6 @@ impl EventCapture {
                     timestamp: timestamp_ms,
                 });
             }
-            _ => {}
         }
         out
     }

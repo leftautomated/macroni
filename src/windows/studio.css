@@ -2,25 +2,28 @@
    inline-styled components (no Tailwind), so its window-wide CSS lives here and
    is loaded once at the entry rather than from a component <style> block. */
 
-/* Themed scrollbar for the studio's scroll areas (recordings list, events). */
-.studio-scroll {
+/* Themed scrollbars. Uses the universal selector (like the main app's
+   index.css) — WKWebView applies `::-webkit-scrollbar` reliably this way; a
+   class-scoped variant did not take effect on every scroll area. The only
+   scrollers in the studio are the recordings list and the events panel. */
+* {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
-.studio-scroll::-webkit-scrollbar {
+*::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
-.studio-scroll::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   background: transparent;
 }
-.studio-scroll::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.18);
   border-radius: 4px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-.studio-scroll::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.32);
   background-clip: padding-box;
 }

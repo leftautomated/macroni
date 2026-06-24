@@ -85,7 +85,6 @@ export function StudioEventList({
         <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}>· {events.length}</span>
       </div>
       <div
-        className="studio-scroll"
         style={{ flex: 1, overflowY: "auto", padding: "0 6px 8px" }}
         onScroll={onUserScroll}
         onWheel={onUserScroll}

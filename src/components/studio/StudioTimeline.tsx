@@ -133,13 +133,16 @@ export function StudioTimeline({
         : row.kind === "scroll"
           ? `Scroll ${scrollSummary(row.deltaX, row.deltaY)}`
           : "Mouse move";
+    const label = row.kind === "drag" ? "Drag" : row.kind === "scroll" ? "Scroll" : "Move";
     return (
       <div
         key={`g${row.startIndex}`}
         className="tl-span"
         title={`${fmt(start)}  ${info}`}
         style={{ left: `${pctOf(start)}%`, width, background: COLOR[row.kind] }}
-      />
+      >
+        <span className="tl-span-label">{label}</span>
+      </div>
     );
   };
 
@@ -150,8 +153,9 @@ export function StudioTimeline({
       <style>{`
         .tl-track { position: relative; user-select: none; cursor: pointer; touch-action: none; }
         .tl-lane { position: relative; height: 22px; border-radius: 4px; background: rgba(255,255,255,0.04); }
-        .tl-span { position: absolute; top: 3px; height: 16px; border-radius: 3px; opacity: 0.85; }
+        .tl-span { position: absolute; top: 3px; height: 16px; border-radius: 3px; opacity: 0.85; overflow: hidden; }
         .tl-span:hover { opacity: 1; }
+        .tl-span-label { display: block; font-size: 10px; line-height: 16px; color: #fff; padding: 0 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
         .tl-tick { position: absolute; top: 4px; width: 5px; height: 14px; margin-left: -2.5px; border-radius: 2px; opacity: 0.9; }
         .tl-tick:hover { opacity: 1; }
         .tl-clear { border: 1px solid rgba(99,102,241,0.5); background: rgba(99,102,241,0.18); color: #c7d2fe; border-radius: 5px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
@@ -177,6 +181,20 @@ export function StudioTimeline({
           <span style={{ color: "rgba(255,255,255,0.3)" }}>drag to loop a range</span>
         )}
         <span>{fmt(dur)}</span>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, fontSize: 10, color: "rgba(255,255,255,0.5)" }}>
+        {[
+          { c: COLOR.drag, l: "Drag" },
+          { c: COLOR.scroll, l: "Scroll" },
+          { c: COLOR.click, l: "Click" },
+          { c: COLOR.key, l: "Key" },
+        ].map(({ c, l }) => (
+          <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span style={{ width: 10, height: 8, borderRadius: 2, background: c }} />
+            {l}
+          </span>
+        ))}
       </div>
 
       <div

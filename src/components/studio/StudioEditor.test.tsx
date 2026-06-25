@@ -82,9 +82,8 @@ describe("StudioEditor (recordings browser)", () => {
     });
   });
 
-  it("deletes a recording via its row delete button", async () => {
+  it("deletes a recording via its row delete button (two-click confirm)", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     fake.recordings = [makeRecording("1000", "Alpha"), makeRecording("2000", "Beta")];
 
     render(<StudioEditor />);
@@ -92,6 +91,8 @@ describe("StudioEditor (recordings browser)", () => {
     const row = alpha.closest(".rec-row") as HTMLElement;
     const deleteButton = within(row).getByRole("button", { name: /delete recording/i });
 
+    // First click arms; the second confirms the delete.
+    await userEvent.click(deleteButton);
     await userEvent.click(deleteButton);
 
     await waitFor(() => {

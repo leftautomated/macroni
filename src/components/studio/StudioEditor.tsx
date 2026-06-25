@@ -35,6 +35,8 @@ export function StudioEditor() {
   const playerRef = useRef<StudioPlayerHandle>(null);
   // Loop region from the timeline, in video-relative ms (null = no loop).
   const [loop, setLoop] = useState<LoopRegion | null>(null);
+  // Recording id armed for delete (first click); a second click confirms.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -74,11 +76,11 @@ export function StudioEditor() {
   useEffect(() => {
     selectedRef.current?.scrollIntoView({ block: "nearest" });
     setLoop(null);
+    setConfirmDeleteId(null);
   }, [selectedId]);
 
   const handleDelete = useCallback(
     async (id: string) => {
-      if (!window.confirm("Delete this recording? This cannot be undone.")) return;
       try {
         await invoke("delete_recording", { id });
         await load(); // load() reselects the first remaining recording if this was selected.
@@ -88,6 +90,17 @@ export function StudioEditor() {
     },
     [load],
   );
+
+  // Two-click delete — window.confirm isn't reliable in the Tauri webview, so
+  // the first click arms the trash (turns red) and the second confirms.
+  const handleDeleteClick = (id: string) => {
+    if (confirmDeleteId === id) {
+      setConfirmDeleteId(null);
+      void handleDelete(id);
+    } else {
+      setConfirmDeleteId(id);
+    }
+  };
 
   // Replay runs from the main control panel (focus-safe). Hand it the recording;
   // the main window comes forward with it loaded, ready for the user to play.
@@ -160,6 +173,15 @@ export function StudioEditor() {
         .rec-row:hover .rec-del,
         .rec-row.sel .rec-del { opacity: 1; }
         .rec-del:hover { color: #f87171; background: rgba(248,113,113,0.14); }
+        .rec-del.armed { opacity: 1; color: #f87171; background: rgba(248,113,113,0.22); }
+        /* Themed scrollbars for the whole studio window (universal selector,
+           like the main app's index.css — WKWebView honors ::-webkit-scrollbar
+           this way). Lives here in the always-mounted root component. */
+        * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+        *::-webkit-scrollbar { width: 8px; height: 8px; }
+        *::-webkit-scrollbar-track { background: transparent; }
+        *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+        *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.32); background-clip: padding-box; }
       `}</style>
 
       {/* Recordings list */}
@@ -218,9 +240,9 @@ export function StudioEditor() {
                 </button>
                 <button
                   type="button"
-                  className="rec-del"
-                  title="Delete recording"
-                  onClick={() => void handleDelete(r.id)}
+                  className={`rec-del${confirmDeleteId === r.id ? " armed" : ""}`}
+                  title={confirmDeleteId === r.id ? "Click again to delete" : "Delete recording"}
+                  onClick={() => handleDeleteClick(r.id)}
                 >
                   <Trash2 size={15} />
                 </button>

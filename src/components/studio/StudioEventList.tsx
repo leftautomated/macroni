@@ -7,6 +7,8 @@ interface StudioEventListProps {
   events: InputEvent[];
   startMs: number;
   activeIndex: number;
+  /** Absolute playback time, for the in-group progress sweep. */
+  currentMs?: number;
   onSeek: (index: number) => void;
   onUserScroll: () => void;
   autoScrollEnabled: boolean;
@@ -38,6 +40,7 @@ export function StudioEventList({
   events,
   startMs,
   activeIndex,
+  currentMs = 0,
   onSeek,
   onUserScroll,
   autoScrollEnabled,
@@ -103,9 +106,10 @@ export function StudioEventList({
       }}
     >
       <style>{`
-        .evt-row { display:flex; align-items:center; gap:8px; width:100%; text-align:left; border:none; background:transparent; color:#e5e7eb; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:12px; transition: background 90ms ease; }
+        .evt-row { position:relative; display:flex; align-items:center; gap:8px; width:100%; text-align:left; border:none; background:transparent; color:#e5e7eb; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:12px; transition: background 90ms ease; }
         .evt-row:hover { background: rgba(255,255,255,0.05); }
         .evt-row.active { background: rgba(99,102,241,0.22); }
+        .evt-progress { position:absolute; left:0; bottom:0; height:2px; background:#818cf8; border-radius:0 2px 2px 0; pointer-events:none; }
         .evt-chevron { width:12px; flex-shrink:0; color: rgba(255,255,255,0.4); font-size:10px; display:inline-flex; align-items:center; }
         .evt-time { font-variant-numeric: tabular-nums; color: rgba(255,255,255,0.45); flex-shrink:0; width:54px; }
         .evt-icon { color: rgba(255,255,255,0.55); flex-shrink:0; display:inline-flex; }
@@ -143,6 +147,16 @@ export function StudioEventList({
             const isOpen = expanded.has(row.startIndex);
             const headerActive =
               !isOpen && activeIndex >= row.startIndex && activeIndex <= row.endIndex;
+            // Continuous sweep across the collapsed group, driven by playback
+            // time (not the quantized event index), so it reads smoothly even
+            // when events fire faster than the screen refreshes.
+            const groupStart = events[row.startIndex].timestamp;
+            const groupSpan = events[row.endIndex].timestamp - groupStart;
+            const progress = !headerActive
+              ? 0
+              : groupSpan > 0
+                ? Math.min(1, Math.max(0, (currentMs - groupStart) / groupSpan))
+                : 1;
             const childCount = row.endIndex - row.startIndex + 1;
             const view =
               row.kind === "scroll"
@@ -177,6 +191,9 @@ export function StudioEventList({
                   <span className="evt-icon">{view.icon}</span>
                   <span className="evt-desc">{view.label}</span>
                   {view.detail && <span className="evt-detail">{view.detail}</span>}
+                  {headerActive && (
+                    <span className="evt-progress" style={{ width: `${progress * 100}%` }} />
+                  )}
                 </button>
                 {isOpen &&
                   Array.from({ length: childCount }, (_, i) =>

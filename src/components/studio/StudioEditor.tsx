@@ -277,6 +277,7 @@ export function StudioEditor() {
           events={selected.events}
           startMs={sync.startMs}
           activeIndex={sync.activeIndex}
+          currentMs={sync.currentMs}
           onSeek={handleEventSeek}
           onUserScroll={sync.noteUserScroll}
           autoScrollEnabled={sync.shouldAutoScroll()}

@@ -15,6 +15,20 @@ const move = (x: number, y: number, t: number): InputEvent => ({
   y,
   timestamp: t,
 });
+const press = (button: string, x: number, y: number, t: number): InputEvent => ({
+  type: InputEventType.ButtonPress,
+  button,
+  x,
+  y,
+  timestamp: t,
+});
+const release = (button: string, x: number, y: number, t: number): InputEvent => ({
+  type: InputEventType.ButtonRelease,
+  button,
+  x,
+  y,
+  timestamp: t,
+});
 
 describe("groupEvents", () => {
   it("merges consecutive scrolls into one row with summed deltas and count", () => {
@@ -57,6 +71,25 @@ describe("groupEvents", () => {
       timestamp: 0,
     });
     expect(rows[1]).toMatchObject({ kind: "event", index: 3 });
+  });
+
+  it("collapses an adjacent press+release into a click", () => {
+    const rows = groupEvents([press("Left", 10, 20, 0), release("Left", 10, 20, 5)]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "click",
+      startIndex: 0,
+      endIndex: 1,
+      button: "Left",
+      x: 10,
+      y: 20,
+      timestamp: 0,
+    });
+  });
+
+  it("leaves a drag (press → moves → release) expanded, not collapsed to a click", () => {
+    const rows = groupEvents([press("Left", 0, 0, 0), move(5, 5, 10), release("Left", 5, 5, 20)]);
+    expect(rows.map((r) => r.kind)).toEqual(["event", "move", "event"]);
   });
 
   it("returns an empty list for no events", () => {

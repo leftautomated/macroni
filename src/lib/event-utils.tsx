@@ -112,13 +112,40 @@ export type EventRow =
       x: number;
       y: number;
       timestamp: number;
+    }
+  | {
+      kind: "click";
+      startIndex: number;
+      endIndex: number;
+      button: string;
+      x: number;
+      y: number;
+      timestamp: number;
     };
 
 export function groupEvents(events: InputEvent[]): EventRow[] {
   const rows: EventRow[] = [];
   events.forEach((event, index) => {
     const last = rows[rows.length - 1];
-    if (event.type === InputEventType.Scroll) {
+    // A press immediately followed by a release of the same button is a click;
+    // collapse the pair. A drag (press → moves → release) leaves the press and
+    // release non-adjacent, so it stays expanded and the motion stays visible.
+    if (
+      event.type === InputEventType.ButtonRelease &&
+      last?.kind === "event" &&
+      last.event.type === InputEventType.ButtonPress &&
+      last.event.button === event.button
+    ) {
+      rows[rows.length - 1] = {
+        kind: "click",
+        startIndex: last.index,
+        endIndex: index,
+        button: event.button,
+        x: last.event.x,
+        y: last.event.y,
+        timestamp: last.event.timestamp,
+      };
+    } else if (event.type === InputEventType.Scroll) {
       if (last?.kind === "scroll") {
         last.endIndex = index;
         last.count += 1;

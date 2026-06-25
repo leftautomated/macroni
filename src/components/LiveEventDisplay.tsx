@@ -89,6 +89,32 @@ export const LiveEventDisplay = ({ events }: LiveEventDisplayProps) => {
                 );
               }
 
+              if (row.kind === "click") {
+                return (
+                  <div
+                    key={`c${row.startIndex}`}
+                    className="flex items-center gap-3 text-sm font-mono"
+                  >
+                    <span className="text-muted-foreground w-[60px] text-xs">
+                      {row.startIndex + 1}
+                    </span>
+                    <span className="text-muted-foreground w-[40px] flex items-center">
+                      <MousePointer className="h-3 w-3" />
+                    </span>
+                    <span className="font-medium px-2 py-0.5 bg-secondary/50 rounded text-xs">
+                      {row.button}
+                    </span>
+                    <span className="text-xs text-muted-foreground min-w-[100px]">Click</span>
+                    <span className="text-muted-foreground min-w-[110px] text-xs font-mono">
+                      {formatTimestamp(row.timestamp)}
+                    </span>
+                    <span className="text-xs text-muted-foreground font-mono">
+                      ({Math.round(row.x)}, {Math.round(row.y)})
+                    </span>
+                  </div>
+                );
+              }
+
               const event = row.event;
               const details = getEventDetails(event);
               const isCombo = event.type === InputEventType.KeyCombo;

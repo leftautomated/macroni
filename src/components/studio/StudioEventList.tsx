@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, Mouse, MousePointer } from "lucide-react";
-import { type EventRow, getEventDetails, groupEvents, scrollSummary } from "@/lib/event-utils";
+import { getEventDetails, groupEvents, scrollSummary } from "@/lib/event-utils";
 import { type InputEvent, InputEventType } from "@/types";
 
 interface StudioEventListProps {
@@ -27,16 +27,12 @@ const MOUSE_TYPES = new Set<InputEventType>([
   InputEventType.MouseMove,
 ]);
 
-function rowIsActive(row: EventRow, activeIndex: number): boolean {
-  if (row.kind === "event") return row.index === activeIndex;
-  return activeIndex >= row.startIndex && activeIndex <= row.endIndex;
-}
-
 /**
  * Timestamped, scrollable list of a recording's input events, synced to video
  * playback: the active event is highlighted and clicking a row seeks the video.
- * Consecutive scrolls are grouped into one readable row (the backend keeps every
- * tick). Auto-scrolls to follow playback unless the user scrolled recently.
+ * High-frequency runs (scroll, mouse-move) and click pairs are collapsed into
+ * one summary row to stay readable; clicking a summary row expands it to reveal
+ * every underlying event. The backend keeps every event regardless.
  */
 export function StudioEventList({
   events,
@@ -47,16 +43,52 @@ export function StudioEventList({
   autoScrollEnabled,
 }: StudioEventListProps) {
   const rows = useMemo(() => groupEvents(events), [events]);
-  const activeRow = useMemo(
-    () => rows.findIndex((r) => rowIsActive(r, activeIndex)),
-    [rows, activeIndex],
-  );
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const containerRef = useRef<HTMLDivElement>(null);
 
+  // Follow playback: scroll the active row (or active child) into view. Driven
+  // off a data-attribute so we don't juggle refs across rows and children.
   useEffect(() => {
     if (!autoScrollEnabled) return;
-    itemRefs.current[activeRow]?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [activeRow, autoScrollEnabled]);
+    containerRef.current
+      ?.querySelector("[data-active]")
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [activeIndex, autoScrollEnabled]);
+
+  const toggle = (key: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const renderEventRow = (event: InputEvent, index: number, indent: boolean) => {
+    const d = getEventDetails(event);
+    const Icon = MOUSE_TYPES.has(event.type) ? MousePointer : Keyboard;
+    const active = index === activeIndex;
+    return (
+      <button
+        type="button"
+        key={`e${index}`}
+        data-active={active ? "" : undefined}
+        className={`evt-row${active ? " active" : ""}`}
+        style={indent ? { paddingLeft: 30 } : undefined}
+        onClick={() => onSeek(index)}
+      >
+        {!indent && <span className="evt-chevron" />}
+        <span className="evt-time">{relTime(event.timestamp - startMs)}</span>
+        <span className="evt-icon">
+          <Icon size={12} />
+        </span>
+        <span className="evt-desc">
+          {d.action}
+          {d.value ? ` ${d.value}` : ""}
+        </span>
+        {d.detail && <span className="evt-detail">{d.detail}</span>}
+      </button>
+    );
+  };
 
   return (
     <div
@@ -74,6 +106,7 @@ export function StudioEventList({
         .evt-row { display:flex; align-items:center; gap:8px; width:100%; text-align:left; border:none; background:transparent; color:#e5e7eb; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:12px; transition: background 90ms ease; }
         .evt-row:hover { background: rgba(255,255,255,0.05); }
         .evt-row.active { background: rgba(99,102,241,0.22); }
+        .evt-chevron { width:12px; flex-shrink:0; color: rgba(255,255,255,0.4); font-size:10px; display:inline-flex; align-items:center; }
         .evt-time { font-variant-numeric: tabular-nums; color: rgba(255,255,255,0.45); flex-shrink:0; width:54px; }
         .evt-icon { color: rgba(255,255,255,0.55); flex-shrink:0; display:inline-flex; }
         .evt-desc { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -94,6 +127,7 @@ export function StudioEventList({
         <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}>· {events.length}</span>
       </div>
       <div
+        ref={containerRef}
         style={{ flex: 1, overflowY: "auto", padding: "0 6px 8px" }}
         onScroll={onUserScroll}
         onWheel={onUserScroll}
@@ -103,72 +137,52 @@ export function StudioEventList({
             No events recorded for this clip.
           </div>
         ) : (
-          rows.map((row, rowIdx) => {
-            const active = rowIsActive(row, activeIndex);
-            if (row.kind === "scroll") {
-              return (
-                <button
-                  type="button"
-                  key={`s${row.startIndex}`}
-                  ref={(el) => {
-                    itemRefs.current[rowIdx] = el;
-                  }}
-                  className={`evt-row${active ? " active" : ""}`}
-                  onClick={() => onSeek(row.startIndex)}
-                >
-                  <span className="evt-time">{relTime(row.timestamp - startMs)}</span>
-                  <span className="evt-icon">
-                    <Mouse size={12} />
-                  </span>
-                  <span className="evt-desc">Scroll {scrollSummary(row.deltaX, row.deltaY)}</span>
-                  {row.count > 1 && <span className="evt-detail">×{row.count}</span>}
-                </button>
-              );
-            }
-            if (row.kind === "move") {
-              return (
-                <button
-                  type="button"
-                  key={`m${row.startIndex}`}
-                  ref={(el) => {
-                    itemRefs.current[rowIdx] = el;
-                  }}
-                  className={`evt-row${active ? " active" : ""}`}
-                  onClick={() => onSeek(row.startIndex)}
-                >
-                  <span className="evt-time">{relTime(row.timestamp - startMs)}</span>
-                  <span className="evt-icon">
-                    <MousePointer size={12} />
-                  </span>
-                  <span className="evt-desc">
-                    Mouse Move ({Math.round(row.x)}, {Math.round(row.y)})
-                  </span>
-                  {row.count > 1 && <span className="evt-detail">×{row.count}</span>}
-                </button>
-              );
-            }
-            const d = getEventDetails(row.event);
-            const Icon = MOUSE_TYPES.has(row.event.type) ? MousePointer : Keyboard;
+          rows.map((row) => {
+            if (row.kind === "event") return renderEventRow(row.event, row.index, false);
+
+            const isOpen = expanded.has(row.startIndex);
+            const headerActive =
+              !isOpen && activeIndex >= row.startIndex && activeIndex <= row.endIndex;
+            const childCount = row.endIndex - row.startIndex + 1;
+            const view =
+              row.kind === "scroll"
+                ? {
+                    icon: <Mouse size={12} />,
+                    label: `Scroll ${scrollSummary(row.deltaX, row.deltaY)}`,
+                    detail: `×${row.count}`,
+                  }
+                : row.kind === "move"
+                  ? {
+                      icon: <MousePointer size={12} />,
+                      label: `Mouse Move (${Math.round(row.x)}, ${Math.round(row.y)})`,
+                      detail: `×${row.count}`,
+                    }
+                  : {
+                      icon: <MousePointer size={12} />,
+                      label: `Click ${row.button}`,
+                      detail: `(${Math.round(row.x)}, ${Math.round(row.y)})`,
+                    };
+
             return (
-              <button
-                type="button"
-                key={`e${row.index}`}
-                ref={(el) => {
-                  itemRefs.current[rowIdx] = el;
-                }}
-                className={`evt-row${active ? " active" : ""}`}
-                onClick={() => onSeek(row.index)}
-              >
-                <span className="evt-time">{relTime(row.event.timestamp - startMs)}</span>
-                <span className="evt-icon">
-                  <Icon size={12} />
-                </span>
-                <span className="evt-desc">
-                  {d.action}
-                  {d.value ? ` ${d.value}` : ""}
-                </span>
-                {d.detail && <span className="evt-detail">{d.detail}</span>}
-              </button>
+              <div key={`g${row.startIndex}`}>
+                <button
+                  type="button"
+                  data-active={headerActive ? "" : undefined}
+                  className={`evt-row${headerActive ? " active" : ""}`}
+                  onClick={() => toggle(row.startIndex)}
+                  title={isOpen ? "Collapse" : `Expand ${childCount} events`}
+                >
+                  <span className="evt-chevron">{isOpen ? "▾" : "▸"}</span>
+                  <span className="evt-time">{relTime(row.timestamp - startMs)}</span>
+                  <span className="evt-icon">{view.icon}</span>
+                  <span className="evt-desc">{view.label}</span>
+                  {view.detail && <span className="evt-detail">{view.detail}</span>}
+                </button>
+                {isOpen &&
+                  Array.from({ length: childCount }, (_, i) =>
+                    renderEventRow(events[row.startIndex + i], row.startIndex + i, true),
+                  )}
+              </div>
             );
           })
         )}

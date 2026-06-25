@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, Mouse, MousePointer } from "lucide-react";
-import { getEventDetails, groupEvents, scrollSummary } from "@/lib/event-utils";
+import { type EventRow, getEventDetails, groupEvents, scrollSummary } from "@/lib/event-utils";
 import { type InputEvent, InputEventType } from "@/types";
 
 interface StudioEventListProps {
@@ -31,10 +31,10 @@ const MOUSE_TYPES = new Set<InputEventType>([
 
 /**
  * Timestamped, scrollable list of a recording's input events, synced to video
- * playback: the active event is highlighted and clicking a row seeks the video.
- * High-frequency runs (scroll, mouse-move) and click pairs are collapsed into
- * one summary row to stay readable; clicking a summary row expands it to reveal
- * every underlying event. The backend keeps every event regardless.
+ * playback. Groups (scroll/move/click/drag) collapse runs into one summary row
+ * and expand on click to reveal their members — and a drag's moves nest into
+ * their own sub-group, so the tree stays readable at every level. Indices point
+ * back into the raw events, so clicking any row seeks the video.
  */
 export function StudioEventList({
   events,
@@ -49,11 +49,11 @@ export function StudioEventList({
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Follow playback: scroll the active row (or active child) into view. Driven
-  // off a data-attribute so we don't juggle refs across rows and children.
+  // Follow playback: scroll the active row (at any nesting depth) into view.
+  // Driven off a data-attribute so we don't juggle refs across the tree.
   useEffect(() => {
     if (!autoScrollEnabled) return;
-    // block:"nearest" (instant) follows playback without stacking smooth-scroll
+    // block:"nearest" (instant) follows without stacking smooth-scroll
     // animations — the active index can change every frame during dense runs.
     containerRef.current?.querySelector("[data-active]")?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, autoScrollEnabled]);
@@ -66,7 +66,9 @@ export function StudioEventList({
       return next;
     });
 
-  const renderEventRow = (event: InputEvent, index: number, indent: boolean) => {
+  const indentStyle = (depth: number) => (depth > 0 ? { paddingLeft: 10 + depth * 16 } : undefined);
+
+  const renderEventRow = (event: InputEvent, index: number, depth: number) => {
     const d = getEventDetails(event);
     const Icon = MOUSE_TYPES.has(event.type) ? MousePointer : Keyboard;
     const active = index === activeIndex;
@@ -76,10 +78,10 @@ export function StudioEventList({
         key={`e${index}`}
         data-active={active ? "" : undefined}
         className={`evt-row${active ? " active" : ""}`}
-        style={indent ? { paddingLeft: 30 } : undefined}
+        style={indentStyle(depth)}
         onClick={() => onSeek(index)}
       >
-        {!indent && <span className="evt-chevron" />}
+        <span className="evt-chevron" />
         <span className="evt-time">{relTime(event.timestamp - startMs)}</span>
         <span className="evt-icon">
           <Icon size={12} />
@@ -90,6 +92,101 @@ export function StudioEventList({
         </span>
         {d.detail && <span className="evt-detail">{d.detail}</span>}
       </button>
+    );
+  };
+
+  // The rows shown when a group is expanded. A drag nests its moves into their
+  // own move sub-group (between the press and release); other groups list their
+  // raw members.
+  const childRows = (row: Exclude<EventRow, { kind: "event" }>): EventRow[] => {
+    if (row.kind === "drag") {
+      const kids: EventRow[] = [
+        { kind: "event", index: row.startIndex, event: events[row.startIndex] },
+      ];
+      const from = row.startIndex + 1;
+      const to = row.endIndex - 1;
+      if (to >= from) {
+        kids.push({
+          kind: "move",
+          startIndex: from,
+          endIndex: to,
+          count: to - from + 1,
+          x: row.x2,
+          y: row.y2,
+          timestamp: events[from].timestamp,
+        });
+      }
+      kids.push({ kind: "event", index: row.endIndex, event: events[row.endIndex] });
+      return kids;
+    }
+    const kids: EventRow[] = [];
+    for (let i = row.startIndex; i <= row.endIndex; i++) {
+      kids.push({ kind: "event", index: i, event: events[i] });
+    }
+    return kids;
+  };
+
+  const renderRow = (row: EventRow, depth: number): ReactNode => {
+    if (row.kind === "event") return renderEventRow(row.event, row.index, depth);
+
+    const isOpen = expanded.has(row.startIndex);
+    const headerActive = !isOpen && activeIndex >= row.startIndex && activeIndex <= row.endIndex;
+    // Continuous sweep across the collapsed group, driven by playback time (not
+    // the quantized event index) so it reads smoothly at any refresh rate.
+    const groupStart = events[row.startIndex].timestamp;
+    const groupSpan = events[row.endIndex].timestamp - groupStart;
+    const progress = !headerActive
+      ? 0
+      : groupSpan > 0
+        ? Math.min(1, Math.max(0, (currentMs - groupStart) / groupSpan))
+        : 1;
+    const childCount = row.endIndex - row.startIndex + 1;
+    const view =
+      row.kind === "scroll"
+        ? {
+            icon: <Mouse size={12} />,
+            label: `Scroll ${scrollSummary(row.deltaX, row.deltaY)}`,
+            detail: `×${row.count}`,
+          }
+        : row.kind === "move"
+          ? {
+              icon: <MousePointer size={12} />,
+              label: `Mouse Move (${Math.round(row.x)}, ${Math.round(row.y)})`,
+              detail: `×${row.count}`,
+            }
+          : row.kind === "drag"
+            ? {
+                icon: <MousePointer size={12} />,
+                label: `Drag ${row.button} → (${Math.round(row.x2)}, ${Math.round(row.y2)})`,
+                detail: `×${row.moveCount}`,
+              }
+            : {
+                icon: <MousePointer size={12} />,
+                label: `Click ${row.button}`,
+                detail: `(${Math.round(row.x)}, ${Math.round(row.y)})`,
+              };
+
+    return (
+      <div key={`g${row.startIndex}`}>
+        <button
+          type="button"
+          data-active={headerActive ? "" : undefined}
+          className={`evt-row${headerActive ? " active" : ""}`}
+          style={indentStyle(depth)}
+          onClick={() => toggle(row.startIndex)}
+          title={isOpen ? "Collapse" : `Expand ${childCount} events`}
+        >
+          <span className="evt-chevron">{isOpen ? "▾" : "▸"}</span>
+          <span className="evt-time">{relTime(row.timestamp - startMs)}</span>
+          <span className="evt-icon">{view.icon}</span>
+          <span className="evt-desc">{view.label}</span>
+          {view.detail && <span className="evt-detail">{view.detail}</span>}
+          {headerActive && (
+            <span className="evt-progress" style={{ width: `${progress * 100}%` }} />
+          )}
+        </button>
+        {isOpen && childRows(row).map((child) => renderRow(child, depth + 1))}
+      </div>
     );
   };
 
@@ -141,73 +238,7 @@ export function StudioEventList({
             No events recorded for this clip.
           </div>
         ) : (
-          rows.map((row) => {
-            if (row.kind === "event") return renderEventRow(row.event, row.index, false);
-
-            const isOpen = expanded.has(row.startIndex);
-            const headerActive =
-              !isOpen && activeIndex >= row.startIndex && activeIndex <= row.endIndex;
-            // Continuous sweep across the collapsed group, driven by playback
-            // time (not the quantized event index), so it reads smoothly even
-            // when events fire faster than the screen refreshes.
-            const groupStart = events[row.startIndex].timestamp;
-            const groupSpan = events[row.endIndex].timestamp - groupStart;
-            const progress = !headerActive
-              ? 0
-              : groupSpan > 0
-                ? Math.min(1, Math.max(0, (currentMs - groupStart) / groupSpan))
-                : 1;
-            const childCount = row.endIndex - row.startIndex + 1;
-            const view =
-              row.kind === "scroll"
-                ? {
-                    icon: <Mouse size={12} />,
-                    label: `Scroll ${scrollSummary(row.deltaX, row.deltaY)}`,
-                    detail: `×${row.count}`,
-                  }
-                : row.kind === "move"
-                  ? {
-                      icon: <MousePointer size={12} />,
-                      label: `Mouse Move (${Math.round(row.x)}, ${Math.round(row.y)})`,
-                      detail: `×${row.count}`,
-                    }
-                  : row.kind === "drag"
-                    ? {
-                        icon: <MousePointer size={12} />,
-                        label: `Drag ${row.button} → (${Math.round(row.x2)}, ${Math.round(row.y2)})`,
-                        detail: `×${row.moveCount}`,
-                      }
-                    : {
-                        icon: <MousePointer size={12} />,
-                        label: `Click ${row.button}`,
-                        detail: `(${Math.round(row.x)}, ${Math.round(row.y)})`,
-                      };
-
-            return (
-              <div key={`g${row.startIndex}`}>
-                <button
-                  type="button"
-                  data-active={headerActive ? "" : undefined}
-                  className={`evt-row${headerActive ? " active" : ""}`}
-                  onClick={() => toggle(row.startIndex)}
-                  title={isOpen ? "Collapse" : `Expand ${childCount} events`}
-                >
-                  <span className="evt-chevron">{isOpen ? "▾" : "▸"}</span>
-                  <span className="evt-time">{relTime(row.timestamp - startMs)}</span>
-                  <span className="evt-icon">{view.icon}</span>
-                  <span className="evt-desc">{view.label}</span>
-                  {view.detail && <span className="evt-detail">{view.detail}</span>}
-                  {headerActive && (
-                    <span className="evt-progress" style={{ width: `${progress * 100}%` }} />
-                  )}
-                </button>
-                {isOpen &&
-                  Array.from({ length: childCount }, (_, i) =>
-                    renderEventRow(events[row.startIndex + i], row.startIndex + i, true),
-                  )}
-              </div>
-            );
-          })
+          rows.map((row) => renderRow(row, 0))
         )}
       </div>
     </div>

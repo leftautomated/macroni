@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Mouse } from "lucide-react";
+import { Mouse, MousePointer } from "lucide-react";
 import { useAutoScrollToBottom } from "@/hooks/useAutoScrollToBottom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { type InputEvent, InputEventType } from "@/types";
@@ -59,6 +59,31 @@ export const LiveEventDisplay = ({ events }: LiveEventDisplayProps) => {
                     </span>
                     <span className="text-muted-foreground min-w-[110px] text-xs font-mono">
                       {formatTimestamp(row.timestamp)}
+                    </span>
+                  </div>
+                );
+              }
+
+              if (row.kind === "move") {
+                return (
+                  <div
+                    key={`m${row.startIndex}`}
+                    className="flex items-center gap-3 text-sm font-mono"
+                  >
+                    <span className="text-muted-foreground w-[60px] text-xs">
+                      {row.startIndex + 1}
+                    </span>
+                    <span className="text-muted-foreground w-[40px] flex items-center">
+                      <MousePointer className="h-3 w-3" />
+                    </span>
+                    <span className="text-xs text-muted-foreground min-w-[100px]">
+                      Mouse Move{row.count > 1 ? ` ×${row.count}` : ""}
+                    </span>
+                    <span className="text-muted-foreground min-w-[110px] text-xs font-mono">
+                      {formatTimestamp(row.timestamp)}
+                    </span>
+                    <span className="text-xs text-muted-foreground font-mono">
+                      ({Math.round(row.x)}, {Math.round(row.y)})
                     </span>
                   </div>
                 );

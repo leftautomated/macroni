@@ -28,9 +28,8 @@ const MOUSE_TYPES = new Set<InputEventType>([
 ]);
 
 function rowIsActive(row: EventRow, activeIndex: number): boolean {
-  return row.kind === "scroll"
-    ? activeIndex >= row.startIndex && activeIndex <= row.endIndex
-    : row.index === activeIndex;
+  if (row.kind === "event") return row.index === activeIndex;
+  return activeIndex >= row.startIndex && activeIndex <= row.endIndex;
 }
 
 /**
@@ -79,6 +78,16 @@ export function StudioEventList({
         .evt-icon { color: rgba(255,255,255,0.55); flex-shrink:0; display:inline-flex; }
         .evt-desc { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .evt-detail { color: rgba(255,255,255,0.4); margin-left:auto; flex-shrink:0; padding-left:8px; }
+        /* Themed scrollbars for the whole studio window (universal selector,
+           like the main app's index.css — WKWebView honors ::-webkit-scrollbar
+           this way). Lives in this component's <style> because it is reliably
+           mounted whenever there's anything to scroll (a recording auto-selects
+           on open), so it survives HMR. */
+        * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+        *::-webkit-scrollbar { width: 8px; height: 8px; }
+        *::-webkit-scrollbar-track { background: transparent; }
+        *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+        *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.32); background-clip: padding-box; }
       `}</style>
       <div style={{ padding: "14px 14px 10px", fontSize: 13, fontWeight: 600, letterSpacing: 0.3 }}>
         EVENTS{" "}
@@ -112,6 +121,28 @@ export function StudioEventList({
                     <Mouse size={12} />
                   </span>
                   <span className="evt-desc">Scroll {scrollSummary(row.deltaX, row.deltaY)}</span>
+                  {row.count > 1 && <span className="evt-detail">×{row.count}</span>}
+                </button>
+              );
+            }
+            if (row.kind === "move") {
+              return (
+                <button
+                  type="button"
+                  key={`m${row.startIndex}`}
+                  ref={(el) => {
+                    itemRefs.current[rowIdx] = el;
+                  }}
+                  className={`evt-row${active ? " active" : ""}`}
+                  onClick={() => onSeek(row.startIndex)}
+                >
+                  <span className="evt-time">{relTime(row.timestamp - startMs)}</span>
+                  <span className="evt-icon">
+                    <MousePointer size={12} />
+                  </span>
+                  <span className="evt-desc">
+                    Mouse Move ({Math.round(row.x)}, {Math.round(row.y)})
+                  </span>
                   {row.count > 1 && <span className="evt-detail">×{row.count}</span>}
                 </button>
               );

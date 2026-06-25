@@ -9,6 +9,12 @@ const scroll = (dx: number, dy: number, t: number): InputEvent => ({
   delta_y: dy,
   timestamp: t,
 });
+const move = (x: number, y: number, t: number): InputEvent => ({
+  type: InputEventType.MouseMove,
+  x,
+  y,
+  timestamp: t,
+});
 
 describe("groupEvents", () => {
   it("merges consecutive scrolls into one row with summed deltas and count", () => {
@@ -36,6 +42,21 @@ describe("groupEvents", () => {
   it("starts a fresh scroll group after a non-scroll event interrupts", () => {
     const rows = groupEvents([scroll(0, -1, 0), key(5), scroll(0, -1, 10)]);
     expect(rows.map((r) => r.kind)).toEqual(["scroll", "event", "scroll"]);
+  });
+
+  it("merges consecutive mouse moves into one row keeping the latest position", () => {
+    const rows = groupEvents([move(1, 1, 0), move(5, 6, 10), move(9, 12, 20), key(30)]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      kind: "move",
+      startIndex: 0,
+      endIndex: 2,
+      count: 3,
+      x: 9,
+      y: 12,
+      timestamp: 0,
+    });
+    expect(rows[1]).toMatchObject({ kind: "event", index: 3 });
   });
 
   it("returns an empty list for no events", () => {

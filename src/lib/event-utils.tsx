@@ -87,10 +87,11 @@ export function formatTimestamp(timestamp: number): string {
 }
 
 /**
- * A display row over the raw event list. Consecutive `Scroll` events are merged
- * into a single `scroll` row (deltas summed, ticks counted) so high-frequency
- * scrolling stays readable; every other event is its own `event` row. Indices
- * point back into the original events array so callers can still seek/highlight.
+ * A display row over the raw event list. Consecutive high-frequency events are
+ * merged into a single row so they stay readable: `scroll` rows sum the deltas
+ * and count ticks; `move` rows keep the latest position and count samples. Every
+ * other event is its own `event` row. Indices point back into the original
+ * events array so callers can still seek/highlight the underlying events.
  */
 export type EventRow =
   | { kind: "event"; index: number; event: InputEvent }
@@ -102,13 +103,22 @@ export type EventRow =
       deltaX: number;
       deltaY: number;
       timestamp: number;
+    }
+  | {
+      kind: "move";
+      startIndex: number;
+      endIndex: number;
+      count: number;
+      x: number;
+      y: number;
+      timestamp: number;
     };
 
 export function groupEvents(events: InputEvent[]): EventRow[] {
   const rows: EventRow[] = [];
   events.forEach((event, index) => {
+    const last = rows[rows.length - 1];
     if (event.type === InputEventType.Scroll) {
-      const last = rows[rows.length - 1];
       if (last?.kind === "scroll") {
         last.endIndex = index;
         last.count += 1;
@@ -122,6 +132,23 @@ export function groupEvents(events: InputEvent[]): EventRow[] {
           count: 1,
           deltaX: event.delta_x,
           deltaY: event.delta_y,
+          timestamp: event.timestamp,
+        });
+      }
+    } else if (event.type === InputEventType.MouseMove) {
+      if (last?.kind === "move") {
+        last.endIndex = index;
+        last.count += 1;
+        last.x = event.x;
+        last.y = event.y;
+      } else {
+        rows.push({
+          kind: "move",
+          startIndex: index,
+          endIndex: index,
+          count: 1,
+          x: event.x,
+          y: event.y,
           timestamp: event.timestamp,
         });
       }

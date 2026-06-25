@@ -10,6 +10,8 @@ interface StudioPlayerProps {
   fps: number;
   onTimeUpdate: (seconds: number) => void;
   onReplay: () => void;
+  /** When set (seconds), playback repeats over [a, b]. */
+  loopRegion?: { a: number; b: number } | null;
 }
 
 // 0.25× lets you step through dense mouse-move runs (~125Hz capture) frame by
@@ -29,7 +31,7 @@ function fmtTime(s: number): string {
  * fullscreen. Exposes `seek()` so the synced event list can jump the video.
  */
 export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(function StudioPlayer(
-  { src, fps, onTimeUpdate, onReplay },
+  { src, fps, onTimeUpdate, onReplay, loopRegion },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -64,6 +66,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     const tick = () => {
       const v = videoRef.current;
       if (v) {
+        if (loopRegion && v.currentTime >= loopRegion.b) v.currentTime = loopRegion.a;
         setCurrent(v.currentTime);
         onTimeUpdate(v.currentTime);
       }
@@ -71,7 +74,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, onTimeUpdate]);
+  }, [playing, onTimeUpdate, loopRegion]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -167,6 +170,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           onTimeUpdate={() => {
             const v = videoRef.current;
             if (v) {
+              if (loopRegion && v.currentTime >= loopRegion.b) v.currentTime = loopRegion.a;
               setCurrent(v.currentTime);
               onTimeUpdate(v.currentTime);
             }

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Trash2 } from "lucide-react";
-import { StudioEventList } from "@/components/studio/StudioEventList";
 import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
+import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
 import { usePlaybackSync } from "@/hooks/usePlaybackSync";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import type { Recording } from "@/types";
@@ -33,6 +33,8 @@ export function StudioEditor() {
   const [loaded, setLoaded] = useState(false);
   const selectedRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<StudioPlayerHandle>(null);
+  // Loop region from the timeline, in video-relative ms (null = no loop).
+  const [loop, setLoop] = useState<LoopRegion | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -68,9 +70,10 @@ export function StudioEditor() {
   const { url } = useVideoAssetUrl(selected?.video);
   const sync = usePlaybackSync({ events: selected?.events ?? [], video: selected?.video });
 
-  // Keep the active clip visible in the list on every switch.
+  // Keep the active clip visible in the list, and clear the loop, on switch.
   useEffect(() => {
     selectedRef.current?.scrollIntoView({ block: "nearest" });
+    setLoop(null);
   }, [selectedId]);
 
   const handleDelete = useCallback(
@@ -91,14 +94,6 @@ export function StudioEditor() {
   const handleReplay = useCallback((id: string) => {
     void invoke("request_replay", { id }).catch((e) => console.error("request_replay failed", e));
   }, []);
-
-  // Clicking an event seeks the video; the resulting timeupdate re-highlights it.
-  const handleEventSeek = useCallback(
-    (index: number) => {
-      playerRef.current?.seek(sync.eventVideoSeconds(index));
-    },
-    [sync.eventVideoSeconds],
-  );
 
   return (
     <div
@@ -243,18 +238,31 @@ export function StudioEditor() {
           display: "flex",
           flexDirection: "column",
           padding: 24,
+          gap: 12,
           boxSizing: "border-box",
         }}
       >
         {selected && url ? (
-          <StudioPlayer
-            key={selected.id}
-            ref={playerRef}
-            src={url}
-            fps={selected.video?.fps ?? 30}
-            onTimeUpdate={sync.onVideoTime}
-            onReplay={() => handleReplay(selected.id)}
-          />
+          <>
+            <StudioPlayer
+              key={selected.id}
+              ref={playerRef}
+              src={url}
+              fps={selected.video?.fps ?? 30}
+              onTimeUpdate={sync.onVideoTime}
+              onReplay={() => handleReplay(selected.id)}
+              loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
+            />
+            <StudioTimeline
+              events={selected.events}
+              startMs={sync.startMs}
+              durationMs={selected.video?.duration_ms ?? 0}
+              videoMs={sync.videoTimeMs}
+              onSeekSeconds={(s) => playerRef.current?.seek(s)}
+              loop={loop}
+              onLoopChange={setLoop}
+            />
+          </>
         ) : (
           <div
             style={{
@@ -270,19 +278,6 @@ export function StudioEditor() {
           </div>
         )}
       </div>
-
-      {/* Synced events */}
-      {selected && (
-        <StudioEventList
-          events={selected.events}
-          startMs={sync.startMs}
-          activeIndex={sync.activeIndex}
-          currentMs={sync.currentMs}
-          onSeek={handleEventSeek}
-          onUserScroll={sync.noteUserScroll}
-          autoScrollEnabled={sync.shouldAutoScroll()}
-        />
-      )}
     </div>
   );
 }

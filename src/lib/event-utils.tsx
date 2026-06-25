@@ -121,30 +121,64 @@ export type EventRow =
       x: number;
       y: number;
       timestamp: number;
+    }
+  | {
+      kind: "drag";
+      startIndex: number;
+      endIndex: number;
+      button: string;
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      moveCount: number;
+      timestamp: number;
     };
 
 export function groupEvents(events: InputEvent[]): EventRow[] {
   const rows: EventRow[] = [];
   events.forEach((event, index) => {
     const last = rows[rows.length - 1];
-    // A press immediately followed by a release of the same button is a click;
-    // collapse the pair. A drag (press → moves → release) leaves the press and
-    // release non-adjacent, so it stays expanded and the motion stays visible.
-    if (
-      event.type === InputEventType.ButtonRelease &&
-      last?.kind === "event" &&
-      last.event.type === InputEventType.ButtonPress &&
-      last.event.button === event.button
-    ) {
-      rows[rows.length - 1] = {
-        kind: "click",
-        startIndex: last.index,
-        endIndex: index,
-        button: event.button,
-        x: last.event.x,
-        y: last.event.y,
-        timestamp: last.event.timestamp,
-      };
+    if (event.type === InputEventType.ButtonRelease) {
+      const prev2 = rows[rows.length - 2];
+      if (
+        last?.kind === "event" &&
+        last.event.type === InputEventType.ButtonPress &&
+        last.event.button === event.button
+      ) {
+        // Adjacent press+release → a click.
+        rows[rows.length - 1] = {
+          kind: "click",
+          startIndex: last.index,
+          endIndex: index,
+          button: event.button,
+          x: last.event.x,
+          y: last.event.y,
+          timestamp: last.event.timestamp,
+        };
+      } else if (
+        last?.kind === "move" &&
+        prev2?.kind === "event" &&
+        prev2.event.type === InputEventType.ButtonPress &&
+        prev2.event.button === event.button
+      ) {
+        // press → moves → release → a drag; fold the press, move run, and
+        // release into one row (expand it to see the individual moves).
+        rows.splice(rows.length - 2, 2, {
+          kind: "drag",
+          startIndex: prev2.index,
+          endIndex: index,
+          button: event.button,
+          x1: prev2.event.x,
+          y1: prev2.event.y,
+          x2: event.x,
+          y2: event.y,
+          moveCount: last.count,
+          timestamp: prev2.event.timestamp,
+        });
+      } else {
+        rows.push({ kind: "event", index, event });
+      }
     } else if (event.type === InputEventType.Scroll) {
       if (last?.kind === "scroll") {
         last.endIndex = index;

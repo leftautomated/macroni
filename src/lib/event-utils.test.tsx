@@ -87,9 +87,26 @@ describe("groupEvents", () => {
     });
   });
 
-  it("leaves a drag (press → moves → release) expanded, not collapsed to a click", () => {
-    const rows = groupEvents([press("Left", 0, 0, 0), move(5, 5, 10), release("Left", 5, 5, 20)]);
-    expect(rows.map((r) => r.kind)).toEqual(["event", "move", "event"]);
+  it("folds a drag (press → moves → release) into one drag row", () => {
+    const rows = groupEvents([
+      press("Left", 0, 0, 0),
+      move(3, 3, 10),
+      move(5, 5, 20),
+      release("Left", 7, 7, 30),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "drag",
+      startIndex: 0,
+      endIndex: 3,
+      button: "Left",
+      x1: 0,
+      y1: 0,
+      x2: 7,
+      y2: 7,
+      moveCount: 2,
+      timestamp: 0,
+    });
   });
 
   it("returns an empty list for no events", () => {

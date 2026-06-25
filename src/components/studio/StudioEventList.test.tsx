@@ -95,6 +95,32 @@ describe("StudioEventList", () => {
     expect(screen.queryByText(/mouse release/i)).not.toBeInTheDocument();
   });
 
+  it("folds a drag into a single Drag row that expands to its events", async () => {
+    const drag: InputEvent[] = [
+      { type: InputEventType.ButtonPress, button: "Left", x: 0, y: 0, timestamp: 1000 },
+      { type: InputEventType.MouseMove, x: 5, y: 5, timestamp: 1010 },
+      { type: InputEventType.MouseMove, x: 9, y: 9, timestamp: 1020 },
+      { type: InputEventType.ButtonRelease, button: "Left", x: 9, y: 9, timestamp: 1030 },
+    ];
+    render(
+      <StudioEventList
+        events={drag}
+        startMs={1000}
+        activeIndex={-1}
+        onSeek={noop}
+        onUserScroll={noop}
+        autoScrollEnabled={false}
+      />,
+    );
+    // One Drag summary row, not separate press/move/release rows.
+    expect(screen.getByText(/drag left/i)).toBeInTheDocument();
+    expect(screen.queryByText(/mouse press/i)).not.toBeInTheDocument();
+    // Expanding reveals the underlying events.
+    await userEvent.click(screen.getByTitle("Expand 4 events"));
+    expect(screen.getByText(/mouse press/i)).toBeInTheDocument();
+    expect(screen.getByText(/mouse release/i)).toBeInTheDocument();
+  });
+
   it("calls onSeek with the row index when a row is clicked", async () => {
     const onSeek = vi.fn();
     render(

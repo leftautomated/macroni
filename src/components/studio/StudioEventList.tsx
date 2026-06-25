@@ -171,11 +171,17 @@ export function StudioEventList({
                       label: `Mouse Move (${Math.round(row.x)}, ${Math.round(row.y)})`,
                       detail: `×${row.count}`,
                     }
-                  : {
-                      icon: <MousePointer size={12} />,
-                      label: `Click ${row.button}`,
-                      detail: `(${Math.round(row.x)}, ${Math.round(row.y)})`,
-                    };
+                  : row.kind === "drag"
+                    ? {
+                        icon: <MousePointer size={12} />,
+                        label: `Drag ${row.button} → (${Math.round(row.x2)}, ${Math.round(row.y2)})`,
+                        detail: `×${row.moveCount}`,
+                      }
+                    : {
+                        icon: <MousePointer size={12} />,
+                        label: `Click ${row.button}`,
+                        detail: `(${Math.round(row.x)}, ${Math.round(row.y)})`,
+                      };
 
             return (
               <div key={`g${row.startIndex}`}>

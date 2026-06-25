@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Maximize, Pause, Play, Repeat, StepBack, StepForward } from "lucide-react";
 
 export interface StudioPlayerHandle {
@@ -52,6 +52,24 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     }),
     [],
   );
+
+  // The <video> `timeupdate` event only fires ~4x/sec — too coarse to highlight
+  // fast event bursts (mouse-move drags get skipped). While playing, poll
+  // currentTime every animation frame so the synced event list tracks precisely.
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    const tick = () => {
+      const v = videoRef.current;
+      if (v) {
+        setCurrent(v.currentTime);
+        onTimeUpdate(v.currentTime);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, onTimeUpdate]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;

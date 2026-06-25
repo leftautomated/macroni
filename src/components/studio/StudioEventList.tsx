@@ -50,9 +50,9 @@ export function StudioEventList({
   // off a data-attribute so we don't juggle refs across rows and children.
   useEffect(() => {
     if (!autoScrollEnabled) return;
-    containerRef.current
-      ?.querySelector("[data-active]")
-      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    // block:"nearest" (instant) follows playback without stacking smooth-scroll
+    // animations — the active index can change every frame during dense runs.
+    containerRef.current?.querySelector("[data-active]")?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, autoScrollEnabled]);
 
   const toggle = (key: number) =>

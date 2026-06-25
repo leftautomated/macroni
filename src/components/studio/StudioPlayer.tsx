@@ -12,7 +12,9 @@ interface StudioPlayerProps {
   onReplay: () => void;
 }
 
-const SPEEDS = [0.5, 1, 1.5, 2] as const;
+// 0.25× lets you step through dense mouse-move runs (~125Hz capture) frame by
+// frame — at 1× there are more moves per second than the screen can repaint.
+const SPEEDS = [0.25, 0.5, 1, 1.5, 2] as const;
 
 function fmtTime(s: number): string {
   if (!Number.isFinite(s) || s < 0) return "0:00";
@@ -36,7 +38,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [speedIdx, setSpeedIdx] = useState(1);
+  const [speedIdx, setSpeedIdx] = useState(2);
   const [loop, setLoop] = useState(true);
   const [ready, setReady] = useState(false);
   const [dragging, setDragging] = useState(false);

@@ -3,6 +3,7 @@ mod crash_log;
 mod encoder;
 mod event_capture;
 mod key_mapping;
+mod observability;
 mod permissions;
 mod playback;
 // Native studio preview surface (Phase 1, Task 11). macOS-only.
@@ -10,15 +11,16 @@ mod playback;
 mod preview_surface;
 mod project_store;
 mod recording_session;
-mod studio_export;
 mod recordings_store;
 mod settings;
+mod studio_export;
 mod types;
 
 use types::*;
 
 use chrono::Utc;
 use rdev::{listen, Event};
+use serde_json::json;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
@@ -38,51 +40,73 @@ tauri_panel! {
 }
 
 #[tauri::command]
-fn start_recording(app: AppHandle, state: State<RecordingState>) -> Result<String, String> {
-    // Best-effort early-return so we don't acquire the screen-recording
-    // permission and spawn a scap thread just to drop them when session.start
-    // fails below. The authoritative guard is session.start() — it runs under
-    // the inner mutex and atomically claims the slot. A small TOCTOU window
-    // between this read and session.start can produce a spurious "Already
-    // recording" error during a concurrent stop; the user retries and it
-    // succeeds. We accept that vs. leaking a capture thread.
-    if state.session.is_active() {
-        return Err("Already recording".to_string());
-    }
-
-    // Generate recording id up front so the video filename can use it.
-    let id = chrono::Utc::now().timestamp_millis().to_string();
-
-    // Build capture config from settings.
-    let settings = crate::settings::load(&app);
-    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let videos_dir = app_data_dir.join("videos");
-    std::fs::create_dir_all(&videos_dir).map_err(|e| e.to_string())?;
-    let output_path = videos_dir.join(format!("{}.mp4", id));
-
-    // Start capture (may fail on permission denied — surface the error).
-    let capture = match crate::capture::ScreenCaptureSession::start(crate::capture::CaptureConfig {
-        output_path,
-        settings: settings.capture,
-    }) {
-        Ok(session) => Some(session),
-        Err(e) if e == "permission-denied" => {
-            let _ = app.emit("permission-needed", "screen-recording");
-            return Err(e);
+fn start_recording(
+    app: AppHandle,
+    state: State<RecordingState>,
+    trace_id: Option<String>,
+) -> Result<String, String> {
+    observability::trace_command("start_recording", trace_id, None, || {
+        // Best-effort early-return so we don't acquire the screen-recording
+        // permission and spawn a scap thread just to drop them when session.start
+        // fails below. The authoritative guard is session.start() — it runs under
+        // the inner mutex and atomically claims the slot. A small TOCTOU window
+        // between this read and session.start can produce a spurious "Already
+        // recording" error during a concurrent stop; the user retries and it
+        // succeeds. We accept that vs. leaking a capture thread.
+        if state.session.is_active() {
+            return Err("Already recording".to_string());
         }
-        Err(e) => {
-            // Capture failed for another reason; we still allow event-only recording.
-            let _ = app.emit("capture-failed", e.clone());
-            eprintln!("capture failed to start: {e}");
-            None
-        }
-    };
 
-    state
-        .session
-        .start(id.clone(), capture)
-        .map_err(|e| e.to_string())?;
-    Ok(id)
+        // Generate recording id up front so the video filename can use it.
+        let id = chrono::Utc::now().timestamp_millis().to_string();
+
+        // Build capture config from settings.
+        let settings = crate::settings::load(&app);
+        let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let videos_dir = app_data_dir.join("videos");
+        std::fs::create_dir_all(&videos_dir).map_err(|e| e.to_string())?;
+        let output_path = videos_dir.join(format!("{}.mp4", id));
+
+        // Start capture (may fail on permission denied — surface the error).
+        let capture =
+            match crate::capture::ScreenCaptureSession::start(crate::capture::CaptureConfig {
+                output_path,
+                settings: settings.capture.clone(),
+            }) {
+                Ok(session) => Some(session),
+                Err(e) if e == "permission-denied" => {
+                    let _ = app.emit("permission-needed", "screen-recording");
+                    return Err(e);
+                }
+                Err(e) => {
+                    // Capture failed for another reason; we still allow event-only recording.
+                    let _ = app.emit("capture-failed", e.clone());
+                    observability::log_warn(
+                        "capture",
+                        "start_failed_event_only",
+                        &e,
+                        Some(json!({ "recordingId": id })),
+                    );
+                    None
+                }
+            };
+
+        state
+            .session
+            .start(id.clone(), capture)
+            .map_err(|e| e.to_string())?;
+        observability::log_info(
+            "recording",
+            "started",
+            Some(json!({
+                "recordingId": id,
+                "fps": settings.capture.fps,
+                "quality": settings.capture.quality,
+                "audio": settings.capture.audio,
+            })),
+        );
+        Ok(id)
+    })
 }
 
 #[derive(serde::Serialize)]
@@ -93,25 +117,45 @@ struct StopResult {
 }
 
 #[tauri::command]
-fn stop_recording(app: AppHandle, state: State<RecordingState>) -> Result<StopResult, String> {
-    let stopped = state.session.stop().map_err(|e| e.to_string())?;
-    let video = stopped.capture.and_then(|s| match s.stop() {
-        Ok(meta) => Some(meta),
-        Err(e) => {
-            // The capture session started (permission appeared granted) but
-            // finalize produced no usable video — e.g. zero frames reached the
-            // encoder. This used to be swallowed (eprintln only), so the user
-            // got a recording with no video and NO feedback. Surface it to the
-            // UI via the same `capture-failed` event the start path uses.
-            eprintln!("capture finalize failed: {e}");
-            let _ = app.emit("capture-failed", e.clone());
-            None
-        }
-    });
-    Ok(StopResult {
-        id: stopped.id,
-        events: stopped.events,
-        video,
+fn stop_recording(
+    app: AppHandle,
+    state: State<RecordingState>,
+    trace_id: Option<String>,
+) -> Result<StopResult, String> {
+    observability::trace_command("stop_recording", trace_id, None, || {
+        let stopped = state.session.stop().map_err(|e| e.to_string())?;
+        let video = stopped.capture.and_then(|s| match s.stop() {
+            Ok(meta) => Some(meta),
+            Err(e) => {
+                // The capture session started (permission appeared granted) but
+                // finalize produced no usable video — e.g. zero frames reached the
+                // encoder. This used to be swallowed (eprintln only), so the user
+                // got a recording with no video and NO feedback. Surface it to the
+                // UI via the same `capture-failed` event the start path uses.
+                observability::log_error(
+                    "capture",
+                    "finalize_failed",
+                    &e,
+                    Some(json!({ "recordingId": stopped.id })),
+                );
+                let _ = app.emit("capture-failed", e.clone());
+                None
+            }
+        });
+        observability::log_info(
+            "recording",
+            "stopped",
+            Some(json!({
+                "recordingId": stopped.id,
+                "eventCount": stopped.events.len(),
+                "hasVideo": video.is_some(),
+            })),
+        );
+        Ok(StopResult {
+            id: stopped.id,
+            events: stopped.events,
+            video,
+        })
     })
 }
 
@@ -122,32 +166,52 @@ fn save_recording(
     name: String,
     events: Vec<InputEvent>,
     video: Option<VideoMetadata>,
+    trace_id: Option<String>,
 ) -> Result<Recording, String> {
-    let recording = Recording {
-        id,
-        name,
-        events,
-        created_at: chrono::Utc::now().timestamp_millis(),
-        playback_speed: 1.0,
-        video,
-    };
-    recordings_store::RecordingsStore::open(&app_handle)
-        .and_then(|s| s.add(recording))
-        .map_err(|e| e.to_string())
+    let fields = json!({
+        "recordingId": id,
+        "eventCount": events.len(),
+        "hasVideo": video.is_some(),
+    });
+    observability::trace_command("save_recording", trace_id, Some(fields), || {
+        let recording = Recording {
+            id,
+            name,
+            events,
+            created_at: chrono::Utc::now().timestamp_millis(),
+            playback_speed: 1.0,
+            video,
+        };
+        recordings_store::RecordingsStore::open(&app_handle)
+            .and_then(|s| s.add(recording))
+            .map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
-fn load_recordings(app_handle: AppHandle) -> Result<Vec<Recording>, String> {
-    recordings_store::RecordingsStore::open(&app_handle)
-        .and_then(|s| s.load_all())
-        .map_err(|e| e.to_string())
+fn load_recordings(
+    app_handle: AppHandle,
+    trace_id: Option<String>,
+) -> Result<Vec<Recording>, String> {
+    observability::trace_command("load_recordings", trace_id, None, || {
+        recordings_store::RecordingsStore::open(&app_handle)
+            .and_then(|s| s.load_all())
+            .map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
-fn delete_recording(app_handle: AppHandle, id: String) -> Result<(), String> {
-    recordings_store::RecordingsStore::open(&app_handle)
-        .and_then(|s| s.delete(&id))
-        .map_err(|e| e.to_string())
+fn delete_recording(
+    app_handle: AppHandle,
+    id: String,
+    trace_id: Option<String>,
+) -> Result<(), String> {
+    let fields = json!({ "recordingId": id });
+    observability::trace_command("delete_recording", trace_id, Some(fields), || {
+        recordings_store::RecordingsStore::open(&app_handle)
+            .and_then(|s| s.delete(&id))
+            .map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -155,10 +219,14 @@ fn update_recording_name(
     app_handle: AppHandle,
     id: String,
     name: String,
+    trace_id: Option<String>,
 ) -> Result<Recording, String> {
-    recordings_store::RecordingsStore::open(&app_handle)
-        .and_then(|s| s.update_name(&id, &name))
-        .map_err(|e| e.to_string())
+    let fields = json!({ "recordingId": id, "nameLength": name.len() });
+    observability::trace_command("update_recording_name", trace_id, Some(fields), || {
+        recordings_store::RecordingsStore::open(&app_handle)
+            .and_then(|s| s.update_name(&id, &name))
+            .map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -166,10 +234,14 @@ fn update_recording_speed(
     app_handle: AppHandle,
     id: String,
     speed: f64,
+    trace_id: Option<String>,
 ) -> Result<Recording, String> {
-    recordings_store::RecordingsStore::open(&app_handle)
-        .and_then(|s| s.update_speed(&id, speed))
-        .map_err(|e| e.to_string())
+    let fields = json!({ "recordingId": id, "speed": speed });
+    observability::trace_command("update_recording_speed", trace_id, Some(fields), || {
+        recordings_store::RecordingsStore::open(&app_handle)
+            .and_then(|s| s.update_speed(&id, speed))
+            .map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -179,132 +251,181 @@ fn play_recording(
     events: Vec<InputEvent>,
     loop_forever: Option<bool>,
     speed: Option<f64>,
+    trace_id: Option<String>,
 ) -> Result<(), String> {
-    let loop_forever = loop_forever.unwrap_or(true);
-    let speed = speed.unwrap_or(1.0);
-    let plan = playback::PlaybackPlan::compile(&events, speed).map_err(|e| e.to_string())?;
-    state.engine.start(
-        plan,
-        loop_forever,
-        playback::RdevSimulator,
-        playback::TauriEmitter::new(app_handle),
+    let fields = json!({
+        "eventCount": events.len(),
+        "loopForever": loop_forever.unwrap_or(true),
+        "speed": speed.unwrap_or(1.0),
+    });
+    observability::trace_command("play_recording", trace_id, Some(fields), || {
+        let loop_forever = loop_forever.unwrap_or(true);
+        let speed = speed.unwrap_or(1.0);
+        let plan = playback::PlaybackPlan::compile(&events, speed).map_err(|e| e.to_string())?;
+        state.engine.start(
+            plan,
+            loop_forever,
+            playback::RdevSimulator,
+            playback::TauriEmitter::new(app_handle),
+        )
+    })
+}
+
+#[tauri::command]
+fn stop_playback(state: State<RecordingState>, trace_id: Option<String>) -> Result<(), String> {
+    observability::trace_command("stop_playback", trace_id, None, || {
+        state.engine.stop();
+        Ok(())
+    })
+}
+
+#[tauri::command]
+fn is_playing(state: State<RecordingState>, trace_id: Option<String>) -> Result<bool, String> {
+    observability::trace_command("is_playing", trace_id, None, || {
+        Ok(state.engine.is_playing())
+    })
+}
+
+#[tauri::command]
+fn set_window_size(
+    window: WebviewWindow,
+    width: u32,
+    height: u32,
+    trace_id: Option<String>,
+) -> Result<(), String> {
+    observability::trace_command(
+        "set_window_size",
+        trace_id,
+        Some(json!({ "width": width, "height": height })),
+        || {
+            use tauri::{LogicalSize, Size};
+
+            // Set the window size with dynamic width and height
+            let new_size = LogicalSize::new(width as f64, height as f64);
+            window
+                .set_size(Size::Logical(new_size))
+                .map_err(|e| format!("Failed to resize window: {}", e))?;
+
+            Ok(())
+        },
     )
 }
 
 #[tauri::command]
-fn stop_playback(state: State<RecordingState>) -> Result<(), String> {
-    state.engine.stop();
-    Ok(())
-}
+fn focus_studio_window(app: AppHandle, trace_id: Option<String>) -> Result<(), String> {
+    observability::trace_command("focus_studio_window", trace_id, None, || {
+        use tauri::{WebviewUrl, WebviewWindowBuilder};
 
-#[tauri::command]
-fn is_playing(state: State<RecordingState>) -> Result<bool, String> {
-    Ok(state.engine.is_playing())
-}
-
-#[tauri::command]
-fn set_window_size(window: WebviewWindow, width: u32, height: u32) -> Result<(), String> {
-    use tauri::{LogicalSize, Size};
-
-    // Set the window size with dynamic width and height
-    let new_size = LogicalSize::new(width as f64, height as f64);
-    window
-        .set_size(Size::Logical(new_size))
-        .map_err(|e| format!("Failed to resize window: {}", e))?;
-
-    Ok(())
-}
-
-#[tauri::command]
-fn focus_studio_window(app: AppHandle) -> Result<(), String> {
-    use tauri::{WebviewUrl, WebviewWindowBuilder};
-
-    // The studio is defined in tauri.conf and created at startup — just show and
-    // focus it. If the user closed the window (Tauri destroys on close), rebuild
-    // it from the same URL so the button always works.
-    if let Some(window) = app.get_webview_window("studio") {
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-    WebviewWindowBuilder::new(&app, "studio", WebviewUrl::App("studio.html".into()))
-        .title("Studio")
-        .inner_size(1200.0, 800.0)
-        .min_inner_size(600.0, 400.0)
-        .resizable(true)
-        .build()
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn request_replay(app: AppHandle, id: String) -> Result<(), String> {
-    // Replay runs from the main control panel: it's small and non-activating, so
-    // it won't steal focus from the user's target app. Bring it forward, then
-    // tell the frontend which recording to load — the user focuses their target
-    // and presses Play when ready (we deliberately don't auto-start).
-    #[cfg(target_os = "macos")]
-    {
-        use tauri_nspanel::PanelLevel;
-        if let Ok(panel) = app.get_webview_panel("main") {
-            panel.set_level(PanelLevel::Floating.value());
-            panel.show();
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        if let Some(window) = app.get_webview_window("main") {
+        // The studio is defined in tauri.conf and created at startup — just show and
+        // focus it. If the user closed the window (Tauri destroys on close), rebuild
+        // it from the same URL so the button always works.
+        if let Some(window) = app.get_webview_window("studio") {
             window.show().map_err(|e| e.to_string())?;
+            window.set_focus().map_err(|e| e.to_string())?;
+            return Ok(());
         }
-    }
-    app.emit("replay-recording", id).map_err(|e| e.to_string())?;
-    Ok(())
+        WebviewWindowBuilder::new(&app, "studio", WebviewUrl::App("studio.html".into()))
+            .title("Studio")
+            .inner_size(1200.0, 800.0)
+            .min_inner_size(600.0, 400.0)
+            .resizable(true)
+            .build()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
 }
 
 #[tauri::command]
-fn get_app_data_dir(app: AppHandle) -> Result<String, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    Ok(dir.to_string_lossy().into_owned())
+fn request_replay(app: AppHandle, id: String, trace_id: Option<String>) -> Result<(), String> {
+    let fields = json!({ "recordingId": id });
+    observability::trace_command("request_replay", trace_id, Some(fields), || {
+        // Replay runs from the main control panel: it's small and non-activating, so
+        // it won't steal focus from the user's target app. Bring it forward, then
+        // tell the frontend which recording to load — the user focuses their target
+        // and presses Play when ready (we deliberately don't auto-start).
+        #[cfg(target_os = "macos")]
+        {
+            use tauri_nspanel::PanelLevel;
+            if let Ok(panel) = app.get_webview_panel("main") {
+                panel.set_level(PanelLevel::Floating.value());
+                panel.show();
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            if let Some(window) = app.get_webview_window("main") {
+                window.show().map_err(|e| e.to_string())?;
+            }
+        }
+        app.emit("replay-recording", id)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
 }
 
 #[tauri::command]
-fn toggle_visibility(app_handle: AppHandle) -> Result<bool, String> {
-    #[cfg(target_os = "macos")]
-    {
-        use tauri_nspanel::PanelLevel;
+fn get_app_data_dir(app: AppHandle, trace_id: Option<String>) -> Result<String, String> {
+    observability::trace_command("get_app_data_dir", trace_id, None, || {
+        let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        Ok(dir.to_string_lossy().into_owned())
+    })
+}
 
-        // Use NSPanel's is_visible() as source of truth — Tauri's window.is_visible()
-        // can get out of sync when macOS hides the panel (sleep, space switch, etc.)
-        let panel = app_handle
-            .get_webview_panel("main")
-            .map_err(|e| format!("{:?}", e))?;
-        if panel.is_visible() {
-            panel.hide();
-            Ok(false)
-        } else {
-            // Re-assert floating level — macOS can reset it after display sleep or
-            // Mission Control transitions
-            panel.set_level(PanelLevel::Floating.value());
-            panel.show();
-            Ok(true)
-        }
-    }
+#[tauri::command]
+fn toggle_visibility(app_handle: AppHandle, trace_id: Option<String>) -> Result<bool, String> {
+    observability::trace_command("toggle_visibility", trace_id, None, || {
+        #[cfg(target_os = "macos")]
+        {
+            use tauri_nspanel::PanelLevel;
 
-    #[cfg(not(target_os = "macos"))]
-    {
-        if let Some(window) = app_handle.get_webview_window("main") {
-            let is_visible = window.is_visible().map_err(|e| e.to_string())?;
-            if is_visible {
-                window.hide().map_err(|e| e.to_string())?;
+            // Use NSPanel's is_visible() as source of truth — Tauri's window.is_visible()
+            // can get out of sync when macOS hides the panel (sleep, space switch, etc.)
+            let panel = app_handle
+                .get_webview_panel("main")
+                .map_err(|e| format!("{:?}", e))?;
+            if panel.is_visible() {
+                panel.hide();
                 Ok(false)
             } else {
-                window.show().map_err(|e| e.to_string())?;
+                // Re-assert floating level — macOS can reset it after display sleep or
+                // Mission Control transitions
+                panel.set_level(PanelLevel::Floating.value());
+                panel.show();
                 Ok(true)
             }
-        } else {
-            Err("Window not found".to_string())
         }
-    }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let is_visible = window.is_visible().map_err(|e| e.to_string())?;
+                if is_visible {
+                    window.hide().map_err(|e| e.to_string())?;
+                    Ok(false)
+                } else {
+                    window.show().map_err(|e| e.to_string())?;
+                    Ok(true)
+                }
+            } else {
+                Err("Window not found".to_string())
+            }
+        }
+    })
+}
+
+#[tauri::command]
+fn get_diagnostics_snapshot(
+    app: AppHandle,
+    state: State<RecordingState>,
+    trace_id: Option<String>,
+) -> Result<observability::DiagnosticsSnapshot, String> {
+    observability::trace_command("get_diagnostics_snapshot", trace_id, None, || {
+        Ok(observability::diagnostics_snapshot(
+            &app,
+            state.session.is_active(),
+            state.engine.is_playing(),
+        ))
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -346,7 +467,24 @@ pub fn run() {
     let collector_session = Arc::clone(&state.session);
     let shortcut_engine = Arc::clone(&state.engine);
 
-    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let log_level = if cfg!(debug_assertions) {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
+    let mut builder = tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log_level)
+                .level_for("macroni::observability", log::LevelFilter::Debug)
+                .max_file_size(5_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Webview,
+                ))
+                .build(),
+        )
+        .plugin(tauri_plugin_opener::init());
 
     // Initialize nspanel plugin on macOS (MUST be before setup)
     #[cfg(target_os = "macos")]
@@ -356,6 +494,9 @@ pub fn run() {
 
     let builder = builder
         .setup(move |app| {
+            observability::init(app.handle());
+            observability::log_info("app", "setup.start", None);
+
             // Register global shortcuts inside setup using the correct Tauri v2 pattern
             #[cfg(desktop)]
             {
@@ -375,7 +516,8 @@ pub fn run() {
 
                                 // Cmd+M / Ctrl+M — toggle visibility
                                 if shortcut.matches(Modifiers::SUPER, Code::KeyM) {
-                                    let _ = toggle_visibility(app.clone());
+                                    observability::log_info("shortcut", "toggle_visibility", None);
+                                    let _ = toggle_visibility(app.clone(), None);
                                 }
                                 // Cmd+R / Ctrl+R — toggle playback.
                                 // Stop directly in Rust to avoid frontend round-trip
@@ -383,9 +525,15 @@ pub fn run() {
                                 // the shortcut.
                                 else if shortcut.matches(Modifiers::SUPER, Code::KeyR) {
                                     if engine.is_playing() {
+                                        observability::log_info("shortcut", "stop_playback", None);
                                         engine.stop();
                                         let _ = app.emit("playback-stopped", ());
                                     } else {
+                                        observability::log_info(
+                                            "shortcut",
+                                            "toggle_playback",
+                                            None,
+                                        );
                                         let _ = app.emit("toggle-playback", ());
                                     }
                                 }
@@ -393,6 +541,7 @@ pub fn run() {
                                 else if shortcut
                                     .matches(Modifiers::SUPER | Modifiers::SHIFT, Code::KeyR)
                                 {
+                                    observability::log_info("shortcut", "toggle_recording", None);
                                     let _ = app.emit("toggle-recording", ());
                                 }
                             }
@@ -413,6 +562,7 @@ pub fn run() {
             }
 
             crash_log::log_line("setup: complete");
+            observability::log_info("app", "setup.complete", None);
 
             let app_handle = app.handle().clone();
 
@@ -461,7 +611,7 @@ pub fn run() {
                 };
 
                 if let Err(e) = listen(callback) {
-                    eprintln!("Error in input listener: {:?}", e);
+                    observability::log_error("input", "listener_failed", &format!("{e:?}"), None);
                 }
             });
 
@@ -494,6 +644,7 @@ pub fn run() {
             focus_studio_window,
             request_replay,
             get_app_data_dir,
+            get_diagnostics_snapshot,
             project_store::studio_load_project,
             project_store::studio_save_project,
             studio_export::studio_export,

@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/lib/observability";
 import { type InputEvent, RecordingStatus, type VideoMetadata } from "@/types";
 
 interface StopResult {

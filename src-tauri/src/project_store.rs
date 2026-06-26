@@ -8,8 +8,10 @@
 use std::path::{Path, PathBuf};
 
 use render_core::doc::ProjectDoc;
+use serde_json::json;
 use tauri::{AppHandle, Manager};
 
+use crate::observability;
 use crate::recordings_store::RecordingsStore;
 
 const PROJECTS_DIRNAME: &str = "projects";
@@ -30,8 +32,8 @@ pub fn load_project(app_data: &Path, recording_id: &str) -> Result<Option<Projec
     if !path.exists() {
         return Ok(None);
     }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let doc = serde_json::from_str::<ProjectDoc>(&content)
         .map_err(|e| format!("parse {}: {e}", path.display()))?;
     Ok(Some(doc))
@@ -42,17 +44,12 @@ pub fn load_project(app_data: &Path, recording_id: &str) -> Result<Option<Projec
 /// Creates `<app_data>/projects/` if it does not exist. Uses the same
 /// temp-then-rename strategy as `recordings_store.rs` to prevent truncated
 /// JSON if the process dies mid-write.
-pub fn save_project(
-    app_data: &Path,
-    recording_id: &str,
-    doc: &ProjectDoc,
-) -> Result<(), String> {
+pub fn save_project(app_data: &Path, recording_id: &str, doc: &ProjectDoc) -> Result<(), String> {
     let path = project_path(app_data, recording_id);
     let dir = path.parent().expect("project_path always has a parent");
-    std::fs::create_dir_all(dir)
-        .map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
-    let content = serde_json::to_string_pretty(doc)
-        .map_err(|e| format!("serialize project: {e}"))?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
+    let content =
+        serde_json::to_string_pretty(doc).map_err(|e| format!("serialize project: {e}"))?;
     atomic_write(&path, content.as_bytes())
 }
 
@@ -84,37 +81,41 @@ fn atomic_write(final_path: &Path, bytes: &[u8]) -> Result<(), String> {
 pub fn studio_load_project(
     app_handle: AppHandle,
     recording_id: String,
+    trace_id: Option<String>,
 ) -> Result<ProjectDoc, String> {
-    let app_data = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let fields = json!({ "recordingId": recording_id });
+    observability::trace_command("studio_load_project", trace_id, Some(fields), || {
+        let app_data = app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?;
 
-    // Return the persisted doc if it already exists.
-    if let Some(doc) = load_project(&app_data, &recording_id)? {
-        return Ok(doc);
-    }
+        // Return the persisted doc if it already exists.
+        if let Some(doc) = load_project(&app_data, &recording_id)? {
+            return Ok(doc);
+        }
 
-    // No saved doc yet — build a default from the recording's video path.
-    let store = RecordingsStore::open(&app_handle).map_err(|e| e.to_string())?;
-    let recordings = store.load_all().map_err(|e| e.to_string())?;
-    let recording = recordings
-        .iter()
-        .find(|r| r.id == recording_id)
-        .ok_or_else(|| format!("recording '{}' not found", recording_id))?;
+        // No saved doc yet — build a default from the recording's video path.
+        let store = RecordingsStore::open(&app_handle).map_err(|e| e.to_string())?;
+        let recordings = store.load_all().map_err(|e| e.to_string())?;
+        let recording = recordings
+            .iter()
+            .find(|r| r.id == recording_id)
+            .ok_or_else(|| format!("recording '{}' not found", recording_id))?;
 
-    let screen_mp4 = recording
-        .video
-        .as_ref()
-        .map(|v| v.path.clone())
-        .unwrap_or_default();
+        let screen_mp4 = recording
+            .video
+            .as_ref()
+            .map(|v| v.path.clone())
+            .unwrap_or_default();
 
-    let doc = ProjectDoc::new_default(screen_mp4);
+        let doc = ProjectDoc::new_default(screen_mp4);
 
-    // Persist the default so subsequent loads are stable.
-    save_project(&app_data, &recording_id, &doc)?;
+        // Persist the default so subsequent loads are stable.
+        save_project(&app_data, &recording_id, &doc)?;
 
-    Ok(doc)
+        Ok(doc)
+    })
 }
 
 /// Persist `doc` as the project file for `recording_id`.
@@ -123,12 +124,16 @@ pub fn studio_save_project(
     app_handle: AppHandle,
     recording_id: String,
     doc: ProjectDoc,
+    trace_id: Option<String>,
 ) -> Result<(), String> {
-    let app_data = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
-    save_project(&app_data, &recording_id, &doc)
+    let fields = json!({ "recordingId": recording_id });
+    observability::trace_command("studio_save_project", trace_id, Some(fields), || {
+        let app_data = app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?;
+        save_project(&app_data, &recording_id, &doc)
+    })
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -220,10 +225,8 @@ mod tests {
         let doc = default_doc("cam.mp4");
         save_project(dir.path(), "cam-rec", &doc).unwrap();
 
-        let raw = std::fs::read_to_string(
-            dir.path().join("projects/cam-rec.project.json"),
-        )
-        .unwrap();
+        let raw =
+            std::fs::read_to_string(dir.path().join("projects/cam-rec.project.json")).unwrap();
         assert!(
             raw.contains("screenMp4"),
             "JSON must use camelCase; got: {raw}"

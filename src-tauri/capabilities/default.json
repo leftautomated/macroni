@@ -2,13 +2,14 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default window capabilities",
-  "windows": ["main"],
+  "windows": ["main", "studio"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-show",
     "core:window:allow-set-title",
     "global-shortcut:default",
+    "log:default",
     "opener:default"
   ]
 }

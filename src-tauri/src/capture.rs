@@ -157,7 +157,12 @@ impl ScreenCaptureSession {
                 let mut capturer = match Capturer::build(opts) {
                     Ok(c) => c,
                     Err(e) => {
-                        eprintln!("capture: build failed {e:?}");
+                        crate::observability::log_error(
+                            "capture",
+                            "capturer_build_failed",
+                            &format!("{e:?}"),
+                            None,
+                        );
                         return; // frame_tx drops -> encoder finishes with "no frames"
                     }
                 };
@@ -182,7 +187,12 @@ impl ScreenCaptureSession {
                         }
                         Ok(_) => continue, // audio / idle frame
                         Err(e) => {
-                            eprintln!("capture: frame error {e:?}");
+                            crate::observability::log_error(
+                                "capture",
+                                "frame_error",
+                                &format!("{e:?}"),
+                                None,
+                            );
                             break;
                         }
                     }
@@ -261,7 +271,7 @@ impl ScreenCaptureSession {
                                 data: f.data,
                                 timestamp_ms: f.ts,
                             }) {
-                                eprintln!("capture: sink error {e}");
+                                crate::observability::log_error("capture", "sink_error", &e, None);
                                 break;
                             }
                             prev_ts = f.ts;

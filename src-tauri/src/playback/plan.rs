@@ -10,12 +10,6 @@ use rdev::EventType;
 use crate::key_mapping::{string_to_button, string_to_key};
 use crate::types::{InputEvent, InputEventTimestamp};
 
-/// Cap on a single inter-event idle gap (ms, before the speed scale). A
-/// recording captures human thinking pauses — seconds between actions — and
-/// replaying those verbatim makes a macro look stuck. Long gaps are clamped so
-/// replay flows; shorter, intentional timing is preserved exactly.
-const MAX_GAP_MS: i64 = 700;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlannedStep {
     /// Tell observers which event index playback is currently on.
@@ -60,27 +54,44 @@ impl PlaybackPlan {
         let speed = sanitize_speed(speed);
 
         let mut steps = Vec::with_capacity(events.len() * 4);
+        // The settle sleep that ran after the previous simulated event. It's
+        // credited against the next inter-event gap so it isn't double-counted
+        // into the replay's wall-clock timing (the sleep still runs).
+        let mut prev_post_ms: u64 = 0;
         for (index, event) in events.iter().enumerate() {
             let should_update_ui = should_update_position(events, index);
-            let mut overhead_ms: u64 = 0;
+            let mut pos_ms: u64 = 0;
             if should_update_ui {
                 steps.push(PlannedStep::EmitPosition { index });
                 if speed <= 2.0 {
                     steps.push(PlannedStep::Sleep { ms: 10 });
-                    overhead_ms += 10;
+                    pos_ms = 10;
                 }
             }
 
-            // Inter-event sleep.
+            // A button replays as move → 10ms settle → press, so its pre-press
+            // settle is part of the gap budget too.
+            let pre_ms: u64 = if matches!(
+                event,
+                InputEvent::ButtonPress { .. } | InputEvent::ButtonRelease { .. }
+            ) {
+                10
+            } else {
+                0
+            };
+
+            // Inter-event sleep. Credit the fixed settle sleeps that bracket this
+            // event (previous post, this position update, this pre-press) so the
+            // time between simulated events matches the recording exactly — the
+            // settle sleeps still run for reliability; only the gap sleep shrinks.
             if index == 0 {
                 steps.push(PlannedStep::Sleep { ms: 50 });
             } else {
-                let raw_delay = (event.timestamp() - events[index - 1].timestamp())
-                    .max(0)
-                    .min(MAX_GAP_MS) as u64;
+                let raw_delay = (event.timestamp() - events[index - 1].timestamp()).max(0) as u64;
                 let scaled = (raw_delay as f64 / speed) as u64;
+                let credit = prev_post_ms + pos_ms + pre_ms;
                 let min_delay = min_delay_for(event);
-                let actual = scaled.saturating_sub(overhead_ms).max(min_delay);
+                let actual = scaled.saturating_sub(credit).max(min_delay);
                 if actual > 0 {
                     steps.push(PlannedStep::Sleep { ms: actual });
                 }
@@ -88,6 +99,8 @@ impl PlaybackPlan {
 
             // Simulation.
             if matches!(event, InputEvent::KeyCombo { .. }) {
+                // Annotation only — not simulated, contributes no post settle.
+                prev_post_ms = 0;
                 continue;
             }
             push_simulate(&mut steps, event);
@@ -101,6 +114,7 @@ impl PlaybackPlan {
                 1
             };
             steps.push(PlannedStep::Sleep { ms: post_ms });
+            prev_post_ms = post_ms;
         }
         Ok(Self { steps })
     }
@@ -147,14 +161,14 @@ fn push_simulate(steps: &mut Vec<PlannedStep>, event: &InputEvent) {
             if let Some(k) = string_to_key(key) {
                 steps.push(PlannedStep::Simulate(EventType::KeyPress(k)));
             } else {
-                eprintln!("Unknown key: {}", key);
+                log::warn!(target: "macroni::playback_plan", "unknown key: {key}");
             }
         }
         InputEvent::KeyRelease { key, .. } => {
             if let Some(k) = string_to_key(key) {
                 steps.push(PlannedStep::Simulate(EventType::KeyRelease(k)));
             } else {
-                eprintln!("Unknown key: {}", key);
+                log::warn!(target: "macroni::playback_plan", "unknown key: {key}");
             }
         }
         InputEvent::ButtonPress { button, x, y, .. } => {
@@ -164,7 +178,7 @@ fn push_simulate(steps: &mut Vec<PlannedStep>, event: &InputEvent) {
                 steps.push(PlannedStep::Sleep { ms: 10 });
                 steps.push(PlannedStep::Simulate(EventType::ButtonPress(b)));
             } else {
-                eprintln!("Unknown button: {}", button);
+                log::warn!(target: "macroni::playback_plan", "unknown button: {button}");
             }
         }
         InputEvent::ButtonRelease { button, x, y, .. } => {
@@ -173,7 +187,7 @@ fn push_simulate(steps: &mut Vec<PlannedStep>, event: &InputEvent) {
                 steps.push(PlannedStep::Sleep { ms: 10 });
                 steps.push(PlannedStep::Simulate(EventType::ButtonRelease(b)));
             } else {
-                eprintln!("Unknown button: {}", button);
+                log::warn!(target: "macroni::playback_plan", "unknown button: {button}");
             }
         }
         InputEvent::MouseMove { x, y, .. } => {
@@ -304,7 +318,10 @@ mod tests {
             plan.steps
         );
         // Scroll uses a 1ms post-event settle (not the 10ms discrete-event one).
-        assert!(matches!(plan.steps.last(), Some(PlannedStep::Sleep { ms: 1 })));
+        assert!(matches!(
+            plan.steps.last(),
+            Some(PlannedStep::Sleep { ms: 1 })
+        ));
     }
 
     #[test]
@@ -438,40 +455,18 @@ mod tests {
     #[test]
     fn speed_2x_reduces_inter_event_sleep() {
         // Only the *inter-event* sleep scales with speed; fixed warmup-ish
-        // sleeps stay constant. Use a gap under MAX_GAP_MS so the cap doesn't
-        // interfere: 600ms at 1x vs 300ms at 2x.
-        let events_1x = vec![key_press("A", 0), key_press("B", 600)];
+        // sleeps stay constant. Use a single large inter-event gap so the
+        // scaled component dominates: 1000ms at 1x vs 500ms at 2x.
+        let events_1x = vec![key_press("A", 0), key_press("B", 1000)];
         let events_2x = events_1x.clone();
         let total_1x = total_sleep_ms(&PlaybackPlan::compile(&events_1x, 1.0).unwrap().steps);
         let total_2x = total_sleep_ms(&PlaybackPlan::compile(&events_2x, 2.0).unwrap().steps);
-        // The scaled gap drops by ~300ms; total should drop by at least 250ms.
+        // The scaled gap drops by ~500ms; total should drop by at least 400ms.
         assert!(
-            total_1x >= total_2x + 250,
-            "1x ({}) should exceed 2x ({}) by ~300ms",
+            total_1x >= total_2x + 400,
+            "1x ({}) should exceed 2x ({}) by ~500ms",
             total_1x,
             total_2x
-        );
-    }
-
-    #[test]
-    fn long_idle_gap_is_capped() {
-        // A multi-second human pause must not replay as a multi-second sleep —
-        // it's clamped to MAX_GAP_MS so the macro doesn't look stuck.
-        let events = vec![key_press("A", 0), key_press("B", 5000)];
-        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
-        let max_sleep = plan
-            .steps
-            .iter()
-            .filter_map(|s| match s {
-                PlannedStep::Sleep { ms } => Some(*ms),
-                _ => None,
-            })
-            .max()
-            .unwrap();
-        assert!(
-            max_sleep <= 700,
-            "a 5s idle gap should be capped to MAX_GAP_MS, got {}ms",
-            max_sleep
         );
     }
 
@@ -640,10 +635,11 @@ mod tests {
 
     #[test]
     fn overhead_credit_reduces_inter_event_sleep_at_slow_speed() {
-        // Pins line 64: `overhead_ms += 10` must accumulate. With overhead=10
-        // and a 100ms inter-event delay at speed 1.0, the inter-event Sleep
-        // should be ~90ms (100 - 10 overhead), not 100ms. A mutant that
-        // changes += to *= leaves overhead at 0, producing a 100ms sleep.
+        // The inter-event sleep credits the fixed settle sleeps that bracket the
+        // event so the time between simulations matches the recording. For a
+        // 100ms gap between two key presses at 1x the credit is the previous
+        // event's post settle (10) + this event's position update (10) = 20, so
+        // the inter-event Sleep should be exactly 80ms, not 100ms.
         let events = vec![key_press("A", 0), key_press("B", 100)];
         let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
         // Look for an inter-event sleep — the largest Sleep step in the plan
@@ -657,13 +653,40 @@ mod tests {
             })
             .collect();
         assert!(
-            sleeps.contains(&90),
-            "expected an exact 90ms inter-event sleep (100ms - 10ms overhead); sleeps were {:?}",
+            sleeps.contains(&80),
+            "expected an exact 80ms inter-event sleep (100ms - 20ms settle credit); sleeps were {:?}",
             sleeps
         );
         assert!(
             !sleeps.contains(&100),
-            "found a 100ms sleep — overhead credit was not applied: {:?}",
+            "found a 100ms sleep — settle credit was not applied: {:?}",
+            sleeps
+        );
+    }
+
+    #[test]
+    fn inter_event_sleep_credits_button_pre_press_and_prev_post() {
+        // A button replays as move → 10ms settle → press, and every event ends
+        // with a 10ms post settle. Those fixed sleeps are credited so the gap
+        // between two clicks matches the recording: a 200ms gap credits the
+        // previous post (10) + position update (10) + pre-press settle (10) = 30,
+        // leaving a 170ms inter-event sleep.
+        let events = vec![
+            button_press("Left", 0.0, 0.0, 0),
+            button_press("Left", 0.0, 0.0, 200),
+        ];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        let sleeps: Vec<u64> = plan
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::Sleep { ms } => Some(*ms),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            sleeps.contains(&170),
+            "expected a 170ms inter-event sleep (200ms - 30ms settle credit); sleeps were {:?}",
             sleeps
         );
     }

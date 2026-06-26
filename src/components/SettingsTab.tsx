@@ -11,6 +11,7 @@ import {
   RotateCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
 import { useTheme } from "@/components/theme-provider";
 import { useAppSettings } from "@/hooks/useAppSettings";
 import { usePermissionStatus } from "@/hooks/usePermissionStatus";
@@ -202,6 +203,10 @@ export const SettingsTab = () => {
               </div>
             )}
           </div>
+
+          <div className="h-px bg-border" />
+
+          <DiagnosticsPanel />
         </div>
       </div>
     </div>

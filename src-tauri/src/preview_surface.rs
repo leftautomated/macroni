@@ -53,12 +53,14 @@ use render_core::decode::Mp4FrameSource;
 use render_core::doc::ProjectDoc;
 use render_core::engine::Engine;
 use render_core::gpu::Gpu;
+use serde_json::json;
 use tauri::{Manager, WebviewWindow};
 use wgpu::{
     CompositeAlphaMode, PresentMode, Surface, SurfaceConfiguration, SurfaceTargetUnsafe,
     TextureFormat, TextureUsages,
 };
 
+use crate::observability;
 use crate::recordings_store::RecordingsStore;
 
 /// Cached studio preview state, lives in Tauri's managed `State`.
@@ -127,49 +129,53 @@ pub fn studio_attach_surface(
     y: f64,
     w: f64,
     h: f64,
+    trace_id: Option<String>,
 ) -> Result<(), String> {
-    let ns_window_ptr = window.ns_window().map_err(|e| e.to_string())? as usize;
-    let app = window.app_handle().clone();
-    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    let fields = json!({ "x": x, "y": y, "width": w, "height": h });
+    observability::trace_command("studio_attach_surface", trace_id, Some(fields), || {
+        let ns_window_ptr = window.ns_window().map_err(|e| e.to_string())? as usize;
+        let app = window.app_handle().clone();
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
-    let run = window.run_on_main_thread(move || {
-        let result = (|| -> Result<(), String> {
-            // Verify we're on the main thread (AppKit + surface contract).
-            MainThreadMarker::new()
-                .ok_or_else(|| "run_on_main_thread closure not on main thread".to_string())?;
+        let run = window.run_on_main_thread(move || {
+            let result = (|| -> Result<(), String> {
+                // Verify we're on the main thread (AppKit + surface contract).
+                MainThreadMarker::new()
+                    .ok_or_else(|| "run_on_main_thread closure not on main thread".to_string())?;
 
-            let studio_state = app.state::<StudioState>();
-            let studio_state = studio_state.inner();
+                let studio_state = app.state::<StudioState>();
+                let studio_state = studio_state.inner();
 
-            let eg_guard = studio_state
-                .engine
-                .lock()
-                .map_err(|_| "studio engine mutex poisoned".to_string())?;
-            let engine = eg_guard
-                .as_ref()
-                .ok_or_else(|| "preview engine not opened".to_string())?;
+                let eg_guard = studio_state
+                    .engine
+                    .lock()
+                    .map_err(|_| "studio engine mutex poisoned".to_string())?;
+                let engine = eg_guard
+                    .as_ref()
+                    .ok_or_else(|| "preview engine not opened".to_string())?;
 
-            let surf_guard = studio_state
-                .surface
-                .lock()
-                .map_err(|_| "studio surface mutex poisoned".to_string())?;
-            let surf = surf_guard
-                .as_ref()
-                .ok_or_else(|| "preview surface not attached".to_string())?;
+                let surf_guard = studio_state
+                    .surface
+                    .lock()
+                    .map_err(|_| "studio surface mutex poisoned".to_string())?;
+                let surf = surf_guard
+                    .as_ref()
+                    .ok_or_else(|| "preview surface not attached".to_string())?;
 
-            // Reposition + reconfigure only. The reconfigure invalidates the
-            // swapchain contents; the resize listener should follow up with
-            // studio_render_preview to repaint. Keep this command pure
-            // reposition for clarity.
-            reposition_existing_surface(ns_window_ptr, surf, engine.0.gpu(), x, y, w, h)
-        })();
+                // Reposition + reconfigure only. The reconfigure invalidates the
+                // swapchain contents; the resize listener should follow up with
+                // studio_render_preview to repaint. Keep this command pure
+                // reposition for clarity.
+                reposition_existing_surface(ns_window_ptr, surf, engine.0.gpu(), x, y, w, h)
+            })();
 
-        let _ = tx.send(result);
-    });
+            let _ = tx.send(result);
+        });
 
-    run.map_err(|e| format!("run_on_main_thread failed: {e}"))?;
-    rx.recv()
-        .map_err(|_| "main-thread closure dropped without result".to_string())?
+        run.map_err(|e| format!("run_on_main_thread failed: {e}"))?;
+        rx.recv()
+            .map_err(|_| "main-thread closure dropped without result".to_string())?
+    })
 }
 
 /// Tauri command: open a recording for preview.
@@ -187,103 +193,107 @@ pub fn studio_open_preview(
     y: f64,
     w: f64,
     h: f64,
+    trace_id: Option<String>,
 ) -> Result<(), String> {
-    let app = window.app_handle().clone();
+    let fields = json!({ "recordingId": recording_id, "x": x, "y": y, "width": w, "height": h });
+    observability::trace_command("studio_open_preview", trace_id, Some(fields), || {
+        let app = window.app_handle().clone();
 
-    // ── Resolve the recording's screen mp4 path + doc (off the main thread). ─
-    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        // ── Resolve the recording's screen mp4 path + doc (off the main thread). ─
+        let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
 
-    let store = RecordingsStore::open(&app).map_err(|e| e.to_string())?;
-    let recordings = store.load_all().map_err(|e| e.to_string())?;
-    let recording = recordings
-        .iter()
-        .find(|r| r.id == recording_id)
-        .ok_or_else(|| format!("recording '{}' not found", recording_id))?;
-    let screen_mp4 = recording
-        .video
-        .as_ref()
-        .map(|v| v.path.clone())
-        .ok_or_else(|| format!("recording '{}' has no screen video", recording_id))?;
-    // VideoMetadata.path is RELATIVE to <app_data>/videos/ (same convention as
-    // the frontend's useVideoAssetUrl). Resolve the full path to decode it.
-    let screen_file = app_data.join("videos").join(&screen_mp4);
+        let store = RecordingsStore::open(&app).map_err(|e| e.to_string())?;
+        let recordings = store.load_all().map_err(|e| e.to_string())?;
+        let recording = recordings
+            .iter()
+            .find(|r| r.id == recording_id)
+            .ok_or_else(|| format!("recording '{}' not found", recording_id))?;
+        let screen_mp4 = recording
+            .video
+            .as_ref()
+            .map(|v| v.path.clone())
+            .ok_or_else(|| format!("recording '{}' has no screen video", recording_id))?;
+        // VideoMetadata.path is RELATIVE to <app_data>/videos/ (same convention as
+        // the frontend's useVideoAssetUrl). Resolve the full path to decode it.
+        let screen_file = app_data.join("videos").join(&screen_mp4);
 
-    // Load the persisted doc, or fall back to a default built from the mp4 path.
-    let doc = match crate::project_store::load_project(&app_data, &recording_id)? {
-        Some(d) => d,
-        None => ProjectDoc::new_default(screen_mp4.clone()),
-    };
+        // Load the persisted doc, or fall back to a default built from the mp4 path.
+        let doc = match crate::project_store::load_project(&app_data, &recording_id)? {
+            Some(d) => d,
+            None => ProjectDoc::new_default(screen_mp4.clone()),
+        };
 
-    // ── Build the Engine over the screen mp4 (off the main thread). ──────────
-    let source = Mp4FrameSource::open(&screen_file)
-        .map_err(|e| format!("open mp4 '{}': {e}", screen_file.display()))?;
-    let engine = Engine::new(Box::new(source)).map_err(|e| format!("engine init: {e}"))?;
+        // ── Build the Engine over the screen mp4 (off the main thread). ──────────
+        let source = Mp4FrameSource::open(&screen_file)
+            .map_err(|e| format!("open mp4 '{}': {e}", screen_file.display()))?;
+        let engine = Engine::new(Box::new(source)).map_err(|e| format!("engine init: {e}"))?;
 
-    // Store the engine in state, replacing any prior recording's engine.
-    {
-        let state = app.state::<StudioState>();
-        let mut eg = state
-            .engine
-            .lock()
-            .map_err(|_| "studio engine mutex poisoned".to_string())?;
-        *eg = Some(SendEngine(engine));
-    }
-
-    // ── Create the surface on the Engine GPU + render frame 0 (main thread). ─
-    let ns_window_ptr = window.ns_window().map_err(|e| e.to_string())? as usize;
-    let app2 = app.clone();
-    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
-
-    let run = window.run_on_main_thread(move || {
-        let result = (|| -> Result<(), String> {
-            let mtm = MainThreadMarker::new()
-                .ok_or_else(|| "run_on_main_thread closure not on main thread".to_string())?;
-
-            let studio_state = app2.state::<StudioState>();
-            let studio_state = studio_state.inner();
-
-            let mut eg_guard = studio_state
+        // Store the engine in state, replacing any prior recording's engine.
+        {
+            let state = app.state::<StudioState>();
+            let mut eg = state
                 .engine
                 .lock()
                 .map_err(|_| "studio engine mutex poisoned".to_string())?;
-            let engine = eg_guard
-                .as_mut()
-                .ok_or_else(|| "preview engine not opened".to_string())?;
+            *eg = Some(SendEngine(engine));
+        }
 
-            let mut surf_guard = studio_state
-                .surface
-                .lock()
-                .map_err(|_| "studio surface mutex poisoned".to_string())?;
+        // ── Create the surface on the Engine GPU + render frame 0 (main thread). ─
+        let ns_window_ptr = window.ns_window().map_err(|e| e.to_string())? as usize;
+        let app2 = app.clone();
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
-            // Create (or reposition) the surface on the Engine's GPU.
-            create_or_reposition_surface(
-                mtm,
-                ns_window_ptr,
-                &mut surf_guard,
-                engine.0.gpu(),
-                x,
-                y,
-                w,
-                h,
-            )?;
+        let run = window.run_on_main_thread(move || {
+            let result = (|| -> Result<(), String> {
+                let mtm = MainThreadMarker::new()
+                    .ok_or_else(|| "run_on_main_thread closure not on main thread".to_string())?;
 
-            // Render frame 0 onto the surface.
-            let surf = surf_guard
-                .as_ref()
-                .ok_or_else(|| "preview surface vanished".to_string())?;
-            engine
-                .0
-                .render_to_surface(&doc, 0, &surf.surface, surf.format)
-                .map_err(|e| format!("render_to_surface: {e}"))?;
-            Ok(())
-        })();
+                let studio_state = app2.state::<StudioState>();
+                let studio_state = studio_state.inner();
 
-        let _ = tx.send(result);
-    });
+                let mut eg_guard = studio_state
+                    .engine
+                    .lock()
+                    .map_err(|_| "studio engine mutex poisoned".to_string())?;
+                let engine = eg_guard
+                    .as_mut()
+                    .ok_or_else(|| "preview engine not opened".to_string())?;
 
-    run.map_err(|e| format!("run_on_main_thread failed: {e}"))?;
-    rx.recv()
-        .map_err(|_| "main-thread closure dropped without result".to_string())?
+                let mut surf_guard = studio_state
+                    .surface
+                    .lock()
+                    .map_err(|_| "studio surface mutex poisoned".to_string())?;
+
+                // Create (or reposition) the surface on the Engine's GPU.
+                create_or_reposition_surface(
+                    mtm,
+                    ns_window_ptr,
+                    &mut surf_guard,
+                    engine.0.gpu(),
+                    x,
+                    y,
+                    w,
+                    h,
+                )?;
+
+                // Render frame 0 onto the surface.
+                let surf = surf_guard
+                    .as_ref()
+                    .ok_or_else(|| "preview surface vanished".to_string())?;
+                engine
+                    .0
+                    .render_to_surface(&doc, 0, &surf.surface, surf.format)
+                    .map_err(|e| format!("render_to_surface: {e}"))?;
+                Ok(())
+            })();
+
+            let _ = tx.send(result);
+        });
+
+        run.map_err(|e| format!("run_on_main_thread failed: {e}"))?;
+        rx.recv()
+            .map_err(|_| "main-thread closure dropped without result".to_string())?
+    })
 }
 
 /// Tauri command: render `doc` at `frame_index` onto the attached surface.
@@ -296,43 +306,47 @@ pub fn studio_render_preview(
     window: WebviewWindow,
     doc: ProjectDoc,
     frame_index: u32,
+    trace_id: Option<String>,
 ) -> Result<(), String> {
-    let app = window.app_handle().clone();
-    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    let fields = json!({ "frameIndex": frame_index });
+    observability::trace_command("studio_render_preview", trace_id, Some(fields), || {
+        let app = window.app_handle().clone();
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
-    let run = window.run_on_main_thread(move || {
-        let result = (|| -> Result<(), String> {
-            let studio_state = app.state::<StudioState>();
-            let studio_state = studio_state.inner();
+        let run = window.run_on_main_thread(move || {
+            let result = (|| -> Result<(), String> {
+                let studio_state = app.state::<StudioState>();
+                let studio_state = studio_state.inner();
 
-            let mut eg_guard = studio_state
-                .engine
-                .lock()
-                .map_err(|_| "studio engine mutex poisoned".to_string())?;
-            let engine = eg_guard
-                .as_mut()
-                .ok_or_else(|| "preview engine not opened".to_string())?;
+                let mut eg_guard = studio_state
+                    .engine
+                    .lock()
+                    .map_err(|_| "studio engine mutex poisoned".to_string())?;
+                let engine = eg_guard
+                    .as_mut()
+                    .ok_or_else(|| "preview engine not opened".to_string())?;
 
-            let surf_guard = studio_state
-                .surface
-                .lock()
-                .map_err(|_| "studio surface mutex poisoned".to_string())?;
-            let surf = surf_guard
-                .as_ref()
-                .ok_or_else(|| "preview surface not attached".to_string())?;
+                let surf_guard = studio_state
+                    .surface
+                    .lock()
+                    .map_err(|_| "studio surface mutex poisoned".to_string())?;
+                let surf = surf_guard
+                    .as_ref()
+                    .ok_or_else(|| "preview surface not attached".to_string())?;
 
-            engine
-                .0
-                .render_to_surface(&doc, frame_index as usize, &surf.surface, surf.format)
-                .map_err(|e| format!("render_to_surface: {e}"))
-        })();
+                engine
+                    .0
+                    .render_to_surface(&doc, frame_index as usize, &surf.surface, surf.format)
+                    .map_err(|e| format!("render_to_surface: {e}"))
+            })();
 
-        let _ = tx.send(result);
-    });
+            let _ = tx.send(result);
+        });
 
-    run.map_err(|e| format!("run_on_main_thread failed: {e}"))?;
-    rx.recv()
-        .map_err(|_| "main-thread closure dropped without result".to_string())?
+        run.map_err(|e| format!("run_on_main_thread failed: {e}"))?;
+        rx.recv()
+            .map_err(|_| "main-thread closure dropped without result".to_string())?
+    })
 }
 
 /// Reposition + reconfigure an already-created surface to a new rect. Must run

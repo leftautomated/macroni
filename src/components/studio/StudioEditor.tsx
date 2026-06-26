@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { Trash2 } from "lucide-react";
 import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
 import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
 import { usePlaybackSync } from "@/hooks/usePlaybackSync";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
+import { invoke, logEvent } from "@/lib/observability";
 import type { Recording } from "@/types";
 
 // Simplest studio: list recordings and play the selected one. Effects
@@ -48,7 +48,7 @@ export function StudioEditor() {
         prev && withVideo.some((r) => r.id === prev) ? prev : (withVideo[0]?.id ?? null),
       );
     } catch (e) {
-      console.error("load_recordings failed", e);
+      logEvent("error", "studio", "load_recordings_failed", { error: e });
     } finally {
       setLoaded(true);
     }
@@ -85,7 +85,10 @@ export function StudioEditor() {
         await invoke("delete_recording", { id });
         await load(); // load() reselects the first remaining recording if this was selected.
       } catch (e) {
-        console.error("delete_recording failed", e);
+        logEvent("error", "studio", "delete_recording_failed", {
+          error: e,
+          fields: { recordingId: id },
+        });
       }
     },
     [load],
@@ -105,7 +108,12 @@ export function StudioEditor() {
   // Replay runs from the main control panel (focus-safe). Hand it the recording;
   // the main window comes forward with it loaded, ready for the user to play.
   const handleReplay = useCallback((id: string) => {
-    void invoke("request_replay", { id }).catch((e) => console.error("request_replay failed", e));
+    void invoke("request_replay", { id }).catch((e) =>
+      logEvent("error", "studio", "request_replay_failed", {
+        error: e,
+        fields: { recordingId: id },
+      }),
+    );
   }, []);
 
   return (

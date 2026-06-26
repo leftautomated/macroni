@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Maximize, Pause, Play, Repeat, StepBack, StepForward } from "lucide-react";
+import { logEvent } from "@/lib/observability";
 
 export interface StudioPlayerHandle {
   seek: (seconds: number) => void;
@@ -43,6 +44,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   const [speedIdx, setSpeedIdx] = useState(2);
   const [loop, setLoop] = useState(true);
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const rate = SPEEDS[speedIdx];
 
@@ -75,6 +77,29 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [playing, onTimeUpdate, loopRegion]);
+
+  useEffect(() => {
+    setReady(false);
+    setLoadError(null);
+    setCurrent(0);
+    setDuration(0);
+
+    const timer = window.setTimeout(() => {
+      const video = videoRef.current;
+      if (!video || video.readyState >= 1) return;
+      const message = "Video metadata did not load";
+      setLoadError(message);
+      logEvent("warn", "studio.video", "load_timeout", {
+        fields: {
+          readyState: video.readyState,
+          networkState: video.networkState,
+          srcLength: src.length,
+        },
+      });
+    }, 8_000);
+
+    return () => window.clearTimeout(timer);
+  }, [src]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -165,7 +190,31 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
             if (v) {
               setDuration(v.duration);
               setReady(true);
+              setLoadError(null);
+              logEvent("info", "studio.video", "metadata_loaded", {
+                fields: {
+                  durationSeconds: Math.round(v.duration * 100) / 100,
+                  videoWidth: v.videoWidth,
+                  videoHeight: v.videoHeight,
+                  fps,
+                },
+              });
             }
+          }}
+          onError={() => {
+            const v = videoRef.current;
+            const code = v?.error?.code ?? 0;
+            const message = mediaErrorMessage(code);
+            setLoadError(message);
+            logEvent("error", "studio.video", "load_failed", {
+              message,
+              fields: {
+                code,
+                readyState: v?.readyState,
+                networkState: v?.networkState,
+                srcLength: src.length,
+              },
+            });
           }}
           onTimeUpdate={() => {
             const v = videoRef.current;
@@ -186,7 +235,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
             cursor: "pointer",
           }}
         />
-        {!ready && (
+        {(!ready || loadError) && (
           <div
             style={{
               position: "absolute",
@@ -197,9 +246,11 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
               pointerEvents: "none",
               fontSize: 13,
               color: "rgba(255,255,255,0.5)",
+              textAlign: "center",
+              padding: 24,
             }}
           >
-            Loading…
+            {loadError ?? "Loading…"}
           </div>
         )}
       </div>
@@ -314,3 +365,18 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     </div>
   );
 });
+
+function mediaErrorMessage(code: number) {
+  switch (code) {
+    case 1:
+      return "Video loading was aborted.";
+    case 2:
+      return "Video failed to load from disk.";
+    case 3:
+      return "Video could not be decoded by the webview.";
+    case 4:
+      return "Video format or asset URL is not supported by the webview.";
+    default:
+      return "Video failed to load.";
+  }
+}

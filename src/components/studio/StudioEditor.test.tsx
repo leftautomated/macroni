@@ -78,7 +78,10 @@ describe("StudioEditor (recordings browser)", () => {
     await userEvent.click(replayButton);
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("request_replay", { id: "2000" });
+      expect(invoke).toHaveBeenCalledWith(
+        "request_replay",
+        expect.objectContaining({ id: "2000", traceId: expect.any(String) }),
+      );
     });
   });
 
@@ -96,7 +99,10 @@ describe("StudioEditor (recordings browser)", () => {
     await userEvent.click(deleteButton);
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("delete_recording", { id: "1000" });
+      expect(invoke).toHaveBeenCalledWith(
+        "delete_recording",
+        expect.objectContaining({ id: "1000", traceId: expect.any(String) }),
+      );
     });
     await waitFor(() => {
       expect(screen.queryByText("Alpha")).not.toBeInTheDocument();

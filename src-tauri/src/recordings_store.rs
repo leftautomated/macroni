@@ -84,12 +84,11 @@ impl RecordingsStore {
         match serde_json::from_str::<Vec<Recording>>(&content) {
             Ok(list) => Ok(list),
             Err(e) => {
-                // Per ADR-0001 we treat a malformed file as empty rather than
-                // crashing. Log the parse failure so the data-loss path is
-                // observable via crash.log instead of being silent.
-                eprintln!(
-                    "[recordings_store] {} unreadable, treating as empty: {e}",
-                    path.display()
+                crate::observability::log_warn(
+                    "recordings_store",
+                    "recordings_json_unreadable",
+                    &format!("{} unreadable, treating as empty: {e}", path.display()),
+                    None,
                 );
                 Ok(Vec::new())
             }

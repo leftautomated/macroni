@@ -52,6 +52,25 @@ export interface AppSettings {
   capture: CaptureSettings;
 }
 
+export interface LogFileSummary {
+  path: string;
+  bytes: number;
+  modifiedMs?: number | null;
+}
+
+export interface DiagnosticsSnapshot {
+  appVersion: string;
+  os: string;
+  arch: string;
+  isRecording: boolean;
+  isPlaying: boolean;
+  appLogDir?: string | null;
+  crashLogPath?: string | null;
+  crashLogBytes?: number | null;
+  logFiles: LogFileSummary[];
+  recentLogLines: string[];
+}
+
 export interface Recording {
   id: string;
   name: string;

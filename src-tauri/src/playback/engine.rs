@@ -156,7 +156,12 @@ fn run_plan(
                         break;
                     }
                     if let Err(e) = simulator.simulate(*event_type) {
-                        eprintln!("Failed to simulate event: {}", e);
+                        crate::observability::log_error(
+                            "playback",
+                            "simulate_event_failed",
+                            &e,
+                            None,
+                        );
                     }
                 }
             }

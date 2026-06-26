@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { invoke, logEvent } from "@/lib/observability";
 import type { VideoMetadata } from "@/types";
 
 // The app data dir is constant for the session. Cache it so resolving a video
@@ -28,7 +29,10 @@ export function useVideoAssetUrl(video: VideoMetadata | null | undefined) {
         cachedDir = appDataDir;
         if (!cancelled) setDir(appDataDir);
       } catch (e) {
-        if (!cancelled) setError(String(e));
+        if (!cancelled) {
+          setError(String(e));
+          logEvent("error", "video", "app_data_dir_failed", { error: e });
+        }
       }
     })();
     return () => {

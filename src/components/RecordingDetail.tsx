@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { usePlaybackPosition } from "@/hooks/usePlaybackPosition";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
@@ -15,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { type Recording, InputEventType } from "@/types";
 import { getEventDetails, formatTimestamp } from "@/lib/event-utils";
+import { invoke, logEvent } from "@/lib/observability";
 import { X, Play, Square, Zap, Repeat } from "lucide-react";
 
 const SPEED_PRESETS = [0.5, 1, 2, 5, 10] as const;
@@ -47,7 +47,10 @@ export const RecordingDetail = ({
       try {
         await onUpdateSpeed(recording.id, speed);
       } catch (error) {
-        console.error("Failed to update playback speed:", error);
+        logEvent("error", "playback", "speed_update_failed", {
+          error,
+          fields: { recordingId: recording.id, speed },
+        });
       }
     },
     [recording, onUpdateSpeed],
@@ -71,7 +74,10 @@ export const RecordingDetail = ({
         speed: recording.playback_speed,
       });
     } catch (error) {
-      console.error("Failed to play recording:", error);
+      logEvent("error", "playback", "play_failed", {
+        error,
+        fields: { recordingId: recording.id, eventCount: recording.events.length },
+      });
       setIsPlaying(false);
     }
   }, [recording, loopForever]);
@@ -81,7 +87,7 @@ export const RecordingDetail = ({
       await invoke("stop_playback");
       setIsPlaying(false);
     } catch (error) {
-      console.error("Failed to stop playback:", error);
+      logEvent("error", "playback", "stop_failed", { error });
     }
   }, []);
 
@@ -131,7 +137,10 @@ export const RecordingDetail = ({
         await onUpdateName(recording.id, trimmedValue);
       } catch (error) {
         setTitleValue(recording.name);
-        console.error("Failed to update recording name:", error);
+        logEvent("error", "recording", "name_update_failed", {
+          error,
+          fields: { recordingId: recording.id },
+        });
       }
     } else {
       setTitleValue(recording.name);

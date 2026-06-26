@@ -37,7 +37,10 @@ describe("usePermissionStatus", () => {
     invokeMock.mockResolvedValueOnce(true);
     const { result } = renderHook(() => usePermissionStatus());
     await waitFor(() => expect(result.current.state.screenRecording).toBe(true));
-    expect(invokeMock).toHaveBeenCalledWith("check_screen_recording_permission", undefined);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "check_screen_recording_permission",
+      expect.objectContaining({ traceId: expect.any(String) }),
+    );
   });
 
   it("sets needsScreenRecording when permission-needed event arrives", async () => {

@@ -1,6 +1,8 @@
 //! Persistence for user-configurable app settings (settings.json in app data dir).
 
+use crate::observability;
 use crate::types::AppSettings;
+use serde_json::json;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
@@ -31,13 +33,24 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn load_settings(app: AppHandle) -> AppSettings {
-    load(&app)
+pub fn load_settings(app: AppHandle, trace_id: Option<String>) -> Result<AppSettings, String> {
+    observability::trace_command("load_settings", trace_id, None, || Ok(load(&app)))
 }
 
 #[tauri::command]
-pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
-    save(&app, &settings)
+pub fn save_settings(
+    app: AppHandle,
+    settings: AppSettings,
+    trace_id: Option<String>,
+) -> Result<(), String> {
+    let fields = json!({
+        "fps": settings.capture.fps,
+        "quality": settings.capture.quality,
+        "audio": settings.capture.audio,
+    });
+    observability::trace_command("save_settings", trace_id, Some(fields), || {
+        save(&app, &settings)
+    })
 }
 
 #[cfg(test)]

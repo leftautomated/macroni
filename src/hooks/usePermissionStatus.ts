@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { invoke, logEvent, measureAsync } from "@/lib/observability";
 
 const isMac = () => typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
 
@@ -36,7 +36,7 @@ export const usePermissionStatus = () => {
       }));
       return granted;
     } catch (err) {
-      console.error("Failed to check screen recording permission:", err);
+      logEvent("error", "permissions", "check_screen_recording_failed", { error: err });
       return false;
     }
   }, []);
@@ -45,16 +45,18 @@ export const usePermissionStatus = () => {
     try {
       await invoke("request_screen_recording");
     } catch (err) {
-      console.error("Failed to request screen recording permission:", err);
+      logEvent("error", "permissions", "request_screen_recording_failed", { error: err });
     }
   }, []);
 
   const openSystemSettings = useCallback(async () => {
     if (!isMac()) return;
     try {
-      await openUrl(SCREEN_RECORDING_SETTINGS_URL);
+      await measureAsync("permissions", "open_system_settings", () =>
+        openUrl(SCREEN_RECORDING_SETTINGS_URL),
+      );
     } catch (err) {
-      console.error("Failed to open System Settings:", err);
+      logEvent("error", "permissions", "open_system_settings_failed", { error: err });
     }
   }, []);
 

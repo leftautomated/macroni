@@ -105,7 +105,10 @@ describe("Acceptance: recording flow", () => {
     await userEvent.click(await screen.findByRole("button", { name: /open studio/i }));
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("focus_studio_window");
+      expect(invoke).toHaveBeenCalledWith(
+        "focus_studio_window",
+        expect.objectContaining({ traceId: expect.any(String) }),
+      );
     });
   });
 

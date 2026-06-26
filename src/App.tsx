@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useRecorder } from "@/hooks/useRecorder";
 import { useRecordings } from "@/hooks/useRecordings";
@@ -16,6 +15,7 @@ import { PermissionAlert } from "@/components/PermissionAlert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { invoke, logEvent } from "@/lib/observability";
 import type { Recording } from "@/types";
 import { Clapperboard, GripVertical } from "lucide-react";
 
@@ -48,7 +48,7 @@ const App = () => {
       await recorder.startRecording();
       recordingsManager.setSelectedRecording(null);
     } catch (error) {
-      console.error("Failed to start recording:", error);
+      logEvent("error", "recording", "start_failed", { error });
     }
   }, [recorder, recordingsManager]);
 
@@ -67,7 +67,7 @@ const App = () => {
         setIsExpanded(true);
       }
     } catch (error) {
-      console.error("Failed to stop recording:", error);
+      logEvent("error", "recording", "stop_failed", { error });
     }
   }, [recorder, recordingsManager]);
 

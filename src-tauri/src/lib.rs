@@ -622,6 +622,8 @@ pub fn run() {
     // Native studio preview surface (Phase 1, Task 11) — managed state (macOS).
     #[cfg(target_os = "macos")]
     let builder = builder.manage(preview_surface::StudioState::default());
+    #[cfg(target_os = "macos")]
+    let builder = builder.manage(permissions::PermissionDragState::default());
 
     builder
         .invoke_handler(tauri::generate_handler![
@@ -641,6 +643,10 @@ pub fn run() {
             settings::save_settings,
             permissions::check_screen_recording_permission,
             permissions::request_screen_recording,
+            permissions::check_accessibility_permission,
+            permissions::request_accessibility,
+            permissions::install_permission_drag_region,
+            permissions::remove_permission_drag_region,
             focus_studio_window,
             request_replay,
             get_app_data_dir,

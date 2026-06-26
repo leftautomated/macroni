@@ -63,6 +63,7 @@ scap = { package = "open-gpui-scap", version = "0.1.0-beta.1" }
 tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
 # Phase 0 spike (Task 5): native wgpu/Metal preview surface under the webview.
 # Versions pinned to the family already resolved in Cargo.lock (objc2 0.6.x /

@@ -176,28 +176,23 @@ export const SettingsTab = () => {
               )}
             </p>
             {isMac && (
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <div className="flex items-center gap-2 text-xs">
-                  {perms.state.screenRecording === null ? (
-                    <span className="text-muted-foreground">Checking…</span>
-                  ) : perms.state.screenRecording ? (
-                    <>
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                      <span>Screen Recording: granted</span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-3.5 w-3.5 text-destructive" />
-                      <span>Screen Recording: not granted</span>
-                    </>
-                  )}
+              <div className="space-y-2 pt-1">
+                <div className="grid gap-1.5 text-xs sm:grid-cols-2">
+                  <PermissionLine label="Accessibility" granted={perms.state.accessibility} />
+                  <PermissionLine label="Screen Recording" granted={perms.state.screenRecording} />
                 </div>
-                <div className="flex gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
                   <Button size="sm" variant="outline" onClick={perms.recheck}>
                     <RotateCw className="h-3 w-3 mr-1" /> Re-check
                   </Button>
-                  <Button size="sm" variant="default" onClick={perms.openSystemSettings}>
-                    <ExternalLink className="h-3 w-3 mr-1" /> Open Settings
+                  <Button size="sm" variant="outline" onClick={perms.openAccessibilitySettings}>
+                    <ExternalLink className="h-3 w-3 mr-1" /> Accessibility
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={perms.openScreenRecordingSettings}>
+                    <ExternalLink className="h-3 w-3 mr-1" /> Screen Recording
+                  </Button>
+                  <Button size="sm" variant="default" onClick={perms.requestPermissions}>
+                    <Shield className="h-3 w-3 mr-1" /> Request prompts
                   </Button>
                 </div>
               </div>
@@ -212,3 +207,25 @@ export const SettingsTab = () => {
     </div>
   );
 };
+
+function PermissionLine({ label, granted }: { label: string; granted: boolean | null }) {
+  if (granted === null) {
+    return <span className="text-muted-foreground">Checking {label}…</span>;
+  }
+
+  if (granted) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+        {label}: granted
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <XCircle className="h-3.5 w-3.5 text-destructive" />
+      {label}: not granted
+    </span>
+  );
+}

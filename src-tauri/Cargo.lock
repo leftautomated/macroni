@@ -2842,6 +2842,7 @@ name = "macroni"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "core-foundation 0.10.1",
  "log",
  "mp4",
  "objc2 0.6.3",

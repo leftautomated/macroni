@@ -7,6 +7,8 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string) => {
     // load_recordings is called by useRecordings on mount; return empty list.
     if (cmd === "load_recordings") return [];
+    if (cmd === "check_screen_recording_permission") return true;
+    if (cmd === "check_accessibility_permission") return true;
     return undefined;
   }),
 }));

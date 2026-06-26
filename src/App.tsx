@@ -142,9 +142,14 @@ const App = () => {
             <ExpandToggle isExpanded={isExpanded} onToggle={handleToggleExpand} />
           </Card>
           <PermissionAlert
+            screenRecording={permissions.state.screenRecording}
+            accessibility={permissions.state.accessibility}
             needsScreenRecording={permissions.state.needsScreenRecording}
+            needsAccessibility={permissions.state.needsAccessibility}
             captureError={permissions.state.captureError}
-            onOpenSystemSettings={permissions.openSystemSettings}
+            onRequestPermissions={permissions.requestPermissions}
+            onOpenScreenRecordingSettings={permissions.openScreenRecordingSettings}
+            onOpenAccessibilitySettings={permissions.openAccessibilitySettings}
             onRecheck={permissions.recheck}
             onDismissPermission={permissions.dismissPermissionPrompt}
             onDismissCaptureError={permissions.dismissCaptureError}

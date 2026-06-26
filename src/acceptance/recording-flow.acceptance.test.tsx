@@ -40,6 +40,9 @@ vi.mock("@tauri-apps/api/core", () => ({
     switch (cmd) {
       case "load_recordings":
         return [...fakeBackend.recordings];
+      case "check_screen_recording_permission":
+      case "check_accessibility_permission":
+        return true;
       case "start_recording":
         fakeBackend.startCalls += 1;
         return `rec-${Date.now()}`;

@@ -10,6 +10,12 @@ use rdev::EventType;
 use crate::key_mapping::{string_to_button, string_to_key};
 use crate::types::{InputEvent, InputEventTimestamp};
 
+/// Cap on a single inter-event idle gap (ms, before the speed scale). A
+/// recording captures human thinking pauses — seconds between actions — and
+/// replaying those verbatim makes a macro look stuck. Long gaps are clamped so
+/// replay flows; shorter, intentional timing is preserved exactly.
+const MAX_GAP_MS: i64 = 700;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlannedStep {
     /// Tell observers which event index playback is currently on.
@@ -69,7 +75,9 @@ impl PlaybackPlan {
             if index == 0 {
                 steps.push(PlannedStep::Sleep { ms: 50 });
             } else {
-                let raw_delay = (event.timestamp() - events[index - 1].timestamp()).max(0) as u64;
+                let raw_delay = (event.timestamp() - events[index - 1].timestamp())
+                    .max(0)
+                    .min(MAX_GAP_MS) as u64;
                 let scaled = (raw_delay as f64 / speed) as u64;
                 let min_delay = min_delay_for(event);
                 let actual = scaled.saturating_sub(overhead_ms).max(min_delay);
@@ -430,18 +438,40 @@ mod tests {
     #[test]
     fn speed_2x_reduces_inter_event_sleep() {
         // Only the *inter-event* sleep scales with speed; fixed warmup-ish
-        // sleeps stay constant. Use a single large inter-event gap so the
-        // scaled component dominates: 1000ms at 1x vs 500ms at 2x.
-        let events_1x = vec![key_press("A", 0), key_press("B", 1000)];
+        // sleeps stay constant. Use a gap under MAX_GAP_MS so the cap doesn't
+        // interfere: 600ms at 1x vs 300ms at 2x.
+        let events_1x = vec![key_press("A", 0), key_press("B", 600)];
         let events_2x = events_1x.clone();
         let total_1x = total_sleep_ms(&PlaybackPlan::compile(&events_1x, 1.0).unwrap().steps);
         let total_2x = total_sleep_ms(&PlaybackPlan::compile(&events_2x, 2.0).unwrap().steps);
-        // The scaled gap drops by ~500ms; total should drop by at least 400ms.
+        // The scaled gap drops by ~300ms; total should drop by at least 250ms.
         assert!(
-            total_1x >= total_2x + 400,
-            "1x ({}) should exceed 2x ({}) by ~500ms",
+            total_1x >= total_2x + 250,
+            "1x ({}) should exceed 2x ({}) by ~300ms",
             total_1x,
             total_2x
+        );
+    }
+
+    #[test]
+    fn long_idle_gap_is_capped() {
+        // A multi-second human pause must not replay as a multi-second sleep —
+        // it's clamped to MAX_GAP_MS so the macro doesn't look stuck.
+        let events = vec![key_press("A", 0), key_press("B", 5000)];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        let max_sleep = plan
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::Sleep { ms } => Some(*ms),
+                _ => None,
+            })
+            .max()
+            .unwrap();
+        assert!(
+            max_sleep <= 700,
+            "a 5s idle gap should be capped to MAX_GAP_MS, got {}ms",
+            max_sleep
         );
     }
 

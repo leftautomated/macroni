@@ -37,15 +37,15 @@ function fmtTime(s: number): string {
 
 /**
  * Custom video player for the Studio: native controls off, dark-themed bar with
- * play/pause, frame-accurate stepping, a draggable scrubber, speed, loop, and
- * fullscreen. Exposes `seek()` so the synced event list can jump the video.
+ * play/pause, frame-accurate stepping, a speed slider, and loop. Scrubbing lives
+ * on the events timeline; this exposes `seek()` so the timeline can jump the
+ * video, and reports `currentTime` so the timeline's playhead stays in sync.
  */
 export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(function StudioPlayer(
   { src, fps, onTimeUpdate, onReplay, loopRegion },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const barRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -53,7 +53,6 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   const [loop, setLoop] = useState(true);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
 
   useImperativeHandle(
     ref,
@@ -134,16 +133,6 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
 
   const toggleLoop = useCallback(() => setLoop((l) => !l), []);
 
-  const seekFromClientX = useCallback((clientX: number) => {
-    const bar = barRef.current;
-    const v = videoRef.current;
-    if (!bar || !v?.duration) return;
-    const rect = bar.getBoundingClientRect();
-    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    v.currentTime = frac * v.duration;
-  }, []);
-
-  const frac = duration > 0 ? current / duration : 0;
   const speedFrac = (speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN);
 
   return (
@@ -256,58 +245,6 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
             {loadError ?? "Loading…"}
           </div>
         )}
-      </div>
-
-      {/* Scrubber */}
-      <div
-        ref={barRef}
-        onPointerDown={(e) => {
-          setDragging(true);
-          barRef.current?.setPointerCapture(e.pointerId);
-          seekFromClientX(e.clientX);
-        }}
-        onPointerMove={(e) => {
-          if (dragging) seekFromClientX(e.clientX);
-        }}
-        onPointerUp={(e) => {
-          setDragging(false);
-          barRef.current?.releasePointerCapture(e.pointerId);
-        }}
-        style={{ height: 14, display: "flex", alignItems: "center", cursor: "pointer" }}
-      >
-        <div
-          style={{
-            position: "relative",
-            width: "100%",
-            height: 5,
-            borderRadius: 3,
-            background: "rgba(255,255,255,0.12)",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              height: "100%",
-              width: `${frac * 100}%`,
-              borderRadius: 3,
-              background: "#6366f1",
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              left: `${frac * 100}%`,
-              top: "50%",
-              width: 11,
-              height: 11,
-              borderRadius: "50%",
-              background: "#a5b4fc",
-              transform: "translate(-50%,-50%)",
-            }}
-          />
-        </div>
       </div>
 
       {/* Controls — a centered cluster of `current ⏮ ▶ ⏭ total`, with the

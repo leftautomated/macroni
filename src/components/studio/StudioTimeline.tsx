@@ -45,7 +45,7 @@ const isKeyRow = (row: EventRow) =>
 // How many seconds fill the viewport by default — tight enough to read events
 // at the seconds level, while longer recordings scroll horizontally.
 const DEFAULT_SECONDS_VISIBLE = 30;
-const MIN_SECONDS_VISIBLE = 5;
+const MIN_SECONDS_VISIBLE = 2;
 const ZOOM_FACTOR = 1.5;
 
 /** A "nice" labeled-tick interval (seconds), aiming for ~6 labels per window. */

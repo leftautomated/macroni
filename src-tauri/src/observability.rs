@@ -1,8 +1,8 @@
 //! App observability helpers built on Tauri's official log plugin.
 //!
-//! The plugin owns durable log files, rotation, filtering, and the webview
-//! bridge. This module only standardizes app-specific events, command timings,
-//! and the diagnostics snapshot command.
+//! The plugin owns durable log files, rotation, and filtering. This module only
+//! standardizes app-specific events, command timings, and the diagnostics
+//! snapshot command.
 
 use std::path::Path;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};

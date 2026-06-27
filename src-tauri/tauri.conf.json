@@ -33,8 +33,9 @@
         "height": 800,
         "minWidth": 600,
         "minHeight": 400,
-        "transparent": false,
-        "decorations": true,
+        "transparent": true,
+        "decorations": false,
+        "shadow": true,
         "visible": true,
         "resizable": true
       }

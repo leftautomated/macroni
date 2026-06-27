@@ -194,9 +194,18 @@ fn load_recordings(
     trace_id: Option<String>,
 ) -> Result<Vec<Recording>, String> {
     observability::trace_command("load_recordings", trace_id, None, || {
-        recordings_store::RecordingsStore::open(&app_handle)
+        let recordings = recordings_store::RecordingsStore::open(&app_handle)
             .and_then(|s| s.load_all())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        observability::log_info(
+            "recordings",
+            "loaded",
+            Some(json!({
+                "count": recordings.len(),
+                "videoCount": recordings.iter().filter(|r| r.video.is_some()).count(),
+            })),
+        );
+        Ok(recordings)
     })
 }
 
@@ -329,6 +338,10 @@ fn focus_studio_window(app: AppHandle, trace_id: Option<String>) -> Result<(), S
             .inner_size(1200.0, 800.0)
             .min_inner_size(600.0, 400.0)
             .resizable(true)
+            // Fully custom chrome — the window draws its own title bar + traffic
+            // lights (see StudioTitleBar). Transparent for rounded corners.
+            .decorations(false)
+            .transparent(true)
             .build()
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -472,6 +485,15 @@ pub fn run() {
     } else {
         log::LevelFilter::Info
     };
+    // Color the *terminal* logs by level. Only the Stdout target gets ANSI; the
+    // LogDir target stays plain so the file (and DiagnosticsSnapshot's
+    // recentLogLines) never contains escape codes.
+    let log_colors = tauri_plugin_log::fern::colors::ColoredLevelConfig::new()
+        .error(tauri_plugin_log::fern::colors::Color::Red)
+        .warn(tauri_plugin_log::fern::colors::Color::Yellow)
+        .info(tauri_plugin_log::fern::colors::Color::Green)
+        .debug(tauri_plugin_log::fern::colors::Color::Blue)
+        .trace(tauri_plugin_log::fern::colors::Color::BrightBlack);
     let mut builder = tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -479,9 +501,40 @@ pub fn run() {
                 .level_for("macroni::observability", log::LevelFilter::Debug)
                 .max_file_size(5_000_000)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
-                .target(tauri_plugin_log::Target::new(
-                    tauri_plugin_log::TargetKind::Webview,
-                ))
+                // Neutralize the plugin's default parent format. fern chains the
+                // parent format INTO each target's format, so leaving the default
+                // here would prepend "[date][time][target][level]" before our
+                // per-target formats run — producing a doubled prefix. Pass the
+                // raw message through and let each target format it once.
+                .format(|out, message, _record| out.finish(format_args!("{message}")))
+                .targets([
+                    // Terminal: dim timestamp + target, colored level. ANSI here only.
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout).format(
+                        move |out, message, record| {
+                            out.finish(format_args!(
+                                "\x1b[2m{}\x1b[0m [{}] \x1b[2m{}\x1b[0m {}",
+                                chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+                                log_colors.color(record.level()),
+                                record.target(),
+                                message
+                            ))
+                        },
+                    ),
+                    // File: plain, no ANSI — matches the plugin's default format
+                    // (UTC) so the rotating log and DiagnosticsSnapshot stay clean.
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: None,
+                    })
+                    .format(|out, message, record| {
+                        out.finish(format_args!(
+                            "{}[{}][{}] {}",
+                            chrono::Utc::now().format("[%Y-%m-%d][%H:%M:%S]"),
+                            record.target(),
+                            record.level(),
+                            message
+                        ))
+                    }),
+                ])
                 .build(),
         )
         .plugin(tauri_plugin_opener::init());

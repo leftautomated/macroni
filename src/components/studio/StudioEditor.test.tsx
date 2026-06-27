@@ -23,6 +23,15 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: vi.fn((p: string) => `asset://${p}`),
 }));
 
+// The custom title bar drives the window; stub it so renders don't hit Tauri.
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    close: vi.fn(),
+    minimize: vi.fn(),
+    toggleMaximize: vi.fn(),
+  }),
+}));
+
 import { StudioEditor } from "@/components/studio/StudioEditor";
 
 function makeRecording(id: string, name: string): Recording {
@@ -62,8 +71,10 @@ describe("StudioEditor (recordings browser)", () => {
   it("lists recordings that have video", async () => {
     fake.recordings = [makeRecording("1000", "Older clip"), makeRecording("2000", "Newer clip")];
     render(<StudioEditor />);
+    // "Newer clip" is auto-selected, so it shows in both the list and the title
+    // bar — assert presence without requiring a unique match.
     await waitFor(() => {
-      expect(screen.getByText("Newer clip")).toBeInTheDocument();
+      expect(screen.getAllByText("Newer clip").length).toBeGreaterThan(0);
     });
     expect(screen.getByText("Older clip")).toBeInTheDocument();
   });
@@ -107,6 +118,7 @@ describe("StudioEditor (recordings browser)", () => {
     await waitFor(() => {
       expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
     });
-    expect(screen.getByText("Beta")).toBeInTheDocument();
+    // Beta is selected, so its name is in both the list and the title bar.
+    expect(screen.getAllByText("Beta").length).toBeGreaterThan(0);
   });
 });

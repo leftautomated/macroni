@@ -27,13 +27,14 @@ const onRender: React.ProfilerOnRenderCallback = (
   });
 };
 
-// Reset default margins and forbid document scroll. The studio is an opaque
-// player now (HTML5 <video>), so the window/body are dark, not transparent.
+// Reset default margins and forbid document scroll. The window is borderless +
+// transparent so its rounded corners show through; the StudioEditor root paints
+// the opaque dark surface, so html/body stay transparent.
 for (const el of [document.documentElement, document.body]) {
   el.style.margin = "0";
   el.style.height = "100%";
   el.style.overflow = "hidden";
-  el.style.background = "#0f0f14";
+  el.style.background = "transparent";
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

@@ -51,7 +51,7 @@ mp4 = "0.14"
 # Data-parallelism for the per-frame BGRA->I420 conversion (real-time encode).
 rayon = "1"
 log = "0.4"
-tauri-plugin-log = { version = "2.8.0", features = ["tracing"] }
+tauri-plugin-log = { version = "2.8.0", features = ["tracing", "colored"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 # Maintained fork of scap. The crates.io `scap` 0.1.0-beta.1 only delivers a

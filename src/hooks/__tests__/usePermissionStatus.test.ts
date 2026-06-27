@@ -97,7 +97,12 @@ describe("usePermissionStatus", () => {
   });
 
   it("openSystemSettings opens the macOS Screen Recording pane", async () => {
-    invokeMock.mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+    invokeMock
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true);
     const { result } = renderHook(() => usePermissionStatus());
     await waitFor(() => expect(result.current.state.screenRecording).toBe(true));
 
@@ -105,12 +110,24 @@ describe("usePermissionStatus", () => {
       await result.current.openSystemSettings();
     });
     expect(openUrlMock).toHaveBeenCalledWith(
-      "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+      "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture",
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      "present_permission_assistant",
+      expect.objectContaining({
+        panel: "screen-recording",
+        traceId: expect.any(String),
+      }),
     );
   });
 
   it("openAccessibilitySettings opens the macOS Accessibility pane", async () => {
-    invokeMock.mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+    invokeMock
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true);
     const { result } = renderHook(() => usePermissionStatus());
     await waitFor(() => expect(result.current.state.accessibility).toBe(true));
 
@@ -118,7 +135,14 @@ describe("usePermissionStatus", () => {
       await result.current.openAccessibilitySettings();
     });
     expect(openUrlMock).toHaveBeenCalledWith(
-      "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+      "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      "present_permission_assistant",
+      expect.objectContaining({
+        panel: "accessibility",
+        traceId: expect.any(String),
+      }),
     );
   });
 
@@ -147,5 +171,115 @@ describe("usePermissionStatus", () => {
     );
     expect(result.current.state.accessibility).toBe(true);
     expect(result.current.state.screenRecording).toBe(true);
+  });
+
+  it("requestPermissions opens the assistant when permissions remain missing", async () => {
+    invokeMock
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const { result } = renderHook(() => usePermissionStatus());
+    await waitFor(() => expect(result.current.state.screenRecording).toBe(false));
+
+    await act(async () => {
+      await result.current.requestPermissions();
+    });
+
+    expect(openUrlMock).toHaveBeenCalledWith(
+      "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture",
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      "present_permission_assistant",
+      expect.objectContaining({
+        panel: "screen-recording",
+        traceId: expect.any(String),
+      }),
+    );
+  });
+
+  it("retries the assistant until System Settings is ready", async () => {
+    invokeMock
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true);
+    const { result } = renderHook(() => usePermissionStatus());
+    await waitFor(() => expect(result.current.state.accessibility).toBe(true));
+
+    await act(async () => {
+      await result.current.openAccessibilitySettings();
+    });
+
+    expect(
+      invokeMock.mock.calls.filter(([cmd]) => cmd === "present_permission_assistant"),
+    ).toHaveLength(2);
+  });
+
+  it("passes a source rect to the native assistant", async () => {
+    invokeMock
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const { result } = renderHook(() => usePermissionStatus());
+    await waitFor(() => expect(result.current.state.screenRecording).toBe(false));
+
+    await act(async () => {
+      await result.current.openSystemSettings({ x: 10, y: 20, width: 300, height: 80 });
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "present_permission_assistant",
+      expect.objectContaining({
+        panel: "screen-recording",
+        sourceRect: { x: 10, y: 20, width: 300, height: 80 },
+        traceId: expect.any(String),
+      }),
+    );
+  });
+
+  it("polls while the assistant is open and updates when permissions are granted", async () => {
+    let screenRecordingGranted = false;
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "check_screen_recording_permission") {
+        return Promise.resolve(screenRecordingGranted);
+      }
+      if (cmd === "check_accessibility_permission") {
+        return Promise.resolve(true);
+      }
+      if (cmd === "present_permission_assistant" || cmd === "refresh_permission_assistant") {
+        return Promise.resolve(true);
+      }
+      if (cmd === "dismiss_permission_assistant") {
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const { result } = renderHook(() => usePermissionStatus());
+    await waitFor(() => expect(result.current.state.screenRecording).toBe(false));
+
+    await act(async () => {
+      await result.current.openSystemSettings();
+    });
+    screenRecordingGranted = true;
+
+    await waitFor(() => expect(result.current.state.screenRecording).toBe(true), {
+      timeout: 1500,
+    });
+    expect(result.current.state.needsScreenRecording).toBe(false);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "dismiss_permission_assistant",
+      expect.objectContaining({ traceId: expect.any(String) }),
+    );
   });
 });

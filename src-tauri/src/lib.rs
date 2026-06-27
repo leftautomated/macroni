@@ -677,6 +677,8 @@ pub fn run() {
     let builder = builder.manage(preview_surface::StudioState::default());
     #[cfg(target_os = "macos")]
     let builder = builder.manage(permissions::PermissionDragState::default());
+    #[cfg(target_os = "macos")]
+    let builder = builder.manage(permissions::PermissionAssistantState::default());
 
     builder
         .invoke_handler(tauri::generate_handler![
@@ -700,6 +702,9 @@ pub fn run() {
             permissions::request_accessibility,
             permissions::install_permission_drag_region,
             permissions::remove_permission_drag_region,
+            permissions::present_permission_assistant,
+            permissions::refresh_permission_assistant,
+            permissions::dismiss_permission_assistant,
             focus_studio_window,
             request_replay,
             get_app_data_dir,

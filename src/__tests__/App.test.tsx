@@ -45,24 +45,13 @@ describe("App (integration root)", () => {
     expect(await screen.findByRole("button", { name: /start/i })).toBeInTheDocument();
   });
 
-  it("starts collapsed — the tabs are not visible until expanded", async () => {
+  it("is a flat bar — Live Events and Settings moved to the Studio", async () => {
     render(<App />);
     await screen.findByRole("button", { name: /start/i });
-    // Live Events / Settings are inside the expandable panel.
     expect(screen.queryByText("Live Events")).not.toBeInTheDocument();
     expect(screen.queryByText("Settings")).not.toBeInTheDocument();
-  });
-
-  it("opens the panel and shows the Live Events and Settings tabs when expanded", async () => {
-    render(<App />);
-    const expandButton = await screen.findByRole("button", { name: /^expand$/i });
-    await userEvent.click(expandButton);
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /live events/i })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /^settings$/i })).toBeInTheDocument();
-    });
-    // Recordings browsing moved to the Studio — no Recordings tab here anymore.
-    expect(screen.queryByRole("tab", { name: /^recordings$/i })).not.toBeInTheDocument();
+    // No expandable panel anymore — there's no expand toggle.
+    expect(screen.queryByRole("button", { name: /^expand$/i })).not.toBeInTheDocument();
   });
 
   it("exposes an Open Studio button in the header", async () => {

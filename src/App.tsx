@@ -6,38 +6,59 @@ import { useInputEventListener } from "@/hooks/useInputEventListener";
 import { useAutoResize } from "@/hooks/useAutoResize";
 import { usePermissionStatus } from "@/hooks/usePermissionStatus";
 import { RecordingControls } from "@/components/RecordingControls";
-import { LiveEventDisplay } from "@/components/LiveEventDisplay";
-import { RecordingDetail } from "@/components/RecordingDetail";
-import { SettingsTab } from "@/components/SettingsTab";
 import { VisibilityToggle } from "@/components/VisibilityToggle";
-import { ExpandToggle } from "@/components/ExpandToggle";
 import { PermissionAlert } from "@/components/PermissionAlert";
+import { PermissionGate } from "@/components/PermissionGate";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { invoke, logEvent } from "@/lib/observability";
 import type { Recording } from "@/types";
-import { Clapperboard, GripVertical } from "lucide-react";
+import { Clapperboard, GripVertical, Square } from "lucide-react";
+
+const isMac = typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
 
 const App = () => {
   const recorder = useRecorder();
   const recordingsManager = useRecordings();
   const permissions = usePermissionStatus();
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<"live" | "settings">("live");
-  const contentRef = useRef<HTMLDivElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [replayName, setReplayName] = useState<string | null>(null);
   const headerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Last recording the Studio asked us to replay — re-played on Cmd+R.
+  const replayRecRef = useRef<Recording | null>(null);
 
   useInputEventListener(recorder.addEvent);
 
+  const permissionsComplete =
+    !isMac ||
+    (permissions.state.accessibility === true && permissions.state.screenRecording === true);
+  const showPermissionGate = !permissionsComplete;
+
+  // The overlay is just a bar now — never expands. Auto-resize still tracks the
+  // header so the window grows for the permission gate/alert.
   useAutoResize({
-    isExpanded,
+    isExpanded: false,
     headerRef,
     contentRef,
-    dependencies: [recordingsManager.selectedRecording, activeTab],
+    dependencies: [
+      permissions.state.accessibility,
+      permissions.state.screenRecording,
+      showPermissionGate,
+      isPlaying,
+    ],
   });
 
   const handleStartRecording = useCallback(async () => {
+    if (!permissionsComplete) {
+      if (permissions.state.accessibility !== true) {
+        await permissions.openAccessibilitySettings();
+      } else if (permissions.state.screenRecording !== true) {
+        await permissions.openScreenRecordingSettings();
+      }
+      return;
+    }
+
     try {
       // Stop any active playback before starting a new recording
       try {
@@ -46,38 +67,68 @@ const App = () => {
         // Ignore — playback may not be active
       }
       await recorder.startRecording();
-      recordingsManager.setSelectedRecording(null);
     } catch (error) {
       logEvent("error", "recording", "start_failed", { error });
     }
-  }, [recorder, recordingsManager]);
+  }, [permissions, permissionsComplete, recorder]);
 
   const handleStopRecording = useCallback(async () => {
     try {
       const result = await recorder.stopRecording();
       if (result.events.length > 0 || result.video) {
-        const newRecording = await recordingsManager.saveRecording(
+        // Save it; it lives in the Studio now (no detail panel in the overlay).
+        await recordingsManager.saveRecording(
           result.id,
           "Untitled",
           result.events,
           result.video ?? undefined,
         );
         recorder.clearEvents();
-        recordingsManager.setSelectedRecording(newRecording);
-        setIsExpanded(true);
       }
     } catch (error) {
       logEvent("error", "recording", "stop_failed", { error });
     }
   }, [recorder, recordingsManager]);
 
-  // Track isRecording in a ref so the toggle-recording listener always has current state
+  const handlePlay = useCallback(async (rec: Recording) => {
+    try {
+      setIsPlaying(true);
+      setReplayName(rec.name && rec.name !== "Untitled" ? rec.name : null);
+      replayRecRef.current = rec;
+      await invoke("play_recording", {
+        events: rec.events,
+        loopForever: false,
+        speed: rec.playback_speed,
+      });
+    } catch (error) {
+      logEvent("error", "playback", "play_failed", {
+        error,
+        fields: { recordingId: rec.id, eventCount: rec.events.length },
+      });
+      setIsPlaying(false);
+    }
+  }, []);
+
+  const handleStopPlayback = useCallback(async () => {
+    try {
+      await invoke("stop_playback");
+      setIsPlaying(false);
+    } catch (error) {
+      logEvent("error", "playback", "stop_failed", { error });
+    }
+  }, []);
+
+  // Keep current recording/playing state in refs for the shortcut listeners.
   const isRecordingRef = useRef(recorder.isRecording);
   useEffect(() => {
     isRecordingRef.current = recorder.isRecording;
   }, [recorder.isRecording]);
+  const isPlayingRef = useRef(isPlaying);
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
-  // Listen for global Cmd+Shift+R toggle-recording shortcut
+  // Cmd+Shift+R — toggle recording.
   useEffect(() => {
     const unlisten = listen("toggle-recording", () => {
       if (isRecordingRef.current) {
@@ -86,109 +137,113 @@ const App = () => {
         handleStartRecording();
       }
     });
-
     return () => {
       unlisten.then((fn) => fn());
     };
   }, [handleStartRecording, handleStopRecording]);
 
-  // The Studio hands a recording back here to replay it (the main panel is the
-  // focus-safe surface). Load it fresh and expand so the user can press Play.
+  // Cmd+R — replay the last target (the backend emits this only when idle).
   useEffect(() => {
-    const unlisten = listen<string>("replay-recording", async (event) => {
-      const all = await invoke<Recording[]>("load_recordings");
-      const rec = all.find((r) => r.id === event.payload);
-      if (rec) {
-        recordingsManager.setSelectedRecording(rec);
-        setIsExpanded(true);
+    const unlisten = listen("toggle-playback", () => {
+      if (!isPlayingRef.current && replayRecRef.current) {
+        void handlePlay(replayRecRef.current);
       }
     });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [recordingsManager.setSelectedRecording]);
+  }, [handlePlay]);
 
-  const handleToggleExpand = () => {
-    setIsExpanded(!isExpanded);
-    // Auto-resize will handle the height adjustment via useEffect
-  };
+  // Playback ended (naturally, or stopped from the backend).
+  useEffect(() => {
+    const unlistenComplete = listen("playback-complete", () => setIsPlaying(false));
+    const unlistenStopped = listen("playback-stopped", () => setIsPlaying(false));
+    return () => {
+      unlistenComplete.then((fn) => fn());
+      unlistenStopped.then((fn) => fn());
+    };
+  }, []);
+
+  // The Studio hands a recording here to replay it — the overlay's
+  // non-activating panel is the focus-safe surface, so auto-play immediately.
+  useEffect(() => {
+    const unlisten = listen<string>("replay-recording", async (event) => {
+      const all = await invoke<Recording[]>("load_recordings");
+      const rec = all.find((r) => r.id === event.payload);
+      if (rec) void handlePlay(rec);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [handlePlay]);
 
   return (
     <div className="w-screen h-screen flex overflow-hidden justify-center items-start pt-4 pb-4 bg-transparent">
       <div className="w-full max-w-5xl mx-2 space-y-3 overflow-hidden">
         <div ref={headerRef} className="flex flex-col items-center gap-2">
-          <Card className="flex items-center gap-2 px-3 py-2 w-fit" data-tauri-drag-region>
-            <div className="cursor-move" data-tauri-drag-region>
-              <GripVertical className="h-4 w-4 text-muted-foreground" data-tauri-drag-region />
-            </div>
-            <div className="h-4 w-px bg-border" data-tauri-drag-region />
-            <RecordingControls
-              isRecording={recorder.isRecording}
-              isProcessing={recorder.isProcessing}
-              onStartRecording={handleStartRecording}
-              onStopRecording={handleStopRecording}
+          {showPermissionGate ? (
+            <PermissionGate
+              accessibility={permissions.state.accessibility}
+              screenRecording={permissions.state.screenRecording}
+              activeAssistantPanel={permissions.activeAssistantPanel}
+              onOpenAccessibilitySettings={permissions.openAccessibilitySettings}
+              onOpenScreenRecordingSettings={permissions.openScreenRecordingSettings}
             />
-            <div className="h-4 w-px bg-border" data-tauri-drag-region />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => void invoke("focus_studio_window")}
-              title="Open Studio — browse and play recordings"
-            >
-              <Clapperboard className="h-4 w-4" />
-            </Button>
-            <VisibilityToggle />
-            <ExpandToggle isExpanded={isExpanded} onToggle={handleToggleExpand} />
-          </Card>
-          <PermissionAlert
-            screenRecording={permissions.state.screenRecording}
-            accessibility={permissions.state.accessibility}
-            needsScreenRecording={permissions.state.needsScreenRecording}
-            needsAccessibility={permissions.state.needsAccessibility}
-            captureError={permissions.state.captureError}
-            onRequestPermissions={permissions.requestPermissions}
-            onOpenScreenRecordingSettings={permissions.openScreenRecordingSettings}
-            onOpenAccessibilitySettings={permissions.openAccessibilitySettings}
-            onRecheck={permissions.recheck}
-            onDismissPermission={permissions.dismissPermissionPrompt}
-            onDismissCaptureError={permissions.dismissCaptureError}
-          />
-        </div>
-
-        {isExpanded && (
-          <div ref={contentRef}>
-            {recordingsManager.selectedRecording ? (
-              <Card className="p-4">
-                <RecordingDetail
-                  recording={recordingsManager.selectedRecording}
-                  onClose={() => recordingsManager.setSelectedRecording(null)}
-                  onUpdateName={recordingsManager.updateRecordingName}
-                  onUpdateSpeed={recordingsManager.updateRecordingSpeed}
-                />
-              </Card>
-            ) : (
-              <Card className="p-4">
-                <Tabs
-                  value={activeTab}
-                  onValueChange={(value) => setActiveTab(value as "live" | "settings")}
-                  className="w-full"
+          ) : (
+            <>
+              <Card className="flex items-center gap-2 px-3 py-2 w-fit" data-tauri-drag-region>
+                <div className="cursor-move" data-tauri-drag-region>
+                  <GripVertical className="h-4 w-4 text-muted-foreground" data-tauri-drag-region />
+                </div>
+                <div className="h-4 w-px bg-border" data-tauri-drag-region />
+                {isPlaying ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      Playing{replayName ? ` · ${replayName}` : "…"}
+                    </span>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-7"
+                      onClick={handleStopPlayback}
+                    >
+                      <Square className="h-3 w-3 mr-1" /> Stop
+                    </Button>
+                  </div>
+                ) : (
+                  <RecordingControls
+                    isRecording={recorder.isRecording}
+                    isProcessing={recorder.isProcessing}
+                    onStartRecording={handleStartRecording}
+                    onStopRecording={handleStopRecording}
+                  />
+                )}
+                <div className="h-4 w-px bg-border" data-tauri-drag-region />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => void invoke("focus_studio_window")}
+                  title="Open Studio — browse and play recordings"
                 >
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="live">Live Events</TabsTrigger>
-                    <TabsTrigger value="settings">Settings</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="live" className="mt-4">
-                    <LiveEventDisplay events={recorder.currentEvents} />
-                  </TabsContent>
-                  <TabsContent value="settings" className="mt-4">
-                    <SettingsTab />
-                  </TabsContent>
-                </Tabs>
+                  <Clapperboard className="h-4 w-4" />
+                </Button>
+                <VisibilityToggle />
               </Card>
-            )}
-          </div>
-        )}
+              <PermissionAlert
+                screenRecording={permissions.state.screenRecording}
+                accessibility={permissions.state.accessibility}
+                needsScreenRecording={permissions.state.needsScreenRecording}
+                needsAccessibility={permissions.state.needsAccessibility}
+                captureError={permissions.state.captureError}
+                onOpenScreenRecordingSettings={permissions.openScreenRecordingSettings}
+                onOpenAccessibilitySettings={permissions.openAccessibilitySettings}
+                onDismissPermission={permissions.dismissPermissionPrompt}
+                onDismissCaptureError={permissions.dismissCaptureError}
+              />
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

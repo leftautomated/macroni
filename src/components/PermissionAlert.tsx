@@ -5,7 +5,6 @@ import {
   ArrowUp,
   CheckCircle2,
   ExternalLink,
-  RotateCw,
   ShieldAlert,
   X,
   XCircle,
@@ -22,10 +21,8 @@ interface Props {
   needsScreenRecording: boolean;
   needsAccessibility: boolean;
   captureError: string | null;
-  onRequestPermissions: () => void;
   onOpenScreenRecordingSettings: () => void;
   onOpenAccessibilitySettings: () => void;
-  onRecheck: () => void;
   onDismissPermission: () => void;
   onDismissCaptureError: () => void;
 }
@@ -36,10 +33,8 @@ export function PermissionAlert({
   needsScreenRecording,
   needsAccessibility,
   captureError,
-  onRequestPermissions,
   onOpenScreenRecordingSettings,
   onOpenAccessibilitySettings,
-  onRecheck,
   onDismissPermission,
   onDismissCaptureError,
 }: Props) {
@@ -77,24 +72,26 @@ export function PermissionAlert({
             <div className="mt-2 flex flex-wrap gap-1.5">
               {isMac && (
                 <>
-                  <Button size="sm" variant="default" onClick={onRequestPermissions}>
-                    <ShieldAlert className="h-3 w-3 mr-1" /> Request prompts
-                  </Button>
                   {needsAccessibility && (
-                    <Button size="sm" variant="outline" onClick={onOpenAccessibilitySettings}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onOpenAccessibilitySettings()}
+                    >
                       <ExternalLink className="h-3 w-3 mr-1" /> Accessibility
                     </Button>
                   )}
                   {needsScreenRecording && (
-                    <Button size="sm" variant="outline" onClick={onOpenScreenRecordingSettings}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onOpenScreenRecordingSettings()}
+                    >
                       <ExternalLink className="h-3 w-3 mr-1" /> Screen Recording
                     </Button>
                   )}
                 </>
               )}
-              <Button size="sm" variant="outline" onClick={onRecheck}>
-                <RotateCw className="h-3 w-3 mr-1" /> Re-check
-              </Button>
             </div>
           </div>
           <Button

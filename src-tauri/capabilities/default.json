@@ -14,6 +14,10 @@
     "core:window:allow-toggle-maximize",
     "global-shortcut:default",
     "log:default",
-    "opener:default"
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "x-apple.systempreferences:*" }]
+    }
   ]
 }

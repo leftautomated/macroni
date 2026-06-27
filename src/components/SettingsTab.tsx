@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   XCircle,
   ExternalLink,
-  RotateCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
@@ -182,17 +181,19 @@ export const SettingsTab = () => {
                   <PermissionLine label="Screen Recording" granted={perms.state.screenRecording} />
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  <Button size="sm" variant="outline" onClick={perms.recheck}>
-                    <RotateCw className="h-3 w-3 mr-1" /> Re-check
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={perms.openAccessibilitySettings}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void perms.openAccessibilitySettings()}
+                  >
                     <ExternalLink className="h-3 w-3 mr-1" /> Accessibility
                   </Button>
-                  <Button size="sm" variant="outline" onClick={perms.openScreenRecordingSettings}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void perms.openScreenRecordingSettings()}
+                  >
                     <ExternalLink className="h-3 w-3 mr-1" /> Screen Recording
-                  </Button>
-                  <Button size="sm" variant="default" onClick={perms.requestPermissions}>
-                    <Shield className="h-3 w-3 mr-1" /> Request prompts
                   </Button>
                 </div>
               </div>

@@ -46,7 +46,6 @@ const isKeyRow = (row: EventRow) =>
 // at the seconds level, while longer recordings scroll horizontally.
 const DEFAULT_SECONDS_VISIBLE = 30;
 const MIN_SECONDS_VISIBLE = 2;
-const ZOOM_FACTOR = 1.5;
 
 /** A "nice" labeled-tick interval (seconds), aiming for ~6 labels per window. */
 function majorIntervalSec(visibleSec: number): number {
@@ -104,10 +103,12 @@ export function StudioTimeline({
     }
   }, [playMs, dur, secondsVisible]);
 
-  const canZoomIn = secondsVisible > MIN_SECONDS_VISIBLE + 0.01;
-  const canZoomOut = secondsVisible < maxVisible - 0.01;
-  const zoomIn = () => setSecondsVisible((s) => Math.max(MIN_SECONDS_VISIBLE, s / ZOOM_FACTOR));
-  const zoomOut = () => setSecondsVisible((s) => Math.min(maxVisible, s * ZOOM_FACTOR));
+  // Zoom slider maps log-linearly: left = whole recording, right = most zoomed-in.
+  const logMin = Math.log(MIN_SECONDS_VISIBLE);
+  const logMax = Math.log(maxVisible);
+  const zoomPos = logMax > logMin ? (logMax - Math.log(secondsVisible)) / (logMax - logMin) : 1;
+  const setZoomFromPos = (pos: number) =>
+    setSecondsVisible(Math.exp(logMax - pos * (logMax - logMin)));
 
   const msAt = (clientX: number) => {
     const el = trackRef.current;
@@ -232,9 +233,9 @@ export function StudioTimeline({
         .tl-tick:hover { opacity: 1; }
         .tl-clear { border: 1px solid rgba(99,102,241,0.5); background: rgba(99,102,241,0.18); color: #c7d2fe; border-radius: 5px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
         .tl-clear:hover { background: rgba(99,102,241,0.3); }
-        .tl-zbtn { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.15); background: transparent; color: #cbd5e1; border-radius: 5px; cursor: pointer; font-size: 13px; line-height: 1; }
-        .tl-zbtn:hover { background: rgba(255,255,255,0.08); }
-        .tl-zbtn:disabled { opacity: 0.35; cursor: default; }
+        .tl-slider { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.18); cursor: pointer; outline: none; }
+        .tl-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%; background: #a5b4fc; cursor: pointer; }
+        .tl-slider::-webkit-slider-thumb:hover { background: #c7d2fe; }
       `}</style>
 
       <div
@@ -247,26 +248,22 @@ export function StudioTimeline({
           fontVariantNumeric: "tabular-nums",
         }}
       >
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <button
-            type="button"
-            className="tl-zbtn"
-            title="Zoom out"
-            onClick={zoomOut}
-            disabled={!canZoomOut}
-          >
-            −
-          </button>
-          <span style={{ minWidth: 30, textAlign: "center" }}>{Math.round(secondsVisible)}s</span>
-          <button
-            type="button"
-            className="tl-zbtn"
-            title="Zoom in"
-            onClick={zoomIn}
-            disabled={!canZoomIn}
-          >
-            +
-          </button>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <input
+            type="range"
+            className="tl-slider"
+            style={{
+              background: `linear-gradient(to right, #6366f1 ${zoomPos * 100}%, rgba(255,255,255,0.18) ${zoomPos * 100}%)`,
+            }}
+            min={0}
+            max={1}
+            step={0.001}
+            value={zoomPos}
+            onChange={(e) => setZoomFromPos(Number(e.target.value))}
+            title="Zoom"
+            aria-label="Zoom"
+          />
+          <span style={{ minWidth: 26, textAlign: "right" }}>{Math.round(secondsVisible)}s</span>
         </span>
         {loop ? (
           <button type="button" className="tl-clear" onClick={() => onLoopChange(null)}>

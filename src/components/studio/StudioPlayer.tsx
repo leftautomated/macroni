@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { Pause, Play, Repeat, StepBack, StepForward } from "lucide-react";
+import { Pause, Play, Repeat, SkipBack, SkipForward } from "lucide-react";
 import { logEvent } from "@/lib/observability";
 
 export interface StudioPlayerHandle {
@@ -48,7 +48,6 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
-  const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [loop, setLoop] = useState(true);
   const [ready, setReady] = useState(false);
@@ -88,7 +87,6 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     setReady(false);
     setLoadError(null);
     setCurrent(0);
-    setDuration(0);
 
     const timer = window.setTimeout(() => {
       const video = videoRef.current;
@@ -114,16 +112,20 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     else v.pause();
   }, []);
 
-  const stepFrame = useCallback(
-    (dir: number) => {
-      const v = videoRef.current;
-      if (!v) return;
-      v.pause();
-      const dt = 1 / Math.max(1, fps);
-      v.currentTime = Math.min(v.duration || 0, Math.max(0, v.currentTime + dir * dt));
-    },
-    [fps],
-  );
+  const jumpToStart = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    v.currentTime = 0;
+  }, []);
+
+  const jumpToEnd = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    // Land on the last frame, not past the end (which would fire `ended`).
+    v.currentTime = Math.max(0, (v.duration || 0) - 1 / Math.max(1, fps));
+  }, [fps]);
 
   const changeSpeed = useCallback((value: number) => {
     setSpeed(value);
@@ -183,7 +185,6 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           onLoadedMetadata={() => {
             const v = videoRef.current;
             if (v) {
-              setDuration(v.duration);
               setReady(true);
               setLoadError(null);
               logEvent("info", "studio.video", "metadata_loaded", {
@@ -247,7 +248,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
         )}
       </div>
 
-      {/* Controls — a centered cluster of `current ⏮ ▶ ⏭ total`, with the
+      {/* Controls — a centered cluster of `current ⏮ ▶ ⏭`, with the
           secondary actions (speed/loop left, replay right) at the edges. */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
         {/* Left: speed slider + loop */}
@@ -279,16 +280,11 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           </button>
         </div>
 
-        {/* Center: current ⏮ ▶ ⏭ total */}
+        {/* Center: current ⏮ ▶ ⏭ */}
         <div style={{ display: "flex", alignItems: "center", gap: 16, justifySelf: "center" }}>
           <span className="sp-time">{fmtTime(current)}</span>
-          <button
-            type="button"
-            className="sp-btn"
-            title="Step back one frame"
-            onClick={() => stepFrame(-1)}
-          >
-            <StepBack size={18} />
+          <button type="button" className="sp-btn" title="Jump to start" onClick={jumpToStart}>
+            <SkipBack size={18} />
           </button>
           <button
             type="button"
@@ -298,15 +294,9 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           >
             {playing ? <Pause size={18} /> : <Play size={18} />}
           </button>
-          <button
-            type="button"
-            className="sp-btn"
-            title="Step forward one frame"
-            onClick={() => stepFrame(1)}
-          >
-            <StepForward size={18} />
+          <button type="button" className="sp-btn" title="Jump to end" onClick={jumpToEnd}>
+            <SkipForward size={18} />
           </button>
-          <span className="sp-time">{fmtTime(duration)}</span>
         </div>
 
         {/* Right: replay */}

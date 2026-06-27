@@ -13,8 +13,8 @@ describe("StudioPlayer", () => {
     );
 
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /step back/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /step forward/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /jump to start/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /jump to end/i })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /replay macro/i }));
     expect(onReplay).toHaveBeenCalledTimes(1);

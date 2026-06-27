@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { StudioTimeline } from "./StudioTimeline";
 import { type InputEvent, InputEventType } from "@/types";
 
@@ -62,6 +62,17 @@ describe("StudioTimeline", () => {
     // Labeled time segments (e.g. 0:05) appear in the ruler.
     const labels = Array.from(container.querySelectorAll(".tl-rlabel")).map((n) => n.textContent);
     expect(labels).toContain("0:05");
+  });
+
+  it("zooms in further via the zoom slider", () => {
+    const { container } = render(
+      <StudioTimeline {...base} durationMs={60000} onSeekSeconds={noop} onLoopChange={noop} />,
+    );
+    // Slider at the far right = most zoomed-in = the 2s minimum window.
+    fireEvent.change(screen.getByRole("slider", { name: /zoom/i }), { target: { value: "1" } });
+    const track = container.querySelector(".tl-track") as HTMLElement;
+    // 60s / 2s window → 3000% track width.
+    expect(track.style.width).toBe("3000%");
   });
 
   it("renders a key press+release as a single keystroke tick in the keys lane", () => {

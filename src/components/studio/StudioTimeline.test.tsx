@@ -43,18 +43,34 @@ describe("StudioTimeline", () => {
     expect(container.querySelectorAll(".tl-tick").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("zooms to a 30s window and scrolls long recordings, with labeled segments", () => {
+    const { container } = render(
+      <StudioTimeline
+        {...base}
+        events={[
+          { type: InputEventType.KeyPress, key: "a", timestamp: 1000 },
+          { type: InputEventType.KeyRelease, key: "a", timestamp: 1100 },
+        ]}
+        durationMs={60000}
+        onSeekSeconds={noop}
+        onLoopChange={noop}
+      />,
+    );
+    const track = container.querySelector(".tl-track") as HTMLElement;
+    // 60s at the default 30s window → track is twice the viewport (scrollable).
+    expect(track.style.width).toBe("200%");
+    // Labeled time segments (e.g. 0:05) appear in the ruler.
+    const labels = Array.from(container.querySelectorAll(".tl-rlabel")).map((n) => n.textContent);
+    expect(labels).toContain("0:05");
+  });
+
   it("renders a key press+release as a single keystroke tick in the keys lane", () => {
     const keyEvents: InputEvent[] = [
       { type: InputEventType.KeyPress, key: "a", timestamp: 1100 },
       { type: InputEventType.KeyRelease, key: "a", timestamp: 1150 },
     ];
     const { container } = render(
-      <StudioTimeline
-        {...base}
-        events={keyEvents}
-        onSeekSeconds={noop}
-        onLoopChange={noop}
-      />,
+      <StudioTimeline {...base} events={keyEvents} onSeekSeconds={noop} onLoopChange={noop} />,
     );
     // Two raw events collapse to one tick (no separate press/release ticks).
     expect(container.querySelectorAll(".tl-tick")).toHaveLength(1);

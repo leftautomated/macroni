@@ -1,5 +1,5 @@
 import type React from "react";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type EventRow, getEventDetails, groupEvents, scrollSummary } from "@/lib/event-utils";
 import { type InputEvent, InputEventType } from "@/types";
 
@@ -42,11 +42,26 @@ const KEY_TYPES = new Set<InputEventType>([
 const isKeyRow = (row: EventRow) =>
   row.kind === "keystroke" || (row.kind === "event" && KEY_TYPES.has(row.event.type));
 
+// How many seconds fill the viewport by default — tight enough to read events
+// at the seconds level, while longer recordings scroll horizontally.
+const DEFAULT_SECONDS_VISIBLE = 30;
+const MIN_SECONDS_VISIBLE = 5;
+const ZOOM_FACTOR = 1.5;
+
+/** A "nice" labeled-tick interval (seconds), aiming for ~6 labels per window. */
+function majorIntervalSec(visibleSec: number): number {
+  const target = visibleSec / 6;
+  const candidates = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+  return candidates.find((c) => c >= target) ?? 600;
+}
+
 /**
  * Horizontal, time-aligned view of a recording's events. Groups (drag/scroll)
  * render as spans, discrete events (click/key) as ticks, on a mouse lane and a
- * keyboard lane. A synced playhead scrubs on click; dragging selects a loop
- * region that playback repeats.
+ * keyboard lane, under a labeled time ruler. The viewport shows a fixed window
+ * (default 30s) and scrolls horizontally — zoomable — so events are readable at
+ * the seconds level; the playhead is kept in view as the video plays. Clicking
+ * seeks; dragging selects a loop region that playback repeats.
  */
 export function StudioTimeline({
   events,
@@ -57,12 +72,42 @@ export function StudioTimeline({
   loop,
   onLoopChange,
 }: StudioTimelineProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ downX: number; downMs: number; moved: boolean } | null>(null);
+  const [secondsVisible, setSecondsVisible] = useState(DEFAULT_SECONDS_VISIBLE);
 
   const dur = Math.max(1, durationMs);
+  const durSec = dur / 1000;
+  const maxVisible = Math.max(DEFAULT_SECONDS_VISIBLE, durSec);
   const rel = (t: number) => Math.min(dur, Math.max(0, t - startMs));
   const pctOf = (ms: number) => (ms / dur) * 100;
+
+  // Track width as a % of the scroll viewport: the full duration scaled so the
+  // visible window spans 100%. ≥100% so short recordings still fill the width.
+  const trackWidthPct = Math.max(100, (durSec / secondsVisible) * 100);
+
+  const playMs = Math.min(dur, Math.max(0, videoMs));
+
+  // Keep the playhead in view as it moves (and after a zoom): recenter when it
+  // drifts out of the comfortable middle band.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const full = scroller.scrollWidth;
+    const view = scroller.clientWidth;
+    if (full <= view + 1) return;
+    const x = (playMs / dur) * full;
+    const margin = view * 0.15;
+    if (x < scroller.scrollLeft + margin || x > scroller.scrollLeft + view - margin) {
+      scroller.scrollLeft = Math.max(0, Math.min(full - view, x - view / 2));
+    }
+  }, [playMs, dur, secondsVisible]);
+
+  const canZoomIn = secondsVisible > MIN_SECONDS_VISIBLE + 0.01;
+  const canZoomOut = secondsVisible < maxVisible - 0.01;
+  const zoomIn = () => setSecondsVisible((s) => Math.max(MIN_SECONDS_VISIBLE, s / ZOOM_FACTOR));
+  const zoomOut = () => setSecondsVisible((s) => Math.min(maxVisible, s * ZOOM_FACTOR));
 
   const msAt = (clientX: number) => {
     const el = trackRef.current;
@@ -100,6 +145,17 @@ export function StudioTimeline({
   const rows = groupEvents(events);
   const mouseRows = rows.filter((r) => !isKeyRow(r));
   const keyRows = rows.filter(isKeyRow);
+
+  // Labeled (major) + unlabeled (minor) ruler ticks across the recording.
+  const major = majorIntervalSec(secondsVisible);
+  const minor = major / 2;
+  const majorSecs: number[] = [];
+  const minorSecs: number[] = [];
+  for (let i = 1; i * minor < durSec; i++) {
+    const t = i * minor;
+    if (i % 2 === 0) majorSecs.push(t);
+    else minorSecs.push(t);
+  }
 
   const renderRow = (row: EventRow, lane: "mouse" | "keys") => {
     if (row.kind === "event") {
@@ -157,12 +213,17 @@ export function StudioTimeline({
     );
   };
 
-  const playMs = Math.min(dur, Math.max(0, videoMs));
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <style>{`
-        .tl-track { position: relative; user-select: none; cursor: pointer; touch-action: none; }
+        .tl-scroll { overflow-x: auto; overflow-y: hidden; }
+        .tl-track { position: relative; user-select: none; cursor: pointer; touch-action: none; display: flex; flex-direction: column; gap: 4px; }
+        .tl-ruler { position: relative; height: 18px; }
+        .tl-tickmark { position: absolute; bottom: 0; width: 1px; background: rgba(255,255,255,0.22); pointer-events: none; }
+        .tl-tickmark.major { height: 7px; }
+        .tl-tickmark.minor { height: 4px; background: rgba(255,255,255,0.12); }
+        .tl-rlabel { position: absolute; bottom: 8px; left: 0; transform: translateX(-50%); font-size: 10px; color: rgba(255,255,255,0.5); white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .tl-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.05); pointer-events: none; }
         .tl-lane { position: relative; height: 22px; border-radius: 4px; background: rgba(255,255,255,0.04); }
         .tl-span { position: absolute; top: 3px; height: 16px; border-radius: 3px; opacity: 0.85; overflow: hidden; }
         .tl-span:hover { opacity: 1; }
@@ -171,6 +232,9 @@ export function StudioTimeline({
         .tl-tick:hover { opacity: 1; }
         .tl-clear { border: 1px solid rgba(99,102,241,0.5); background: rgba(99,102,241,0.18); color: #c7d2fe; border-radius: 5px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
         .tl-clear:hover { background: rgba(99,102,241,0.3); }
+        .tl-zbtn { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.15); background: transparent; color: #cbd5e1; border-radius: 5px; cursor: pointer; font-size: 13px; line-height: 1; }
+        .tl-zbtn:hover { background: rgba(255,255,255,0.08); }
+        .tl-zbtn:disabled { opacity: 0.35; cursor: default; }
       `}</style>
 
       <div
@@ -183,7 +247,27 @@ export function StudioTimeline({
           fontVariantNumeric: "tabular-nums",
         }}
       >
-        <span>0:00</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <button
+            type="button"
+            className="tl-zbtn"
+            title="Zoom out"
+            onClick={zoomOut}
+            disabled={!canZoomOut}
+          >
+            −
+          </button>
+          <span style={{ minWidth: 30, textAlign: "center" }}>{Math.round(secondsVisible)}s</span>
+          <button
+            type="button"
+            className="tl-zbtn"
+            title="Zoom in"
+            onClick={zoomIn}
+            disabled={!canZoomIn}
+          >
+            +
+          </button>
+        </span>
         {loop ? (
           <button type="button" className="tl-clear" onClick={() => onLoopChange(null)}>
             ⟳ loop {fmt(loop.a)}–{fmt(loop.b)} ✕
@@ -208,45 +292,70 @@ export function StudioTimeline({
         ))}
       </div>
 
-      <div
-        ref={trackRef}
-        className="tl-track"
-        onPointerDown={onDown}
-        onPointerMove={onMove}
-        onPointerUp={onUp}
-        style={{ display: "flex", flexDirection: "column", gap: 4 }}
-      >
-        <div className="tl-lane">{mouseRows.map((r) => renderRow(r, "mouse"))}</div>
-        <div className="tl-lane">{keyRows.map((r) => renderRow(r, "keys"))}</div>
+      <div className="tl-scroll" ref={scrollRef}>
+        <div
+          ref={trackRef}
+          className="tl-track"
+          style={{ width: `${trackWidthPct}%` }}
+          onPointerDown={onDown}
+          onPointerMove={onMove}
+          onPointerUp={onUp}
+        >
+          {majorSecs.map((t) => (
+            <div key={`grid${t}`} className="tl-grid" style={{ left: `${pctOf(t * 1000)}%` }} />
+          ))}
 
-        {loop && (
+          <div className="tl-ruler">
+            {minorSecs.map((t) => (
+              <div
+                key={`min${t}`}
+                className="tl-tickmark minor"
+                style={{ left: `${pctOf(t * 1000)}%` }}
+              />
+            ))}
+            {majorSecs.map((t) => (
+              <div
+                key={`maj${t}`}
+                className="tl-tickmark major"
+                style={{ left: `${pctOf(t * 1000)}%` }}
+              >
+                <span className="tl-rlabel">{fmt(t * 1000)}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="tl-lane">{mouseRows.map((r) => renderRow(r, "mouse"))}</div>
+          <div className="tl-lane">{keyRows.map((r) => renderRow(r, "keys"))}</div>
+
+          {loop && (
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                bottom: 0,
+                left: `${pctOf(loop.a)}%`,
+                width: `${pctOf(loop.b - loop.a)}%`,
+                background: "rgba(99,102,241,0.15)",
+                border: "1px solid rgba(99,102,241,0.5)",
+                borderRadius: 4,
+                pointerEvents: "none",
+              }}
+            />
+          )}
           <div
             style={{
               position: "absolute",
               top: 0,
               bottom: 0,
-              left: `${pctOf(loop.a)}%`,
-              width: `${pctOf(loop.b - loop.a)}%`,
-              background: "rgba(99,102,241,0.15)",
-              border: "1px solid rgba(99,102,241,0.5)",
-              borderRadius: 4,
+              left: `${pctOf(playMs)}%`,
+              width: 2,
+              marginLeft: -1,
+              background: "#fff",
+              boxShadow: "0 0 4px rgba(0,0,0,0.6)",
               pointerEvents: "none",
             }}
           />
-        )}
-        <div
-          style={{
-            position: "absolute",
-            top: -2,
-            bottom: -2,
-            left: `${pctOf(playMs)}%`,
-            width: 2,
-            marginLeft: -1,
-            background: "#fff",
-            boxShadow: "0 0 4px rgba(0,0,0,0.6)",
-            pointerEvents: "none",
-          }}
-        />
+        </div>
       </div>
     </div>
   );

@@ -89,9 +89,12 @@ export function formatTimestamp(timestamp: number): string {
 /**
  * A display row over the raw event list. Consecutive high-frequency events are
  * merged into a single row so they stay readable: `scroll` rows sum the deltas
- * and count ticks; `move` rows keep the latest position and count samples. Every
- * other event is its own `event` row. Indices point back into the original
- * events array so callers can still seek/highlight the underlying events.
+ * and count ticks; `move` rows keep the latest position and count samples.
+ * Press+release pairs collapse too — a mouse press+release becomes a `click`
+ * (or a `drag` when moves sit between them), and a key press+release becomes a
+ * `keystroke`. Every other event is its own `event` row. Indices point back
+ * into the original events array so callers can still seek/highlight the
+ * underlying events.
  */
 export type EventRow =
   | { kind: "event"; index: number; event: InputEvent }
@@ -132,6 +135,13 @@ export type EventRow =
       x2: number;
       y2: number;
       moveCount: number;
+      timestamp: number;
+    }
+  | {
+      kind: "keystroke";
+      startIndex: number;
+      endIndex: number;
+      key: string;
       timestamp: number;
     };
 
@@ -176,6 +186,23 @@ export function groupEvents(events: InputEvent[]): EventRow[] {
           moveCount: last.count,
           timestamp: prev2.event.timestamp,
         });
+      } else {
+        rows.push({ kind: "event", index, event });
+      }
+    } else if (event.type === InputEventType.KeyRelease) {
+      if (
+        last?.kind === "event" &&
+        last.event.type === InputEventType.KeyPress &&
+        last.event.key === event.key
+      ) {
+        // Adjacent press+release of the same key → a keystroke.
+        rows[rows.length - 1] = {
+          kind: "keystroke",
+          startIndex: last.index,
+          endIndex: index,
+          key: event.key,
+          timestamp: last.event.timestamp,
+        };
       } else {
         rows.push({ kind: "event", index, event });
       }

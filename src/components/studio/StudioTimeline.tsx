@@ -39,7 +39,8 @@ const KEY_TYPES = new Set<InputEventType>([
   InputEventType.KeyCombo,
 ]);
 
-const isKeyRow = (row: EventRow) => row.kind === "event" && KEY_TYPES.has(row.event.type);
+const isKeyRow = (row: EventRow) =>
+  row.kind === "keystroke" || (row.kind === "event" && KEY_TYPES.has(row.event.type));
 
 /**
  * Horizontal, time-aligned view of a recording's events. Groups (drag/scroll)
@@ -122,6 +123,16 @@ export function StudioTimeline({
           className="tl-tick"
           title={`${fmt(start)}  Click ${row.button}`}
           style={{ left: `${pctOf(start)}%`, background: COLOR.click }}
+        />
+      );
+    }
+    if (row.kind === "keystroke") {
+      return (
+        <div
+          key={`k${row.startIndex}`}
+          className="tl-tick"
+          title={`${fmt(start)}  Key ${row.key}`}
+          style={{ left: `${pctOf(start)}%`, background: COLOR.key }}
         />
       );
     }

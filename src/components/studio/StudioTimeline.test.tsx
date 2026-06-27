@@ -43,6 +43,24 @@ describe("StudioTimeline", () => {
     expect(container.querySelectorAll(".tl-tick").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("renders a key press+release as a single keystroke tick in the keys lane", () => {
+    const keyEvents: InputEvent[] = [
+      { type: InputEventType.KeyPress, key: "a", timestamp: 1100 },
+      { type: InputEventType.KeyRelease, key: "a", timestamp: 1150 },
+    ];
+    const { container } = render(
+      <StudioTimeline
+        {...base}
+        events={keyEvents}
+        onSeekSeconds={noop}
+        onLoopChange={noop}
+      />,
+    );
+    // Two raw events collapse to one tick (no separate press/release ticks).
+    expect(container.querySelectorAll(".tl-tick")).toHaveLength(1);
+    expect(container.querySelector('[title*="Key a"]')).toBeTruthy();
+  });
+
   it("seeks to the clicked time on a plain click", () => {
     const onSeekSeconds = vi.fn();
     const { container } = render(

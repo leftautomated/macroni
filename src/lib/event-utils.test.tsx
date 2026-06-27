@@ -15,6 +15,16 @@ const move = (x: number, y: number, t: number): InputEvent => ({
   y,
   timestamp: t,
 });
+const keyPress = (k: string, t: number): InputEvent => ({
+  type: InputEventType.KeyPress,
+  key: k,
+  timestamp: t,
+});
+const keyRelease = (k: string, t: number): InputEvent => ({
+  type: InputEventType.KeyRelease,
+  key: k,
+  timestamp: t,
+});
 const press = (button: string, x: number, y: number, t: number): InputEvent => ({
   type: InputEventType.ButtonPress,
   button,
@@ -107,6 +117,39 @@ describe("groupEvents", () => {
       moveCount: 2,
       timestamp: 0,
     });
+  });
+
+  it("collapses an adjacent key press+release into a keystroke", () => {
+    const rows = groupEvents([keyPress("A", 0), keyRelease("A", 5)]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "keystroke",
+      startIndex: 0,
+      endIndex: 1,
+      key: "A",
+      timestamp: 0,
+    });
+  });
+
+  it("groups each typed letter (press+release) into its own keystroke", () => {
+    const rows = groupEvents([
+      keyPress("A", 0),
+      keyRelease("A", 5),
+      keyPress("B", 10),
+      keyRelease("B", 15),
+    ]);
+    expect(rows.map((r) => r.kind)).toEqual(["keystroke", "keystroke"]);
+    expect(rows[1]).toMatchObject({ kind: "keystroke", key: "B", startIndex: 2, endIndex: 3 });
+  });
+
+  it("does not group a release whose key differs from the preceding press", () => {
+    const rows = groupEvents([keyPress("A", 0), keyRelease("B", 5)]);
+    expect(rows.map((r) => r.kind)).toEqual(["event", "event"]);
+  });
+
+  it("leaves an unpaired key press as its own event row", () => {
+    const rows = groupEvents([keyPress("A", 0), press("Left", 0, 0, 5)]);
+    expect(rows.map((r) => r.kind)).toEqual(["event", "event"]);
   });
 
   it("returns an empty list for no events", () => {

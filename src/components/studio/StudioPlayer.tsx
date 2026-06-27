@@ -48,6 +48,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [loop, setLoop] = useState(true);
   const [ready, setReady] = useState(false);
@@ -87,6 +88,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     setReady(false);
     setLoadError(null);
     setCurrent(0);
+    setDuration(0);
 
     const timer = window.setTimeout(() => {
       const video = videoRef.current;
@@ -185,6 +187,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           onLoadedMetadata={() => {
             const v = videoRef.current;
             if (v) {
+              setDuration(v.duration);
               setReady(true);
               setLoadError(null);
               logEvent("info", "studio.video", "metadata_loaded", {
@@ -280,7 +283,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           </button>
         </div>
 
-        {/* Center: current ⏮ ▶ ⏭ */}
+        {/* Center: current ⏮ ▶ ⏭ total */}
         <div style={{ display: "flex", alignItems: "center", gap: 16, justifySelf: "center" }}>
           <span className="sp-time">{fmtTime(current)}</span>
           <button type="button" className="sp-btn" title="Jump to start" onClick={jumpToStart}>
@@ -297,6 +300,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           <button type="button" className="sp-btn" title="Jump to end" onClick={jumpToEnd}>
             <SkipForward size={18} />
           </button>
+          <span className="sp-time">{fmtTime(duration)}</span>
         </div>
 
         {/* Right: replay */}

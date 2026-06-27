@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Pause, Play, Repeat, SkipBack, SkipForward } from "lucide-react";
 import { logEvent } from "@/lib/observability";
 
@@ -13,6 +14,8 @@ interface StudioPlayerProps {
   onReplay: () => void;
   /** When set (seconds), playback repeats over [a, b]. */
   loopRegion?: { a: number; b: number } | null;
+  /** Where to render the transport controls. Defaults to inline below the video. */
+  controlsHost?: HTMLElement | null;
 }
 
 // Playback-speed slider bounds. 0.25× lets you crawl through dense mouse-move
@@ -42,7 +45,7 @@ function fmtTime(s: number): string {
  * video, and reports `currentTime` so the timeline's playhead stays in sync.
  */
 export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(function StudioPlayer(
-  { src, fps, onTimeUpdate, onReplay, loopRegion },
+  { src, fps, onTimeUpdate, onReplay, loopRegion, controlsHost },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -138,6 +141,74 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   const toggleLoop = useCallback(() => setLoop((l) => !l), []);
 
   const speedFrac = (speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN);
+
+  // The transport — a centered cluster of `current ⏮ ▶ ⏭ total`, with the
+  // secondary actions (speed/loop left, replay right) at the edges. Rendered in
+  // `controlsHost` (the bottom events panel) when provided, else inline.
+  const controls = (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+      {/* Left: speed slider + loop */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, justifySelf: "start" }}>
+        <input
+          type="range"
+          className="sp-slider"
+          style={{
+            background: `linear-gradient(to right, #6366f1 ${speedFrac * 100}%, rgba(255,255,255,0.18) ${speedFrac * 100}%)`,
+          }}
+          min={SPEED_MIN}
+          max={SPEED_MAX}
+          step={SPEED_STEP}
+          value={speed}
+          onChange={(e) => changeSpeed(Number(e.target.value))}
+          title="Playback speed"
+          aria-label="Playback speed"
+        />
+        <span className="sp-text" style={{ minWidth: 36, color: "#cbd5e1", textAlign: "right" }}>
+          {fmtRate(speed)}
+        </span>
+        <button
+          type="button"
+          className={`sp-btn${loop ? " on" : ""}`}
+          title={loop ? "Looping (click to turn off)" : "Loop off (click to loop)"}
+          onClick={toggleLoop}
+        >
+          <Repeat size={16} />
+        </button>
+      </div>
+
+      {/* Center: current ⏮ ▶ ⏭ total */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16, justifySelf: "center" }}>
+        <span className="sp-time">{fmtTime(current)}</span>
+        <button type="button" className="sp-btn" title="Jump to start" onClick={jumpToStart}>
+          <SkipBack size={18} />
+        </button>
+        <button
+          type="button"
+          className="sp-play"
+          title={playing ? "Pause" : "Play"}
+          onClick={togglePlay}
+        >
+          {playing ? <Pause size={18} /> : <Play size={18} />}
+        </button>
+        <button type="button" className="sp-btn" title="Jump to end" onClick={jumpToEnd}>
+          <SkipForward size={18} />
+        </button>
+        <span className="sp-time">{fmtTime(duration)}</span>
+      </div>
+
+      {/* Right: replay */}
+      <div style={{ display: "flex", alignItems: "center", justifySelf: "end" }}>
+        <button
+          type="button"
+          className="sp-replay"
+          title="Replay this macro in the control bar"
+          onClick={onReplay}
+        >
+          <Play size={14} /> Replay macro
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -251,70 +322,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
         )}
       </div>
 
-      {/* Controls — a centered cluster of `current ⏮ ▶ ⏭`, with the
-          secondary actions (speed/loop left, replay right) at the edges. */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-        {/* Left: speed slider + loop */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, justifySelf: "start" }}>
-          <input
-            type="range"
-            className="sp-slider"
-            style={{
-              background: `linear-gradient(to right, #6366f1 ${speedFrac * 100}%, rgba(255,255,255,0.18) ${speedFrac * 100}%)`,
-            }}
-            min={SPEED_MIN}
-            max={SPEED_MAX}
-            step={SPEED_STEP}
-            value={speed}
-            onChange={(e) => changeSpeed(Number(e.target.value))}
-            title="Playback speed"
-            aria-label="Playback speed"
-          />
-          <span className="sp-text" style={{ minWidth: 36, color: "#cbd5e1", textAlign: "right" }}>
-            {fmtRate(speed)}
-          </span>
-          <button
-            type="button"
-            className={`sp-btn${loop ? " on" : ""}`}
-            title={loop ? "Looping (click to turn off)" : "Loop off (click to loop)"}
-            onClick={toggleLoop}
-          >
-            <Repeat size={16} />
-          </button>
-        </div>
-
-        {/* Center: current ⏮ ▶ ⏭ total */}
-        <div style={{ display: "flex", alignItems: "center", gap: 16, justifySelf: "center" }}>
-          <span className="sp-time">{fmtTime(current)}</span>
-          <button type="button" className="sp-btn" title="Jump to start" onClick={jumpToStart}>
-            <SkipBack size={18} />
-          </button>
-          <button
-            type="button"
-            className="sp-play"
-            title={playing ? "Pause" : "Play"}
-            onClick={togglePlay}
-          >
-            {playing ? <Pause size={18} /> : <Play size={18} />}
-          </button>
-          <button type="button" className="sp-btn" title="Jump to end" onClick={jumpToEnd}>
-            <SkipForward size={18} />
-          </button>
-          <span className="sp-time">{fmtTime(duration)}</span>
-        </div>
-
-        {/* Right: replay */}
-        <div style={{ display: "flex", alignItems: "center", justifySelf: "end" }}>
-          <button
-            type="button"
-            className="sp-replay"
-            title="Replay this macro in the control bar"
-            onClick={onReplay}
-          >
-            <Play size={14} /> Replay macro
-          </button>
-        </div>
-      </div>
+      {controlsHost ? createPortal(controls, controlsHost) : controls}
     </div>
   );
 });

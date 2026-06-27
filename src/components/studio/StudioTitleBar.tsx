@@ -203,7 +203,9 @@ export function StudioTitleBar({ title, left, editable, onTitleChange }: StudioT
           type="button"
           className="tl-light tl-zoom"
           aria-label="Expand window"
-          onClick={() => void win.toggleMaximize()}
+          // Maximize only — no restore here (double-clicking the bar still
+          // toggles, so that's the way back to a windowed size).
+          onClick={() => void win.maximize()}
         >
           {lightsHover && (
             <svg className="tl-glyph" viewBox="0 0 10 10" aria-hidden="true">

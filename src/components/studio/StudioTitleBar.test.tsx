@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 const win = {
   close: vi.fn(),
   minimize: vi.fn(),
+  maximize: vi.fn(),
   toggleMaximize: vi.fn(),
 };
 vi.mock("@tauri-apps/api/window", () => ({
@@ -33,9 +34,9 @@ describe("StudioTitleBar", () => {
     await userEvent.click(screen.getByRole("button", { name: /minimize window/i }));
     expect(win.minimize).toHaveBeenCalledTimes(1);
 
-    // Green is "expand" — a zoom for now (toggleMaximize), not native fullscreen.
+    // Green is "expand" — maximize only (double-clicking the bar handles restore).
     await userEvent.click(screen.getByRole("button", { name: /expand window/i }));
-    expect(win.toggleMaximize).toHaveBeenCalledTimes(1);
+    expect(win.maximize).toHaveBeenCalledTimes(1);
   });
 
   it("renames the title inline: click → edit → Enter commits", async () => {

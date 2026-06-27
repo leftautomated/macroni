@@ -21,6 +21,9 @@ export function StudioEditor() {
   const [loop, setLoop] = useState<LoopRegion | null>(null);
   // Recording id armed for delete (first click); a second click confirms.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // The player portals its transport controls into this bottom-panel node, so
+  // the top stays just the clip and the bottom holds the controls + events.
+  const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -188,17 +191,19 @@ export function StudioEditor() {
                 onTimeUpdate={sync.onVideoTime}
                 onReplay={() => handleReplay(selected.id)}
                 loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
+                controlsHost={controlsHost}
               />
             </div>
-            {/* Bottom: all the events */}
+            {/* Bottom: transport controls + all the events */}
             <div
               style={{
                 flexShrink: 0,
-                padding: "14px 24px 18px",
+                padding: "12px 24px 18px",
                 borderTop: "1px solid rgba(255,255,255,0.08)",
                 background: "rgba(20,20,28,0.55)",
               }}
             >
+              <div ref={setControlsHost} style={{ marginBottom: 14 }} />
               <StudioTimeline
                 events={selected.events}
                 startMs={sync.startMs}

@@ -165,39 +165,50 @@ export function StudioEditor() {
         }
       />
 
-      {/* Player — full width now that the picker lives in the title bar. */}
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          minWidth: 0,
-          display: "flex",
-          flexDirection: "column",
-          padding: 24,
-          gap: 12,
-          boxSizing: "border-box",
-        }}
-      >
+      {/* Body — top is the clip, bottom is all the events. */}
+      <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column" }}>
         {selected && url ? (
           <>
-            <StudioPlayer
-              key={selected.id}
-              ref={playerRef}
-              src={url}
-              fps={selected.video?.fps ?? 30}
-              onTimeUpdate={sync.onVideoTime}
-              onReplay={() => handleReplay(selected.id)}
-              loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
-            />
-            <StudioTimeline
-              events={selected.events}
-              startMs={sync.startMs}
-              durationMs={selected.video?.duration_ms ?? 0}
-              videoMs={sync.videoTimeMs}
-              onSeekSeconds={(s) => playerRef.current?.seek(s)}
-              loop={loop}
-              onLoopChange={setLoop}
-            />
+            {/* Top: the clip */}
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                padding: 24,
+                boxSizing: "border-box",
+              }}
+            >
+              <StudioPlayer
+                key={selected.id}
+                ref={playerRef}
+                src={url}
+                fps={selected.video?.fps ?? 30}
+                onTimeUpdate={sync.onVideoTime}
+                onReplay={() => handleReplay(selected.id)}
+                loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
+              />
+            </div>
+            {/* Bottom: all the events */}
+            <div
+              style={{
+                flexShrink: 0,
+                padding: "14px 24px 18px",
+                borderTop: "1px solid rgba(255,255,255,0.08)",
+                background: "rgba(20,20,28,0.55)",
+              }}
+            >
+              <StudioTimeline
+                events={selected.events}
+                startMs={sync.startMs}
+                durationMs={selected.video?.duration_ms ?? 0}
+                videoMs={sync.videoTimeMs}
+                onSeekSeconds={(s) => playerRef.current?.seek(s)}
+                loop={loop}
+                onLoopChange={setLoop}
+              />
+            </div>
           </>
         ) : (
           <div
@@ -208,6 +219,8 @@ export function StudioEditor() {
               justifyContent: "center",
               fontSize: 14,
               color: "rgba(255,255,255,0.4)",
+              padding: 24,
+              textAlign: "center",
             }}
           >
             {!loaded

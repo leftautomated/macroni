@@ -74,6 +74,10 @@ export function StudioTimeline({
   const scrollRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ downX: number; downMs: number; moved: boolean } | null>(null);
+  // Whether the view should keep the playhead in sight. The user scrolling
+  // turns it off (so playback doesn't yank the view back); clicking/seeking or
+  // loading another clip turns it back on.
+  const follow = useRef(true);
   const [secondsVisible, setSecondsVisible] = useState(DEFAULT_SECONDS_VISIBLE);
 
   const dur = Math.max(1, durationMs);
@@ -92,7 +96,7 @@ export function StudioTimeline({
   // drifts out of the comfortable middle band.
   useEffect(() => {
     const scroller = scrollRef.current;
-    if (!scroller) return;
+    if (!scroller || !follow.current) return;
     const full = scroller.scrollWidth;
     const view = scroller.clientWidth;
     if (full <= view + 1) return;
@@ -102,6 +106,11 @@ export function StudioTimeline({
       scroller.scrollLeft = Math.max(0, Math.min(full - view, x - view / 2));
     }
   }, [playMs, dur, secondsVisible]);
+
+  // Re-engage follow when a different recording loads.
+  useEffect(() => {
+    follow.current = true;
+  }, [durationMs, startMs]);
 
   // Zoom slider maps log-linearly: left = whole recording, right = most zoomed-in.
   const logMin = Math.log(MIN_SECONDS_VISIBLE);
@@ -134,6 +143,8 @@ export function StudioTimeline({
     const d = drag.current;
     drag.current = null;
     if (!d) return;
+    // Interacting with the track re-engages playhead-follow.
+    follow.current = true;
     if (d.moved) {
       onSeekSeconds(Math.min(d.downMs, msAt(e.clientX)) / 1000);
     } else {
@@ -289,7 +300,15 @@ export function StudioTimeline({
         ))}
       </div>
 
-      <div className="tl-scroll" ref={scrollRef}>
+      <div
+        className="tl-scroll"
+        ref={scrollRef}
+        onWheel={() => {
+          // The user is navigating the timeline — stop pulling the view back to
+          // the playhead until they click/seek again.
+          follow.current = false;
+        }}
+      >
         <div
           ref={trackRef}
           className="tl-track"

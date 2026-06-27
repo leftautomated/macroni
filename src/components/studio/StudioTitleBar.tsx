@@ -6,6 +6,8 @@ interface StudioTitleBarProps {
   title: string;
   /** Content rendered just right of the traffic lights (e.g. the recordings menu). */
   left?: ReactNode;
+  /** Content pinned to the far right of the bar (e.g. the settings gear). */
+  right?: ReactNode;
   /** When true, clicking the title lets the user rename it inline. */
   editable?: boolean;
   /** Commit a renamed title (trimmed, non-empty, changed). */
@@ -20,7 +22,13 @@ interface StudioTitleBarProps {
  * (zoom) rather than the native fullscreen arrows — a smooth in-window
  * fullscreen can replace plain maximize later.
  */
-export function StudioTitleBar({ title, left, editable, onTitleChange }: StudioTitleBarProps) {
+export function StudioTitleBar({
+  title,
+  left,
+  right,
+  editable,
+  onTitleChange,
+}: StudioTitleBarProps) {
   const win = useMemo(() => getCurrentWindow(), []);
   const [focused, setFocused] = useState(true);
   // Reveal the glyphs while hovering the cluster. Driven by JS pointer events,
@@ -107,6 +115,7 @@ export function StudioTitleBar({ title, left, editable, onTitleChange }: StudioT
         }
         .tl-lights { display: flex; align-items: center; gap: 8px; }
         .tl-left { display: flex; align-items: center; margin-left: 8px; }
+        .tl-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
         .tl-light {
           width: 12px; height: 12px; padding: 0;
           border: none; border-radius: 50%;
@@ -218,6 +227,12 @@ export function StudioTitleBar({ title, left, editable, onTitleChange }: StudioT
       {left && (
         <div className="tl-left" onDoubleClick={(e) => e.stopPropagation()}>
           {left}
+        </div>
+      )}
+
+      {right && (
+        <div className="tl-right" onDoubleClick={(e) => e.stopPropagation()}>
+          {right}
         </div>
       )}
 

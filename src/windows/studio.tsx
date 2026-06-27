@@ -1,7 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { StudioEditor } from "@/components/studio/StudioEditor";
+import { ThemeProvider } from "@/components/theme-provider";
 import { initObservability, logEvent } from "@/lib/observability";
+import "../index.css";
 
 initObservability("studio");
 
@@ -39,8 +41,10 @@ for (const el of [document.documentElement, document.body]) {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <React.Profiler id="studio" onRender={onRender}>
-      <StudioEditor />
-    </React.Profiler>
+    <ThemeProvider defaultTheme="dark" storageKey="macroni-ui-theme">
+      <React.Profiler id="studio" onRender={onRender}>
+        <StudioEditor />
+      </React.Profiler>
+    </ThemeProvider>
   </React.StrictMode>,
 );

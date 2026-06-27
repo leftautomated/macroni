@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Settings } from "lucide-react";
+import { SettingsTab } from "@/components/SettingsTab";
 import { RecordingsMenu } from "@/components/studio/RecordingsMenu";
 import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
 import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
@@ -24,6 +26,8 @@ export function StudioEditor() {
   // The player portals its transport controls into this bottom-panel node, so
   // the top stays just the clip and the bottom holds the controls + events.
   const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
+  // Settings view (capture/theme/permissions), toggled by the title-bar gear.
+  const [showSettings, setShowSettings] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -150,27 +154,50 @@ export function StudioEditor() {
         *::-webkit-scrollbar-track { background: transparent; }
         *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
         *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.32); background-clip: padding-box; }
+        .studio-gear { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 24px; padding: 0; border: none; border-radius: 6px; background: transparent; color: rgba(255,255,255,0.65); cursor: pointer; transition: background 120ms ease, color 120ms ease; }
+        .studio-gear:hover, .studio-gear.active { background: rgba(255,255,255,0.1); color: #fff; }
       `}</style>
 
       <StudioTitleBar
-        title={title}
-        editable={!!selected}
+        title={showSettings ? "Settings" : title}
+        editable={!showSettings && !!selected}
         onTitleChange={handleRename}
         left={
           <RecordingsMenu
             recordings={recordings}
             selectedId={selectedId}
             confirmDeleteId={confirmDeleteId}
-            onSelect={setSelectedId}
+            onSelect={(id) => {
+              setSelectedId(id);
+              setShowSettings(false);
+            }}
             onDeleteClick={handleDeleteClick}
             onOpen={() => void load()}
           />
         }
+        right={
+          <button
+            type="button"
+            className={`studio-gear${showSettings ? " active" : ""}`}
+            aria-label="Settings"
+            title="Settings"
+            aria-pressed={showSettings}
+            onClick={() => setShowSettings((s) => !s)}
+          >
+            <Settings size={15} />
+          </button>
+        }
       />
 
-      {/* Body — top is the clip, bottom is all the events. */}
+      {/* Body — settings view, else top is the clip and bottom is all the events. */}
       <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        {selected && url ? (
+        {showSettings ? (
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 24 }}>
+            <div style={{ maxWidth: 560, margin: "0 auto" }}>
+              <SettingsTab />
+            </div>
+          </div>
+        ) : selected && url ? (
           <>
             {/* Top: the clip */}
             <div

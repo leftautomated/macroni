@@ -1,9 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface StudioTitleBarProps {
   /** Centered label — the active recording's name, or a fallback. */
   title: string;
+  /** Content rendered just right of the traffic lights (e.g. the recordings menu). */
+  left?: ReactNode;
+  /** When true, clicking the title lets the user rename it inline. */
+  editable?: boolean;
+  /** Commit a renamed title (trimmed, non-empty, changed). */
+  onTitleChange?: (next: string) => void;
 }
 
 /**
@@ -14,13 +20,51 @@ interface StudioTitleBarProps {
  * (zoom) rather than the native fullscreen arrows — a smooth in-window
  * fullscreen can replace plain maximize later.
  */
-export function StudioTitleBar({ title }: StudioTitleBarProps) {
+export function StudioTitleBar({ title, left, editable, onTitleChange }: StudioTitleBarProps) {
   const win = useMemo(() => getCurrentWindow(), []);
   const [focused, setFocused] = useState(true);
   // Reveal the glyphs while hovering the cluster. Driven by JS pointer events,
   // not CSS :hover — WKWebView frequently fails to clear :hover when the pointer
   // leaves (especially next to a drag region), leaving the - and + glyphs stuck.
   const [lightsHover, setLightsHover] = useState(false);
+  // Inline title rename.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Leaving edit mode whenever the active title changes (rename committed, or a
+  // different recording was selected) keeps the input from showing a stale name.
+  useEffect(() => {
+    setEditing(false);
+  }, [title]);
+
+  // Focus + select the text the moment edit mode opens, so the user can just type.
+  useEffect(() => {
+    if (editing) {
+      const el = inputRef.current;
+      el?.focus();
+      el?.select();
+    }
+  }, [editing]);
+
+  const endedRef = useRef(false);
+  const startEdit = () => {
+    if (!editable) return;
+    setDraft(title);
+    endedRef.current = false;
+    setEditing(true);
+  };
+  // Guarded so Enter/Escape (which unmount the input and may also fire onBlur)
+  // finalize the edit exactly once.
+  const endEdit = (commit: boolean) => {
+    if (endedRef.current) return;
+    endedRef.current = true;
+    setEditing(false);
+    if (commit) {
+      const next = draft.trim();
+      if (next && next !== title) onTitleChange?.(next);
+    }
+  };
 
   // Dim the lights when the window loses focus, like native macOS. DOM
   // focus/blur tracks the webview window and needs no extra Tauri permission.
@@ -49,6 +93,8 @@ export function StudioTitleBar({ title }: StudioTitleBarProps) {
       <style>{`
         .studio-titlebar {
           position: relative;
+          /* Above the content row so the recordings dropdown isn't covered. */
+          z-index: 20;
           flex-shrink: 0;
           height: 40px;
           display: flex;
@@ -59,6 +105,7 @@ export function StudioTitleBar({ title }: StudioTitleBarProps) {
           user-select: none;
         }
         .tl-lights { display: flex; align-items: center; gap: 8px; }
+        .tl-left { display: flex; align-items: center; margin-left: 8px; }
         .tl-light {
           width: 12px; height: 12px; padding: 0;
           border: none; border-radius: 50%;
@@ -84,10 +131,38 @@ export function StudioTitleBar({ title }: StudioTitleBarProps) {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+          font-family: inherit;
           font-size: 13px;
           font-weight: 500;
           color: rgba(255,255,255,0.78);
+          border: none;
+          background: transparent;
           pointer-events: none;
+        }
+        .studio-title.editable {
+          pointer-events: auto;
+          cursor: text;
+          border-radius: 5px;
+          padding: 2px 8px;
+          transition: background 120ms ease;
+        }
+        .studio-title.editable:hover { background: rgba(255,255,255,0.08); }
+        .studio-title-input {
+          position: absolute;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 280px;
+          max-width: 58%;
+          text-align: center;
+          font-family: inherit;
+          font-size: 13px;
+          font-weight: 500;
+          color: #fff;
+          background: rgba(255,255,255,0.1);
+          border: 1px solid rgba(99,102,241,0.6);
+          border-radius: 5px;
+          padding: 2px 8px;
+          outline: none;
         }
         .studio-titlebar.inactive .studio-title { color: rgba(255,255,255,0.4); }
       `}</style>
@@ -137,7 +212,41 @@ export function StudioTitleBar({ title }: StudioTitleBarProps) {
         </button>
       </div>
 
-      <div className="studio-title">{title}</div>
+      {left && (
+        <div className="tl-left" onDoubleClick={(e) => e.stopPropagation()}>
+          {left}
+        </div>
+      )}
+
+      {editing ? (
+        <input
+          ref={inputRef}
+          className="studio-title-input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => endEdit(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") endEdit(true);
+            else if (e.key === "Escape") endEdit(false);
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+        />
+      ) : editable ? (
+        <button
+          type="button"
+          className="studio-title editable"
+          title="Click to rename"
+          onClick={(e) => {
+            e.stopPropagation();
+            startEdit();
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          {title}
+        </button>
+      ) : (
+        <div className="studio-title">{title}</div>
+      )}
     </div>
   );
 }

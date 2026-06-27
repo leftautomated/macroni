@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { Maximize, Pause, Play, Repeat, StepBack, StepForward } from "lucide-react";
+import { Pause, Play, Repeat, StepBack, StepForward } from "lucide-react";
 import { logEvent } from "@/lib/observability";
 
 export interface StudioPlayerHandle {
@@ -36,7 +36,6 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -128,13 +127,6 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
 
   const toggleLoop = useCallback(() => setLoop((l) => !l), []);
 
-  const toggleFullscreen = useCallback(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void el.requestFullscreen?.();
-  }, []);
-
   const seekFromClientX = useCallback((clientX: number) => {
     const bar = barRef.current;
     const v = videoRef.current;
@@ -148,7 +140,6 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
 
   return (
     <div
-      ref={wrapRef}
       style={{
         flex: 1,
         minHeight: 0,
@@ -227,9 +218,6 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           style={{
             maxWidth: "100%",
             maxHeight: "100%",
-            borderRadius: 8,
-            boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
-            background: "#000",
             opacity: ready ? 1 : 0,
             transition: "opacity 180ms ease",
             cursor: "pointer",
@@ -349,9 +337,6 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           onClick={toggleLoop}
         >
           <Repeat size={16} />
-        </button>
-        <button type="button" className="sp-btn" title="Fullscreen" onClick={toggleFullscreen}>
-          <Maximize size={16} />
         </button>
         <button
           type="button"

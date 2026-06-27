@@ -1,38 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { RecordingsMenu } from "@/components/studio/RecordingsMenu";
 import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
 import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
 import { StudioTitleBar } from "@/components/studio/StudioTitleBar";
 import { usePlaybackSync } from "@/hooks/usePlaybackSync";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import { invoke, logEvent } from "@/lib/observability";
+import { recordingTitle } from "@/lib/recording-format";
 import type { Recording } from "@/types";
 
-// Simplest studio: list recordings and play the selected one. Effects
+// Studio: pick a recording from the title-bar folder menu and play it. Effects
 // (background/framing/zoom) come later, one quality-checked feature at a time.
-
-function formatWhen(ms: number): string {
-  const d = new Date(ms);
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatDuration(ms: number): string {
-  const totalSec = Math.max(0, Math.round(ms / 1000));
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
 
 export function StudioEditor() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const selectedRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<StudioPlayerHandle>(null);
   // Loop region from the timeline, in video-relative ms (null = no loop).
   const [loop, setLoop] = useState<LoopRegion | null>(null);
@@ -77,17 +60,12 @@ export function StudioEditor() {
     () => recordings.find((r) => r.id === selectedId) ?? null,
     [recordings, selectedId],
   );
-  const title = selected
-    ? selected.name && selected.name !== "Untitled"
-      ? selected.name
-      : formatWhen(selected.created_at)
-    : "Studio";
+  const title = selected ? recordingTitle(selected) : "Studio";
   const { url } = useVideoAssetUrl(selected?.video);
   const sync = usePlaybackSync({ events: selected?.events ?? [], video: selected?.video });
 
-  // Keep the active clip visible in the list, and clear the loop, on switch.
+  // Clear the loop and any armed delete when switching clips.
   useEffect(() => {
-    selectedRef.current?.scrollIntoView({ block: "nearest" });
     setLoop(null);
     setConfirmDeleteId(null);
   }, [selectedId]);
@@ -129,6 +107,23 @@ export function StudioEditor() {
     );
   }, []);
 
+  // Rename the selected recording inline from the title bar.
+  const handleRename = useCallback(
+    async (name: string) => {
+      if (!selectedId) return;
+      try {
+        const updated = await invoke<Recording>("update_recording_name", { id: selectedId, name });
+        setRecordings((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
+      } catch (e) {
+        logEvent("error", "studio", "rename_recording_failed", {
+          error: e,
+          fields: { recordingId: selectedId },
+        });
+      }
+    },
+    [selectedId],
+  );
+
   return (
     <div
       style={{
@@ -144,59 +139,6 @@ export function StudioEditor() {
       }}
     >
       <style>{`
-        .studio-refresh {
-          border: 1px solid rgba(255,255,255,0.15);
-          background: transparent;
-          color: #cbd5e1;
-          border-radius: 6px;
-          padding: 2px 8px;
-          font-size: 12px;
-          cursor: pointer;
-          transition: background 120ms ease, border-color 120ms ease;
-        }
-        .studio-refresh:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); }
-        .rec-row {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          border: 1px solid transparent;
-          border-radius: 8px;
-          margin-bottom: 4px;
-          padding-right: 6px;
-          transition: background 120ms ease, border-color 120ms ease;
-        }
-        .rec-row:hover { background: rgba(255,255,255,0.05); }
-        .rec-row.sel { border-color: #6366f1; background: rgba(99,102,241,0.18); }
-        .rec-row.sel:hover { background: rgba(99,102,241,0.22); }
-        .rec-select {
-          flex: 1;
-          min-width: 0;
-          text-align: left;
-          border: none;
-          background: transparent;
-          color: inherit;
-          border-radius: 8px;
-          padding: 10px 12px;
-          cursor: pointer;
-        }
-        .rec-del {
-          flex-shrink: 0;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          border: none;
-          background: transparent;
-          color: rgba(255,255,255,0.4);
-          border-radius: 6px;
-          padding: 4px;
-          cursor: pointer;
-          opacity: 0;
-          transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
-        }
-        .rec-row:hover .rec-del,
-        .rec-row.sel .rec-del { opacity: 1; }
-        .rec-del:hover { color: #f87171; background: rgba(248,113,113,0.14); }
-        .rec-del.armed { opacity: 1; color: #f87171; background: rgba(248,113,113,0.22); }
         /* Themed scrollbars for the whole studio window (universal selector,
            like the main app's index.css — WKWebView honors ::-webkit-scrollbar
            this way). Lives here in the always-mounted root component. */
@@ -207,125 +149,74 @@ export function StudioEditor() {
         *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.32); background-clip: padding-box; }
       `}</style>
 
-      <StudioTitleBar title={title} />
+      <StudioTitleBar
+        title={title}
+        editable={!!selected}
+        onTitleChange={handleRename}
+        left={
+          <RecordingsMenu
+            recordings={recordings}
+            selectedId={selectedId}
+            confirmDeleteId={confirmDeleteId}
+            onSelect={setSelectedId}
+            onDeleteClick={handleDeleteClick}
+            onOpen={() => void load()}
+          />
+        }
+      />
 
-      <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-        {/* Recordings list */}
-        <div
-          style={{
-            width: 260,
-            flexShrink: 0,
-            height: "100%",
-            display: "flex",
-            flexDirection: "column",
-            borderRight: "1px solid rgba(255,255,255,0.08)",
-            background: "rgba(20,20,28,0.96)",
-          }}
-        >
+      {/* Player — full width now that the picker lives in the title bar. */}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          padding: 24,
+          gap: 12,
+          boxSizing: "border-box",
+        }}
+      >
+        {selected && url ? (
+          <>
+            <StudioPlayer
+              key={selected.id}
+              ref={playerRef}
+              src={url}
+              fps={selected.video?.fps ?? 30}
+              onTimeUpdate={sync.onVideoTime}
+              onReplay={() => handleReplay(selected.id)}
+              loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
+            />
+            <StudioTimeline
+              events={selected.events}
+              startMs={sync.startMs}
+              durationMs={selected.video?.duration_ms ?? 0}
+              videoMs={sync.videoTimeMs}
+              onSeekSeconds={(s) => playerRef.current?.seek(s)}
+              loop={loop}
+              onLoopChange={setLoop}
+            />
+          </>
+        ) : (
           <div
             style={{
+              flex: 1,
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between",
-              padding: "14px 14px 10px",
+              justifyContent: "center",
+              fontSize: 14,
+              color: "rgba(255,255,255,0.4)",
             }}
           >
-            <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: 0.3 }}>RECORDINGS</span>
-            <button
-              type="button"
-              onClick={() => void load()}
-              title="Refresh"
-              className="studio-refresh"
-            >
-              Refresh
-            </button>
+            {!loaded
+              ? "Loading…"
+              : recordings.length === 0
+                ? "No recordings yet. Record one in the main window, then open the folder to pick it."
+                : "Select a recording from the folder menu."}
           </div>
-
-          <div style={{ flex: 1, overflowY: "auto", padding: "0 8px 8px" }}>
-            {loaded && recordings.length === 0 && (
-              <div style={{ padding: 14, fontSize: 13, color: "rgba(255,255,255,0.45)" }}>
-                No recordings yet. Record one in the main window, then come back.
-              </div>
-            )}
-            {recordings.map((r) => {
-              const isSel = r.id === selectedId;
-              return (
-                <div
-                  key={r.id}
-                  ref={isSel ? selectedRef : null}
-                  className={`rec-row${isSel ? " sel" : ""}`}
-                >
-                  <button type="button" className="rec-select" onClick={() => setSelectedId(r.id)}>
-                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
-                      {r.name && r.name !== "Untitled" ? r.name : formatWhen(r.created_at)}
-                    </div>
-                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>
-                      {r.video ? formatDuration(r.video.duration_ms) : "—"} · {r.events.length}{" "}
-                      actions
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    className={`rec-del${confirmDeleteId === r.id ? " armed" : ""}`}
-                    title={confirmDeleteId === r.id ? "Click again to delete" : "Delete recording"}
-                    onClick={() => handleDeleteClick(r.id)}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Player */}
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            display: "flex",
-            flexDirection: "column",
-            padding: 24,
-            gap: 12,
-            boxSizing: "border-box",
-          }}
-        >
-          {selected && url ? (
-            <>
-              <StudioPlayer
-                key={selected.id}
-                ref={playerRef}
-                src={url}
-                fps={selected.video?.fps ?? 30}
-                onTimeUpdate={sync.onVideoTime}
-                onReplay={() => handleReplay(selected.id)}
-                loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
-              />
-              <StudioTimeline
-                events={selected.events}
-                startMs={sync.startMs}
-                durationMs={selected.video?.duration_ms ?? 0}
-                videoMs={sync.videoTimeMs}
-                onSeekSeconds={(s) => playerRef.current?.seek(s)}
-                loop={loop}
-                onLoopChange={setLoop}
-              />
-            </>
-          ) : (
-            <div
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 14,
-                color: "rgba(255,255,255,0.4)",
-              }}
-            >
-              {loaded ? "Select a recording to play." : "Loading…"}
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );

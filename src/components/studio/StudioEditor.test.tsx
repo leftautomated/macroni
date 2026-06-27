@@ -57,8 +57,6 @@ describe("StudioEditor (recordings browser)", () => {
   beforeEach(() => {
     fake.recordings = [];
     vi.clearAllMocks();
-    // jsdom doesn't implement scrollIntoView; the selection effect calls it.
-    Element.prototype.scrollIntoView = vi.fn();
   });
 
   it("shows the empty state when there are no recordings", async () => {
@@ -68,15 +66,16 @@ describe("StudioEditor (recordings browser)", () => {
     });
   });
 
-  it("lists recordings that have video", async () => {
+  it("lists recordings in the folder menu", async () => {
     fake.recordings = [makeRecording("1000", "Older clip"), makeRecording("2000", "Newer clip")];
     render(<StudioEditor />);
-    // "Newer clip" is auto-selected, so it shows in both the list and the title
-    // bar — assert presence without requiring a unique match.
+    // Newest auto-selected → its name shows in the title bar.
     await waitFor(() => {
       expect(screen.getAllByText("Newer clip").length).toBeGreaterThan(0);
     });
-    expect(screen.getByText("Older clip")).toBeInTheDocument();
+    // Open the folder menu to reveal the full list.
+    await userEvent.click(screen.getByRole("button", { name: /recordings/i }));
+    expect(await screen.findByText("Older clip")).toBeInTheDocument();
   });
 
   it("hands the selected recording to the main window for replay", async () => {
@@ -101,8 +100,10 @@ describe("StudioEditor (recordings browser)", () => {
     fake.recordings = [makeRecording("1000", "Alpha"), makeRecording("2000", "Beta")];
 
     render(<StudioEditor />);
+    // Alpha isn't the auto-selected clip, so open the folder menu to reach it.
+    await userEvent.click(await screen.findByRole("button", { name: /recordings/i }));
     const alpha = await screen.findByText("Alpha");
-    const row = alpha.closest(".rec-row") as HTMLElement;
+    const row = alpha.closest(".rm-row") as HTMLElement;
     const deleteButton = within(row).getByRole("button", { name: /delete recording/i });
 
     // First click arms; the second confirms the delete.

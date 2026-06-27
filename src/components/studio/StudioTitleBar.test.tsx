@@ -37,4 +37,32 @@ describe("StudioTitleBar", () => {
     await userEvent.click(screen.getByRole("button", { name: /expand window/i }));
     expect(win.toggleMaximize).toHaveBeenCalledTimes(1);
   });
+
+  it("renames the title inline: click → edit → Enter commits", async () => {
+    const onTitleChange = vi.fn();
+    render(<StudioTitleBar title="Old name" editable onTitleChange={onTitleChange} />);
+
+    // Click the title to start editing; an input takes over with the text.
+    await userEvent.click(screen.getByRole("button", { name: "Old name" }));
+    const input = screen.getByRole("textbox");
+    expect(input).toHaveValue("Old name");
+
+    await userEvent.clear(input);
+    await userEvent.type(input, "New name{Enter}");
+    expect(onTitleChange).toHaveBeenCalledWith("New name");
+  });
+
+  it("does not commit on Escape, and is not editable without the flag", async () => {
+    const onTitleChange = vi.fn();
+    const { rerender } = render(
+      <StudioTitleBar title="Keep me" editable onTitleChange={onTitleChange} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Keep me" }));
+    await userEvent.type(screen.getByRole("textbox"), " edited{Escape}");
+    expect(onTitleChange).not.toHaveBeenCalled();
+
+    // Without `editable`, the title is plain text (no button to click).
+    rerender(<StudioTitleBar title="Studio" />);
+    expect(screen.queryByRole("button", { name: "Studio" })).not.toBeInTheDocument();
+  });
 });

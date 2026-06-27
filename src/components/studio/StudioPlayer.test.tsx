@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StudioPlayer } from "./StudioPlayer";
 
@@ -20,10 +20,11 @@ describe("StudioPlayer", () => {
     expect(onReplay).toHaveBeenCalledTimes(1);
   });
 
-  it("cycles playback speed on click", async () => {
+  it("changes playback speed via the slider", () => {
     render(<StudioPlayer src="asset://clip.mp4" fps={30} onTimeUpdate={noop} onReplay={noop} />);
     expect(screen.getByText("1×")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "1×" }));
+    const slider = screen.getByRole("slider", { name: /playback speed/i });
+    fireEvent.change(slider, { target: { value: "1.5" } });
     expect(screen.getByText("1.5×")).toBeInTheDocument();
   });
 });

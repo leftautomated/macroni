@@ -15,9 +15,17 @@ interface StudioPlayerProps {
   loopRegion?: { a: number; b: number } | null;
 }
 
-// 0.25× lets you step through dense mouse-move runs (~125Hz capture) frame by
-// frame — at 1× there are more moves per second than the screen can repaint.
-const SPEEDS = [0.25, 0.5, 1, 1.5, 2] as const;
+// Playback-speed slider bounds. 0.25× lets you crawl through dense mouse-move
+// runs (~125Hz capture) — at 1× there are more moves per second than the screen
+// can repaint. The 0.25 step keeps the values clean (0.25, 0.5, … 2).
+const SPEED_MIN = 0.25;
+const SPEED_MAX = 2;
+const SPEED_STEP = 0.25;
+
+/** Speed label without trailing zeros: 1 → "1×", 1.25 → "1.25×". */
+function fmtRate(r: number): string {
+  return `${Number.parseFloat(r.toFixed(2))}×`;
+}
 
 function fmtTime(s: number): string {
   if (!Number.isFinite(s) || s < 0) return "0:00.00";
@@ -41,12 +49,11 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [speedIdx, setSpeedIdx] = useState(2);
+  const [speed, setSpeed] = useState(1);
   const [loop, setLoop] = useState(true);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const rate = SPEEDS[speedIdx];
 
   useImperativeHandle(
     ref,
@@ -119,12 +126,11 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     [fps],
   );
 
-  const cycleSpeed = useCallback(() => {
-    const next = (speedIdx + 1) % SPEEDS.length;
-    setSpeedIdx(next);
+  const changeSpeed = useCallback((value: number) => {
+    setSpeed(value);
     const v = videoRef.current;
-    if (v) v.playbackRate = SPEEDS[next];
-  }, [speedIdx]);
+    if (v) v.playbackRate = value;
+  }, []);
 
   const toggleLoop = useCallback(() => setLoop((l) => !l), []);
 
@@ -138,6 +144,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   }, []);
 
   const frac = duration > 0 ? current / duration : 0;
+  const speedFrac = (speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN);
 
   return (
     <div
@@ -159,6 +166,9 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           .sp-play:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.5); }
           .sp-text { font-size:12px; font-variant-numeric: tabular-nums; color:rgba(255,255,255,0.6); }
           .sp-time { font-size:13px; font-variant-numeric: tabular-nums; color:rgba(255,255,255,0.55); }
+          .sp-slider { -webkit-appearance:none; appearance:none; width:84px; height:4px; border-radius:2px; background:rgba(255,255,255,0.18); cursor:pointer; outline:none; }
+          .sp-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:12px; height:12px; border-radius:50%; background:#a5b4fc; cursor:pointer; transition: background 120ms ease; }
+          .sp-slider::-webkit-slider-thumb:hover { background:#c7d2fe; }
           .sp-replay { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(99,102,241,0.5); background:rgba(99,102,241,0.18); color:#e5e7eb; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; transition: background 120ms ease, border-color 120ms ease; }
           .sp-replay:hover { background:rgba(99,102,241,0.28); border-color:#6366f1; }
         `}</style>
@@ -303,13 +313,25 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
       {/* Controls — a centered cluster of `current ⏮ ▶ ⏭ total`, with the
           secondary actions (speed/loop left, replay right) at the edges. */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-        {/* Left: speed + loop */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, justifySelf: "start" }}>
-          <button type="button" className="sp-btn" title="Playback speed" onClick={cycleSpeed}>
-            <span className="sp-text" style={{ color: "#cbd5e1" }}>
-              {rate}×
-            </span>
-          </button>
+        {/* Left: speed slider + loop */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, justifySelf: "start" }}>
+          <input
+            type="range"
+            className="sp-slider"
+            style={{
+              background: `linear-gradient(to right, #6366f1 ${speedFrac * 100}%, rgba(255,255,255,0.18) ${speedFrac * 100}%)`,
+            }}
+            min={SPEED_MIN}
+            max={SPEED_MAX}
+            step={SPEED_STEP}
+            value={speed}
+            onChange={(e) => changeSpeed(Number(e.target.value))}
+            title="Playback speed"
+            aria-label="Playback speed"
+          />
+          <span className="sp-text" style={{ minWidth: 36, color: "#cbd5e1", textAlign: "right" }}>
+            {fmtRate(speed)}
+          </span>
           <button
             type="button"
             className={`sp-btn${loop ? " on" : ""}`}

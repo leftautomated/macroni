@@ -88,7 +88,8 @@ export function StudioTitleBar({ title, left, editable, onTitleChange }: StudioT
     <div
       data-tauri-drag-region
       className={`studio-titlebar${focused ? "" : " inactive"}`}
-      onDoubleClick={() => void win.toggleMaximize()}
+      // Note: Tauri's drag-region script already toggles maximize on a
+      // double-click of this element — adding our own here would toggle twice.
     >
       <style>{`
         .studio-titlebar {

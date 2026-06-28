@@ -110,7 +110,7 @@ pub(crate) fn read_target_rgba(
     let bytes_per_pixel: u32 = 4; // Rgba8Unorm
     let unpadded_bytes_per_row = w * bytes_per_pixel;
     let align = COPY_BYTES_PER_ROW_ALIGNMENT; // 256
-    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
+    let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
 
     let buffer_size = (padded_bytes_per_row * h) as u64;
     let readback_buffer = device.create_buffer(&BufferDescriptor {

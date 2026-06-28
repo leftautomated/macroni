@@ -240,7 +240,7 @@ impl Mp4Encoder {
 /// `width` and `height` must both be even (H.264 requirement).
 fn rgba_to_i420(rgba: &[u8], width: usize, height: usize) -> Vec<u8> {
     debug_assert!(
-        width % 2 == 0 && height % 2 == 0,
+        width.is_multiple_of(2) && height.is_multiple_of(2),
         "rgba_to_i420 requires even dimensions"
     );
     debug_assert_eq!(rgba.len(), width * height * 4, "RGBA buffer size mismatch");

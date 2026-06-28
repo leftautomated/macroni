@@ -110,7 +110,5 @@ fn throughput_60_frames() {
     let elapsed = start.elapsed();
     let fps = frames_to_decode as f64 / elapsed.as_secs_f64();
 
-    println!(
-        "[throughput] decoded {frames_to_decode} frames in {elapsed:?} → {fps:.1} frames/sec"
-    );
+    println!("[throughput] decoded {frames_to_decode} frames in {elapsed:?} → {fps:.1} frames/sec");
 }

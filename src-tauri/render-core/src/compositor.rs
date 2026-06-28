@@ -133,12 +133,11 @@ impl Compositor {
             }],
         });
 
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("bg_pipeline_layout"),
-                bind_group_layouts: &[Some(&bind_group_layout)],
-                immediate_size: 0,
-            });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("bg_pipeline_layout"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("bg_pipeline"),
@@ -218,12 +217,7 @@ impl Compositor {
             } => BgUniform {
                 color0: rgba_to_f32(from),
                 color1: rgba_to_f32(to),
-                params: [
-                    1.0,
-                    angle_deg.to_radians(),
-                    out_w as f32,
-                    out_h as f32,
-                ],
+                params: [1.0, angle_deg.to_radians(), out_w as f32, out_h as f32],
             },
             // Wallpaper is handled by the early-return above; this branch is
             // defensive dead code — use a mid-gray solid fill so the library
@@ -404,8 +398,7 @@ impl Compositor {
         //                            u_max = (offset_x + out_w) / (img_w*s)
         //
         // We express these as the UV values at the four corners of the full-screen quad.
-        let scale =
-            (out_w as f32 / img_w as f32).max(out_h as f32 / img_h as f32);
+        let scale = (out_w as f32 / img_w as f32).max(out_h as f32 / img_h as f32);
         let scaled_w = img_w as f32 * scale;
         let scaled_h = img_h as f32 * scale;
         // Offset in *scaled* image pixels of the top-left of the output rect.
@@ -609,11 +602,7 @@ impl Compositor {
     ///
     /// # Errors
     /// Returns [`GpuError::Readback`] if the GPU readback fails.
-    pub fn read_texture(
-        &self,
-        gpu: &Gpu,
-        texture: &wgpu::Texture,
-    ) -> Result<Vec<u8>, GpuError> {
+    pub fn read_texture(&self, gpu: &Gpu, texture: &wgpu::Texture) -> Result<Vec<u8>, GpuError> {
         let size = texture.size();
         read_target_rgba(gpu, texture, size.width, size.height)
     }
@@ -651,8 +640,7 @@ impl Compositor {
         // it back to CPU. The texture-producing path is shared with
         // [`Compositor::render_to_texture_handle`] so the surface (preview) path
         // can keep the texture handle instead of reading back.
-        let target =
-            self.render_to_texture_handle(gpu, framing, video, wallpaper, out_w, out_h)?;
+        let target = self.render_to_texture_handle(gpu, framing, video, wallpaper, out_w, out_h)?;
         read_target_rgba(gpu, &target, out_w, out_h)
     }
 
@@ -736,8 +724,9 @@ impl Compositor {
 
         // Uniform scale that fits the video within the available area.
         // Capped at 1.0: the compositor downscales to fit but never upscales.
-        let scale =
-            (avail_w / video.width as f32).min(avail_h / video.height as f32).min(1.0);
+        let scale = (avail_w / video.width as f32)
+            .min(avail_h / video.height as f32)
+            .min(1.0);
         let fit_w = video.width as f32 * scale;
         let fit_h = video.height as f32 * scale;
 
@@ -756,8 +745,8 @@ impl Compositor {
 
         let ndc_left = to_ndc_x(px_left);
         let ndc_right = to_ndc_x(px_right);
-        let ndc_top = to_ndc_y(px_top);   // larger NDC-y = top of screen
-        let ndc_bot = to_ndc_y(px_bot);   // smaller NDC-y = bottom of screen
+        let ndc_top = to_ndc_y(px_top); // larger NDC-y = top of screen
+        let ndc_bot = to_ndc_y(px_bot); // smaller NDC-y = bottom of screen
 
         // Two triangles (CCW) covering the fit rect: TL, BL, TR, TR, BL, BR
         // Each vertex: [pos_x, pos_y, uv_u, uv_v]
@@ -993,35 +982,34 @@ impl Compositor {
 
             // Alpha blending: src_alpha + (1 - src_alpha) * dst
             // Shadow writes (0,0,0,a); blends black at `a` over the background.
-            let shadow_pipeline =
-                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("shadow_pipeline"),
-                    layout: Some(&shadow_pipeline_layout),
-                    vertex: wgpu::VertexState {
-                        module: &shadow_shader,
-                        entry_point: Some("vs"),
-                        buffers: &[], // full-screen triangle, no vertex buffer
-                        compilation_options: Default::default(),
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shadow_shader,
-                        entry_point: Some("fs"),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: TextureFormat::Rgba8Unorm,
-                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                        compilation_options: Default::default(),
-                    }),
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleList,
-                        ..Default::default()
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    multiview_mask: None,
-                    cache: None,
-                });
+            let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("shadow_pipeline"),
+                layout: Some(&shadow_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shadow_shader,
+                    entry_point: Some("vs"),
+                    buffers: &[], // full-screen triangle, no vertex buffer
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shadow_shader,
+                    entry_point: Some("fs"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            });
 
             let shadow_view = bg_texture.create_view(&TextureViewDescriptor::default());
             let mut shadow_encoder = device.create_command_encoder(&CommandEncoderDescriptor {

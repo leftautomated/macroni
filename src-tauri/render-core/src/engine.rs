@@ -77,7 +77,11 @@ fn load_wallpaper(path: &str) -> Result<RgbaFrame, EngineError> {
         .into_rgba8();
     let width = img.width();
     let height = img.height();
-    Ok(RgbaFrame { width, height, data: img.into_raw() })
+    Ok(RgbaFrame {
+        width,
+        height,
+        data: img.into_raw(),
+    })
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────────
@@ -100,7 +104,11 @@ impl Engine {
     pub fn new(source: Box<dyn FrameSource>) -> Result<Self, EngineError> {
         let gpu = Gpu::headless()?;
         let compositor = Compositor::new(&gpu)?;
-        Ok(Self { gpu, compositor, source })
+        Ok(Self {
+            gpu,
+            compositor,
+            source,
+        })
     }
 
     /// Output pixel dimensions.
@@ -299,12 +307,11 @@ impl Engine {
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/quad.wgsl").into()),
         });
 
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("blit_pipeline_layout"),
-                bind_group_layouts: &[Some(&bgl)],
-                immediate_size: 0,
-            });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("blit_pipeline_layout"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
 
         // Fullscreen quad covering NDC [-1,1]; UV (0,0) top-left → (1,1) bottom.
         // Matches the offscreen texture's row-major top-left origin.

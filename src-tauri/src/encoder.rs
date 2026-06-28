@@ -305,14 +305,17 @@ fn bgra_to_i420_scaled(
     let (y_plane, uv_planes) = out.split_at_mut(y_size);
     let (u_plane, v_plane) = uv_planes.split_at_mut(uv_size);
 
-    y_plane.par_chunks_mut(dst_w).enumerate().for_each(|(dy, row)| {
-        let (y0, y1) = yspans[dy];
-        for (dx, yv) in row.iter_mut().enumerate() {
-            let (x0, x1) = xspans[dx];
-            let (b, g, r) = block_mean(x0, x1, y0, y1);
-            *yv = (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16).clamp(0, 255) as u8;
-        }
-    });
+    y_plane
+        .par_chunks_mut(dst_w)
+        .enumerate()
+        .for_each(|(dy, row)| {
+            let (y0, y1) = yspans[dy];
+            for (dx, yv) in row.iter_mut().enumerate() {
+                let (x0, x1) = xspans[dx];
+                let (b, g, r) = block_mean(x0, x1, y0, y1);
+                *yv = (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16).clamp(0, 255) as u8;
+            }
+        });
 
     // Chroma is subsampled 2×, so each U/V pixel averages the source block under
     // the corresponding 2×2 destination-pixel quad.

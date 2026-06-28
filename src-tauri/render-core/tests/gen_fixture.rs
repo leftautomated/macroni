@@ -11,8 +11,8 @@
 fn red_bgra(n: usize) -> Vec<u8> {
     let mut v = vec![0u8; n * 4];
     for px in v.chunks_exact_mut(4) {
-        px[0] = 0;   // B
-        px[1] = 0;   // G
+        px[0] = 0; // B
+        px[1] = 0; // G
         px[2] = 255; // R
         px[3] = 255; // A
     }
@@ -163,7 +163,10 @@ fn generate_solid_mp4() {
         }
     }
 
-    assert!(!sps.is_empty() && !pps.is_empty(), "encoder must emit SPS/PPS");
+    assert!(
+        !sps.is_empty() && !pps.is_empty(),
+        "encoder must emit SPS/PPS"
+    );
     assert_eq!(encoded_frames.len(), 3, "expected 3 encoded frames");
 
     // --- mp4 muxer (mirrors encoder.rs finalize) ---

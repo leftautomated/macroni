@@ -28,7 +28,9 @@ fn export_preserves_color_no_rb_swap() {
     let mut doc = render_core::doc::ProjectDoc::new_default("solid.mp4".into());
     doc.framing.padding_px = 2.0;
     doc.framing.border_radius_px = 0.0;
-    doc.framing.background = render_core::doc::Background::Solid { color: render_core::doc::Rgba([0,0,255,255]) };
+    doc.framing.background = render_core::doc::Background::Solid {
+        color: render_core::doc::Rgba([0, 0, 255, 255]),
+    };
     let out = std::env::temp_dir().join("export_color_test.mp4");
     engine.export(&doc, &out, |_| {}).unwrap();
 
@@ -36,8 +38,15 @@ fn export_preserves_color_no_rb_swap() {
     // survives render->encode->mux->decode. openh264 is lossy + YUV round-trip, so assert dominance, not exact.
     let mut re = Mp4FrameSource::open(&out).unwrap();
     let f0 = FrameSource::frame(&mut re, 0).unwrap();
-    let (w,h) = (f0.width as usize, f0.height as usize);
-    let off = ((h/2)*w + w/2)*4;
-    let (r,g,b) = (f0.data[off] as i32, f0.data[off+1] as i32, f0.data[off+2] as i32);
-    assert!(r > g + 30 && r > b + 30, "center should be dominantly red (no R/B swap), got rgb=({r},{g},{b})");
+    let (w, h) = (f0.width as usize, f0.height as usize);
+    let off = ((h / 2) * w + w / 2) * 4;
+    let (r, g, b) = (
+        f0.data[off] as i32,
+        f0.data[off + 1] as i32,
+        f0.data[off + 2] as i32,
+    );
+    assert!(
+        r > g + 30 && r > b + 30,
+        "center should be dominantly red (no R/B swap), got rgb=({r},{g},{b})"
+    );
 }

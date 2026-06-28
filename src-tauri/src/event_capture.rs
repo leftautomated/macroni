@@ -210,7 +210,13 @@ mod tests {
     #[test]
     fn wheel_emits_scroll_with_deltas() {
         let mut cap = EventCapture::new();
-        let out = cap.on_rdev_event(EventType::Wheel { delta_x: 3, delta_y: -10 }, ts());
+        let out = cap.on_rdev_event(
+            EventType::Wheel {
+                delta_x: 3,
+                delta_y: -10,
+            },
+            ts(),
+        );
         assert_eq!(out.len(), 1);
         match &out[0] {
             InputEvent::Scroll {

@@ -164,14 +164,16 @@ impl Mp4FrameSource {
         let f = File::open(path).map_err(DecodeError::Io)?;
         let size = f.metadata().map_err(DecodeError::Io)?.len();
         let reader = BufReader::new(f);
-        let mut mp4 = Mp4Reader::read_header(reader, size)
-            .map_err(|e| DecodeError::Demux(e.to_string()))?;
+        let mut mp4 =
+            Mp4Reader::read_header(reader, size).map_err(|e| DecodeError::Demux(e.to_string()))?;
 
         // --- Locate the first video track ---
         let (track_id, width, height, sps, pps) = {
             let mut found = None;
             for track in mp4.tracks().values() {
-                if track.track_type().map_err(|e| DecodeError::Demux(e.to_string()))?
+                if track
+                    .track_type()
+                    .map_err(|e| DecodeError::Demux(e.to_string()))?
                     == TrackType::Video
                 {
                     let w = track.width();
@@ -277,8 +279,8 @@ fn avcc_to_annexb(avcc: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(avcc.len() + 8);
     let mut pos = 0;
     while pos + 4 <= avcc.len() {
-        let nal_len = u32::from_be_bytes([avcc[pos], avcc[pos + 1], avcc[pos + 2], avcc[pos + 3]])
-            as usize;
+        let nal_len =
+            u32::from_be_bytes([avcc[pos], avcc[pos + 1], avcc[pos + 2], avcc[pos + 3]]) as usize;
         pos += 4;
         if pos + nal_len > avcc.len() {
             break; // malformed; stop gracefully
@@ -305,7 +307,9 @@ mod tests {
     #[test]
     fn avcc_to_annexb_two_nals() {
         // NAL1: length 2, body [0x41, 0x9A]; NAL2: length 1, body [0x65]
-        let avcc = [0x00, 0x00, 0x00, 0x02, 0x41, 0x9A, 0x00, 0x00, 0x00, 0x01, 0x65];
+        let avcc = [
+            0x00, 0x00, 0x00, 0x02, 0x41, 0x9A, 0x00, 0x00, 0x00, 0x01, 0x65,
+        ];
         let out = avcc_to_annexb(&avcc);
         assert_eq!(
             out,

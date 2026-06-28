@@ -15,7 +15,9 @@ pub struct Rgba(pub [u8; 4]);
 #[serde(tag = "type", rename_all = "snake_case")]
 #[serde(rename_all_fields = "camelCase")]
 pub enum Background {
-    Solid { color: Rgba },
+    Solid {
+        color: Rgba,
+    },
     LinearGradient {
         from: Rgba,
         to: Rgba,
@@ -117,7 +119,9 @@ impl ProjectDoc {
                 cursor_json: None,
             },
             framing: Framing {
-                background: Background::Solid { color: Rgba([30, 30, 30, 255]) },
+                background: Background::Solid {
+                    color: Rgba([30, 30, 30, 255]),
+                },
                 padding_px: 64.0,
                 border_radius_px: 12.0,
                 shadow: Shadow {
@@ -148,14 +152,22 @@ mod tests {
         assert_eq!(back.version, 1);
         assert_eq!(back.media.screen_mp4, "rec1.mp4");
         // camelCase assertions
-        assert!(json.contains("paddingPx"), "fields must serialize camelCase: {json}");
-        assert!(json.contains("screenMp4"), "fields must serialize camelCase: {json}");
+        assert!(
+            json.contains("paddingPx"),
+            "fields must serialize camelCase: {json}"
+        );
+        assert!(
+            json.contains("screenMp4"),
+            "fields must serialize camelCase: {json}"
+        );
     }
 
     #[test]
     fn background_variants_round_trip() {
         for bg in [
-            Background::Solid { color: Rgba([10, 20, 30, 255]) },
+            Background::Solid {
+                color: Rgba([10, 20, 30, 255]),
+            },
             Background::LinearGradient {
                 from: Rgba([0, 0, 0, 255]),
                 to: Rgba([255, 255, 255, 255]),
@@ -178,6 +190,9 @@ mod tests {
             angle_deg: 90.0,
         };
         let s = serde_json::to_string(&bg).unwrap();
-        assert!(s.contains("angleDeg"), "LinearGradient fields must be camelCase: {s}");
+        assert!(
+            s.contains("angleDeg"),
+            "LinearGradient fields must be camelCase: {s}"
+        );
     }
 }

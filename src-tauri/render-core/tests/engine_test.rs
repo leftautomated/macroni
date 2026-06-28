@@ -22,20 +22,27 @@ fn px(buf: &[u8], w: u32, x: u32, y: u32) -> [u8; 4] {
 /// Expected output dims: 64×48 (Phase 1: output = source dims).
 #[test]
 fn engine_renders_framed_frame() {
-    let src = Mp4FrameSource::open(&fixture("solid.mp4"))
-        .expect("open solid.mp4");
+    let src = Mp4FrameSource::open(&fixture("solid.mp4")).expect("open solid.mp4");
     let mut engine = Engine::new(Box::new(src)).expect("Engine::new");
 
     let (out_w, out_h) = engine.output_size();
-    assert_eq!((out_w, out_h), (64, 48), "output size must match source dims");
+    assert_eq!(
+        (out_w, out_h),
+        (64, 48),
+        "output size must match source dims"
+    );
 
     let mut doc = render_core::doc::ProjectDoc::new_default("solid.mp4".into());
     doc.framing.padding_px = 16.0;
-    doc.framing.background = Background::Solid { color: Rgba([0, 0, 255, 255]) };
+    doc.framing.background = Background::Solid {
+        color: Rgba([0, 0, 255, 255]),
+    };
     // Disable shadow so the padding band is definitely pure bg color.
     doc.framing.shadow.opacity = 0.0;
 
-    let buf = engine.render_to_texture(&mut doc, 0).expect("render_to_texture");
+    let buf = engine
+        .render_to_texture(&mut doc, 0)
+        .expect("render_to_texture");
 
     assert_eq!(
         buf.len(),
@@ -82,13 +89,14 @@ fn engine_error_from_impls_compile() {
 /// path returns Err(EngineError::Image(_)), not a GPU error or a panic.
 #[test]
 fn render_to_texture_bad_wallpaper_path_returns_image_error() {
-    let src = render_core::decode::Mp4FrameSource::open(&fixture("solid.mp4"))
-        .expect("open solid.mp4");
+    let src =
+        render_core::decode::Mp4FrameSource::open(&fixture("solid.mp4")).expect("open solid.mp4");
     let mut engine = Engine::new(Box::new(src)).expect("Engine::new");
 
     let mut doc = render_core::doc::ProjectDoc::new_default("solid.mp4".into());
-    doc.framing.background =
-        render_core::doc::Background::Wallpaper { path: "/nonexistent/none.png".into() };
+    doc.framing.background = render_core::doc::Background::Wallpaper {
+        path: "/nonexistent/none.png".into(),
+    };
 
     let err = engine
         .render_to_texture(&mut doc, 0)

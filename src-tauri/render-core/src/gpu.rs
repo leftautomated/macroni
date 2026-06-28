@@ -79,7 +79,12 @@ impl Gpu {
                 .await
                 .map_err(|e| GpuError::Device(e.to_string()))?;
 
-            Ok(Gpu { instance, adapter, device, queue })
+            Ok(Gpu {
+                instance,
+                adapter,
+                device,
+                queue,
+            })
         })
     }
 }
@@ -245,7 +250,6 @@ pub fn render_solid(gpu: &Gpu, w: u32, h: u32, rgba: [u8; 4]) -> Result<Vec<u8>,
     // ── 3. Read back, stripping padding (shared helper) ───────────────────
     read_target_rgba(gpu, &texture, w, h)
 }
-
 
 /// Composite `frame` centered over a `bg` clear-color into an `out_w × out_h`
 /// offscreen render target and return the pixels as a `Vec<u8>` of length

@@ -65,8 +65,8 @@ impl Mp4Encoder {
             .sps_pps_strategy(SpsPpsStrategy::ConstantId)
             .max_frame_rate(fps as f32);
         let api = OpenH264API::from_source();
-        let encoder = Encoder::with_api_config(api, cfg)
-            .map_err(|e| EngineError::Encode(e.to_string()))?;
+        let encoder =
+            Encoder::with_api_config(api, cfg).map_err(|e| EngineError::Encode(e.to_string()))?;
 
         Ok(Self {
             width,

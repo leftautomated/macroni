@@ -7,6 +7,8 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string) => {
     // load_recordings is called by useRecordings on mount; return empty list.
     if (cmd === "load_recordings") return [];
+    if (cmd === "check_screen_recording_permission") return true;
+    if (cmd === "check_accessibility_permission") return true;
     return undefined;
   }),
 }));
@@ -43,23 +45,24 @@ describe("App (integration root)", () => {
     expect(await screen.findByRole("button", { name: /start/i })).toBeInTheDocument();
   });
 
-  it("starts collapsed — the tabs are not visible until expanded", async () => {
+  it("is a flat bar — Live Events and Settings moved to the Studio", async () => {
     render(<App />);
     await screen.findByRole("button", { name: /start/i });
-    // Live Events / Recordings / Settings are inside the expandable panel.
     expect(screen.queryByText("Live Events")).not.toBeInTheDocument();
-    expect(screen.queryByText("Recordings")).not.toBeInTheDocument();
     expect(screen.queryByText("Settings")).not.toBeInTheDocument();
+    // No expandable panel anymore — there's no expand toggle.
+    expect(screen.queryByRole("button", { name: /^expand$/i })).not.toBeInTheDocument();
   });
 
-  it("opens the panel and shows the three tabs when the expand toggle is clicked", async () => {
+  it("exposes an Open Studio button in the header", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
     render(<App />);
-    const expandButton = await screen.findByRole("button", { name: /^expand$/i });
-    await userEvent.click(expandButton);
+    await userEvent.click(await screen.findByRole("button", { name: /open studio/i }));
     await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /live events/i })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /^recordings$/i })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /^settings$/i })).toBeInTheDocument();
+      expect(invoke).toHaveBeenCalledWith(
+        "focus_studio_window",
+        expect.objectContaining({ traceId: expect.any(String) }),
+      );
     });
   });
 });

@@ -35,9 +35,13 @@ describe("useAppSettings", () => {
       });
     });
 
-    expect(invokeMock).toHaveBeenCalledWith("save_settings", {
-      settings: { capture: { fps: 60, quality: "high", audio: false } },
-    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_settings",
+      expect.objectContaining({
+        settings: { capture: { fps: 60, quality: "high", audio: false } },
+        traceId: expect.any(String),
+      }),
+    );
     expect(result.current.settings?.capture.fps).toBe(60);
   });
 });

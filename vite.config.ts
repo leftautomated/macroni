@@ -40,7 +40,7 @@ export default defineConfig(async () => ({
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, "index.html"),
-        playback: path.resolve(__dirname, "playback.html"),
+        studio: path.resolve(__dirname, "studio.html"),
       },
     },
   },

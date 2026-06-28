@@ -1,6 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useCallback } from "react";
+import { invoke, logEvent } from "@/lib/observability";
 
 export const useWindowResize = () => {
   const resizeWindow = useCallback(async (width: number, height: number) => {
@@ -12,7 +12,7 @@ export const useWindowResize = () => {
         height,
       });
     } catch (error) {
-      console.error("Failed to resize window:", error);
+      logEvent("error", "window", "resize_failed", { error, fields: { width, height } });
     }
   }, []);
 

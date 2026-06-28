@@ -11,8 +11,10 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     globals: true,
-    // Avoid double-running tests that live inside worktrees nested in the repo root.
-    exclude: ["**/node_modules/**", "**/dist/**", "**/.worktrees/**"],
+    // Avoid double-running tests that live inside worktrees nested in the repo
+    // root, and skip tmp/ where reference repos are cloned (gitignored) — their
+    // tests pull in dependencies this project doesn't install.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.worktrees/**", "tmp/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "html"],

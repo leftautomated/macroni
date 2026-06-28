@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/lib/observability";
 import { type InputEvent, RecordingStatus, type VideoMetadata } from "@/types";
 
 interface StopResult {
@@ -21,9 +21,17 @@ export const useRecorder = () => {
   }, []);
 
   const stopRecording = useCallback(async () => {
-    const result = await invoke<StopResult>("stop_recording");
-    setStatus(RecordingStatus.Stopped);
-    return result;
+    // Finalizing the video (encode + mux) can take a moment, so surface a
+    // processing state while `stop_recording` runs instead of freezing on Stop.
+    setStatus(RecordingStatus.Processing);
+    try {
+      const result = await invoke<StopResult>("stop_recording");
+      setStatus(RecordingStatus.Stopped);
+      return result;
+    } catch (e) {
+      setStatus(RecordingStatus.Stopped);
+      throw e;
+    }
   }, []);
 
   const addEvent = useCallback((event: InputEvent) => {
@@ -41,6 +49,7 @@ export const useRecorder = () => {
     currentEvents,
     currentId,
     isRecording: status === RecordingStatus.Recording,
+    isProcessing: status === RecordingStatus.Processing,
     startRecording,
     stopRecording,
     addEvent,

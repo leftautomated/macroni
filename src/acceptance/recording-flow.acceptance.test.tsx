@@ -40,6 +40,9 @@ vi.mock("@tauri-apps/api/core", () => ({
     switch (cmd) {
       case "load_recordings":
         return [...fakeBackend.recordings];
+      case "check_screen_recording_permission":
+      case "check_accessibility_permission":
+        return true;
       case "start_recording":
         fakeBackend.startCalls += 1;
         return `rec-${Date.now()}`;
@@ -98,37 +101,18 @@ describe("Acceptance: recording flow", () => {
     fakeBackend.reset();
   });
 
-  it("shows the empty state on the Recordings tab when no recordings exist", async () => {
+  it("opens the Studio (where recordings now live) via the header button", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
     render(<App />);
-    await userEvent.click(await screen.findByRole("button", { name: /^expand$/i }));
 
-    await userEvent.click(screen.getByRole("tab", { name: /^recordings$/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /open studio/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/no recordings saved yet/i)).toBeInTheDocument();
+      expect(invoke).toHaveBeenCalledWith(
+        "focus_studio_window",
+        expect.objectContaining({ traceId: expect.any(String) }),
+      );
     });
-  });
-
-  it("displays a saved recording in the Recordings tab after invoke('save_recording')", async () => {
-    // Seed the backend before mount so load_recordings returns it.
-    fakeBackend.recordings.push({
-      id: "abc",
-      name: "Demo recording",
-      events: [],
-      created_at: Date.now(),
-      playback_speed: 1.0,
-      video: null,
-    });
-
-    render(<App />);
-    await userEvent.click(await screen.findByRole("button", { name: /^expand$/i }));
-    await userEvent.click(screen.getByRole("tab", { name: /^recordings$/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/demo recording/i)).toBeInTheDocument();
-    });
-    expect(screen.getByText(/^1 recording saved$/i)).toBeInTheDocument();
-    expect(screen.queryByText(/no recordings saved yet/i)).not.toBeInTheDocument();
   });
 
   it("clicking Start dispatches start_recording to the backend", async () => {

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/lib/observability";
 import type { Recording, InputEvent, VideoMetadata } from "@/types";
 
 export const useRecordings = () => {

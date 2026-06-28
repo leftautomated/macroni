@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
+import { invoke, logEvent } from "@/lib/observability";
 import { Eye } from "lucide-react";
 
 export const VisibilityToggle = () => {
@@ -7,7 +7,7 @@ export const VisibilityToggle = () => {
     try {
       await invoke<boolean>("toggle_visibility");
     } catch (error) {
-      console.error("Failed to toggle visibility:", error);
+      logEvent("error", "window", "toggle_visibility_failed", { error });
     }
   };
 

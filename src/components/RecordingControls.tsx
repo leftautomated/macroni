@@ -1,17 +1,28 @@
 import { Button } from "@/components/ui/button";
-import { Circle, Square } from "lucide-react";
+import { Circle, Loader2, Square } from "lucide-react";
 
 interface RecordingControlsProps {
   isRecording: boolean;
+  isProcessing?: boolean;
   onStartRecording: () => void;
   onStopRecording: () => void;
 }
 
 export const RecordingControls = ({
   isRecording,
+  isProcessing = false,
   onStartRecording,
   onStopRecording,
 }: RecordingControlsProps) => {
+  if (isProcessing) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-2 h-7">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Saving…
+      </div>
+    );
+  }
+
   if (!isRecording) {
     return (
       <Button onClick={onStartRecording} size="sm" className="gap-1.5 h-7 px-3 text-xs">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, logEvent } from "@/lib/observability";
 import type { AppSettings } from "@/types";
 
 export const useAppSettings = () => {
@@ -9,7 +9,7 @@ export const useAppSettings = () => {
     invoke<AppSettings>("load_settings")
       .then(setSettings)
       .catch((err) => {
-        console.error("Failed to load settings:", err);
+        logEvent("error", "settings", "load_failed", { error: err });
       });
   }, []);
 

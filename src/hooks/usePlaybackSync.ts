@@ -27,9 +27,15 @@ interface SyncState {
 
 interface UsePlaybackSyncArgs {
   events: InputEvent[];
-  video: VideoMetadata | null;
+  video: VideoMetadata | null | undefined;
 }
 
+/**
+ * Maps a video's playback position to the active recorded-event index so an
+ * event list can highlight along with the video. Time is anchored at `startMs`
+ * (the video's start), and event timestamps are absolute, so the active event
+ * is the last one at or before `startMs + videoTime`.
+ */
 export function usePlaybackSync({ events, video }: UsePlaybackSyncArgs) {
   const startMs = video?.start_ms ?? events[0]?.timestamp ?? 0;
   const [state, setState] = useState<SyncState>({
@@ -52,24 +58,12 @@ export function usePlaybackSync({ events, video }: UsePlaybackSyncArgs) {
     [events, startMs],
   );
 
-  const seekToEvent = useCallback(
-    (index: number) => {
-      if (!events[index]) return;
-      const absoluteMs = events[index].timestamp;
-      const videoTimeMs = Math.max(0, absoluteMs - startMs);
-      setState({ currentMs: absoluteMs, activeIndex: index, videoTimeMs });
-    },
-    [events, startMs],
-  );
-
-  const seekToMs = useCallback(
-    (absoluteMs: number) => {
-      const videoTimeMs = Math.max(0, absoluteMs - startMs);
-      setState({
-        currentMs: absoluteMs,
-        activeIndex: findActiveEventIndex(events, absoluteMs),
-        videoTimeMs,
-      });
+  // Video time (seconds, relative to start) for a given event index.
+  const eventVideoSeconds = useCallback(
+    (index: number): number => {
+      const e = events[index];
+      if (!e) return 0;
+      return Math.max(0, e.timestamp - startMs) / 1000;
     },
     [events, startMs],
   );
@@ -82,19 +76,18 @@ export function usePlaybackSync({ events, video }: UsePlaybackSyncArgs) {
     return Date.now() - userScrolledAt.current > 1500;
   }, []);
 
+  // When events first arrive (recording switch), seed the active index.
   useEffect(() => {
     if (state.activeIndex === -1 && events.length > 0) {
       setState((s) => ({ ...s, activeIndex: findActiveEventIndex(events, s.currentMs) }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events.length]);
+  }, [events, state.activeIndex, state.currentMs]);
 
   return {
     ...state,
     startMs,
     onVideoTime,
-    seekToEvent,
-    seekToMs,
+    eventVideoSeconds,
     noteUserScroll,
     shouldAutoScroll,
   } as const;

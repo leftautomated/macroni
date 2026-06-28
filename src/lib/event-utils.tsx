@@ -1,5 +1,17 @@
-import { Keyboard, MousePointer } from "lucide-react";
+import { Keyboard, Mouse, MousePointer } from "lucide-react";
 import { type InputEvent, InputEventType } from "@/types";
+
+/**
+ * Arrow(s) + magnitude for a scroll delta, e.g. "↓ 240" or "↑ 60  → 12".
+ * Sign convention is descriptive: positive deltaY = down, positive deltaX =
+ * right. Used for both single scrolls and summed scroll groups.
+ */
+export function scrollSummary(deltaX: number, deltaY: number): string {
+  const parts: string[] = [];
+  if (deltaY !== 0) parts.push(`${deltaY > 0 ? "↓" : "↑"} ${Math.abs(deltaY)}`);
+  if (deltaX !== 0) parts.push(`${deltaX > 0 ? "→" : "←"} ${Math.abs(deltaX)}`);
+  return parts.length > 0 ? parts.join("  ") : "—";
+}
 
 export interface EventDetails {
   icon: React.ReactNode;
@@ -52,6 +64,13 @@ export function getEventDetails(event: InputEvent): EventDetails {
         value: "",
         detail: `(${Math.round(event.x)}, ${Math.round(event.y)})`,
       };
+    case InputEventType.Scroll:
+      return {
+        icon: <Mouse className="h-3 w-3" />,
+        action: "Scroll",
+        value: scrollSummary(event.delta_x, event.delta_y),
+        detail: "",
+      };
   }
 }
 
@@ -65,4 +84,165 @@ export function formatTimestamp(timestamp: number): string {
   });
   const ms = String(date.getMilliseconds()).padStart(3, "0");
   return `${time}.${ms}`;
+}
+
+/**
+ * A display row over the raw event list. Consecutive high-frequency events are
+ * merged into a single row so they stay readable: `scroll` rows sum the deltas
+ * and count ticks; `move` rows keep the latest position and count samples.
+ * Press+release pairs collapse too — a mouse press+release becomes a `click`
+ * (or a `drag` when moves sit between them), and a key press+release becomes a
+ * `keystroke`. Every other event is its own `event` row. Indices point back
+ * into the original events array so callers can still seek/highlight the
+ * underlying events.
+ */
+export type EventRow =
+  | { kind: "event"; index: number; event: InputEvent }
+  | {
+      kind: "scroll";
+      startIndex: number;
+      endIndex: number;
+      count: number;
+      deltaX: number;
+      deltaY: number;
+      timestamp: number;
+    }
+  | {
+      kind: "move";
+      startIndex: number;
+      endIndex: number;
+      count: number;
+      x: number;
+      y: number;
+      timestamp: number;
+    }
+  | {
+      kind: "click";
+      startIndex: number;
+      endIndex: number;
+      button: string;
+      x: number;
+      y: number;
+      timestamp: number;
+    }
+  | {
+      kind: "drag";
+      startIndex: number;
+      endIndex: number;
+      button: string;
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      moveCount: number;
+      timestamp: number;
+    }
+  | {
+      kind: "keystroke";
+      startIndex: number;
+      endIndex: number;
+      key: string;
+      timestamp: number;
+    };
+
+export function groupEvents(events: InputEvent[]): EventRow[] {
+  const rows: EventRow[] = [];
+  events.forEach((event, index) => {
+    const last = rows[rows.length - 1];
+    if (event.type === InputEventType.ButtonRelease) {
+      const prev2 = rows[rows.length - 2];
+      if (
+        last?.kind === "event" &&
+        last.event.type === InputEventType.ButtonPress &&
+        last.event.button === event.button
+      ) {
+        // Adjacent press+release → a click.
+        rows[rows.length - 1] = {
+          kind: "click",
+          startIndex: last.index,
+          endIndex: index,
+          button: event.button,
+          x: last.event.x,
+          y: last.event.y,
+          timestamp: last.event.timestamp,
+        };
+      } else if (
+        last?.kind === "move" &&
+        prev2?.kind === "event" &&
+        prev2.event.type === InputEventType.ButtonPress &&
+        prev2.event.button === event.button
+      ) {
+        // press → moves → release → a drag; fold the press, move run, and
+        // release into one row (expand it to see the individual moves).
+        rows.splice(rows.length - 2, 2, {
+          kind: "drag",
+          startIndex: prev2.index,
+          endIndex: index,
+          button: event.button,
+          x1: prev2.event.x,
+          y1: prev2.event.y,
+          x2: event.x,
+          y2: event.y,
+          moveCount: last.count,
+          timestamp: prev2.event.timestamp,
+        });
+      } else {
+        rows.push({ kind: "event", index, event });
+      }
+    } else if (event.type === InputEventType.KeyRelease) {
+      if (
+        last?.kind === "event" &&
+        last.event.type === InputEventType.KeyPress &&
+        last.event.key === event.key
+      ) {
+        // Adjacent press+release of the same key → a keystroke.
+        rows[rows.length - 1] = {
+          kind: "keystroke",
+          startIndex: last.index,
+          endIndex: index,
+          key: event.key,
+          timestamp: last.event.timestamp,
+        };
+      } else {
+        rows.push({ kind: "event", index, event });
+      }
+    } else if (event.type === InputEventType.Scroll) {
+      if (last?.kind === "scroll") {
+        last.endIndex = index;
+        last.count += 1;
+        last.deltaX += event.delta_x;
+        last.deltaY += event.delta_y;
+      } else {
+        rows.push({
+          kind: "scroll",
+          startIndex: index,
+          endIndex: index,
+          count: 1,
+          deltaX: event.delta_x,
+          deltaY: event.delta_y,
+          timestamp: event.timestamp,
+        });
+      }
+    } else if (event.type === InputEventType.MouseMove) {
+      if (last?.kind === "move") {
+        last.endIndex = index;
+        last.count += 1;
+        last.x = event.x;
+        last.y = event.y;
+      } else {
+        rows.push({
+          kind: "move",
+          startIndex: index,
+          endIndex: index,
+          count: 1,
+          x: event.x,
+          y: event.y,
+          timestamp: event.timestamp,
+        });
+      }
+    } else {
+      rows.push({ kind: "event", index, event });
+    }
+  });
+  return rows;
 }

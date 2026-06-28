@@ -41,6 +41,11 @@ pub enum InputEvent {
         y: f64,
         timestamp: i64,
     },
+    Scroll {
+        delta_x: i64,
+        delta_y: i64,
+        timestamp: i64,
+    },
 }
 
 fn default_playback_speed() -> f64 {
@@ -106,6 +111,7 @@ impl InputEventTimestamp for InputEvent {
             InputEvent::ButtonPress { timestamp, .. } => *timestamp,
             InputEvent::ButtonRelease { timestamp, .. } => *timestamp,
             InputEvent::MouseMove { timestamp, .. } => *timestamp,
+            InputEvent::Scroll { timestamp, .. } => *timestamp,
         }
     }
 }

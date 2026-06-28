@@ -13,6 +13,7 @@ changed, and what that bought us.
 | [0005](0005-coverage-gate.md) | Adopt coverage gate (Rust + frontend) with ratchet baseline | Accepted |
 | [0006](0006-mutation-runner.md) | Adopt mutation testing on the deepened modules | Accepted |
 | [0007](0007-acceptance-specs.md) | Adopt acceptance specs at the React+hooks layer; defer true Tauri E2E | Accepted |
+| [0008](0008-observability.md) | Adopt Tauri log plugin observability with traced IPC | Accepted |
 
 ## Conventions
 

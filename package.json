@@ -1,7 +1,7 @@
 {
   "name": "macroni",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,6 +20,7 @@
     "@radix-ui/react-tabs": "1.1.13",
     "@tailwindcss/vite": "4.1.16",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-log": "^2.8.0",
     "@tauri-apps/plugin-opener": "^2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -41,6 +42,7 @@
     "@vitejs/plugin-react": "^5.1.0",
     "@vitest/coverage-v8": "4.1.6",
     "@vitest/ui": "4.1.4",
+    "baseline-browser-mapping": "2.10.38",
     "jsdom": "29.0.2",
     "typescript": "^5.9.3",
     "vite": "^7.0.4",

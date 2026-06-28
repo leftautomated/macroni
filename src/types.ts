@@ -1,6 +1,7 @@
 export enum RecordingStatus {
   Idle = "idle",
   Recording = "recording",
+  Processing = "processing",
   Stopped = "stopped",
 }
 
@@ -11,6 +12,7 @@ export enum InputEventType {
   ButtonPress = "ButtonPress",
   ButtonRelease = "ButtonRelease",
   MouseMove = "MouseMove",
+  Scroll = "Scroll",
 }
 
 export type InputEvent =
@@ -25,7 +27,8 @@ export type InputEvent =
     }
   | { type: InputEventType.ButtonPress; button: string; x: number; y: number; timestamp: number }
   | { type: InputEventType.ButtonRelease; button: string; x: number; y: number; timestamp: number }
-  | { type: InputEventType.MouseMove; x: number; y: number; timestamp: number };
+  | { type: InputEventType.MouseMove; x: number; y: number; timestamp: number }
+  | { type: InputEventType.Scroll; delta_x: number; delta_y: number; timestamp: number };
 
 export interface VideoMetadata {
   path: string;
@@ -47,6 +50,25 @@ export interface CaptureSettings {
 
 export interface AppSettings {
   capture: CaptureSettings;
+}
+
+export interface LogFileSummary {
+  path: string;
+  bytes: number;
+  modifiedMs?: number | null;
+}
+
+export interface DiagnosticsSnapshot {
+  appVersion: string;
+  os: string;
+  arch: string;
+  isRecording: boolean;
+  isPlaying: boolean;
+  appLogDir?: string | null;
+  crashLogPath?: string | null;
+  crashLogBytes?: number | null;
+  logFiles: LogFileSummary[];
+  recentLogLines: string[];
 }
 
 export interface Recording {

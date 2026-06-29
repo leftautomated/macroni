@@ -4,10 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 
 const win = vi.hoisted(() => ({
   close: vi.fn(),
+  hide: vi.fn(),
   minimize: vi.fn(),
 }));
+const toPng = vi.hoisted(() => vi.fn(() => Promise.resolve("data:image/png;base64,cm93")));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => win,
+}));
+vi.mock("html-to-image", () => ({
+  toPng,
 }));
 
 import { PermissionGate } from "@/components/PermissionGate";
@@ -38,6 +43,7 @@ describe("PermissionGate", () => {
 
   it("wires the traffic lights to the current window", async () => {
     win.close.mockClear();
+    win.hide.mockClear();
     win.minimize.mockClear();
 
     render(
@@ -51,10 +57,32 @@ describe("PermissionGate", () => {
     );
 
     await userEvent.click(screen.getByRole("button", { name: /close window/i }));
-    expect(win.close).toHaveBeenCalledTimes(1);
+    expect(win.hide).toHaveBeenCalledTimes(1);
+    expect(win.close).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: /minimize window/i }));
     expect(win.minimize).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the supplied close handler before falling back to window hide", async () => {
+    win.hide.mockClear();
+    const onClose = vi.fn();
+
+    render(
+      <PermissionGate
+        accessibility={false}
+        screenRecording={false}
+        activeAssistantPanel={null}
+        onClose={onClose}
+        onOpenAccessibilitySettings={vi.fn()}
+        onOpenScreenRecordingSettings={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /close window/i }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(win.hide).not.toHaveBeenCalled();
   });
 
   it("reveals traffic light glyphs while hovering the cluster", async () => {
@@ -98,6 +126,7 @@ describe("PermissionGate", () => {
       expect.objectContaining({
         width: expect.any(Number),
         height: expect.any(Number),
+        sourceImageDataUrl: "data:image/png;base64,cm93",
       }),
     );
   });

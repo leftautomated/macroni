@@ -118,6 +118,15 @@ const App = () => {
     }
   }, []);
 
+  const handlePermissionGateClose = useCallback(async () => {
+    try {
+      await permissions.dismissPermissionAssistant();
+      await invoke<boolean>("toggle_visibility");
+    } catch (error) {
+      logEvent("error", "window", "permission_gate_close_failed", { error });
+    }
+  }, [permissions]);
+
   // Keep current recording/playing state in refs for the shortcut listeners.
   const isRecordingRef = useRef(recorder.isRecording);
   useEffect(() => {
@@ -186,6 +195,7 @@ const App = () => {
               accessibility={permissions.state.accessibility}
               screenRecording={permissions.state.screenRecording}
               activeAssistantPanel={permissions.activeAssistantPanel}
+              onClose={handlePermissionGateClose}
               onOpenAccessibilitySettings={permissions.openAccessibilitySettings}
               onOpenScreenRecordingSettings={permissions.openScreenRecordingSettings}
             />

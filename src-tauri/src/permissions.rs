@@ -3,7 +3,11 @@
 use crate::observability;
 
 #[cfg(target_os = "macos")]
-use std::{path::PathBuf, sync::Mutex};
+use std::{
+    path::PathBuf,
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 #[cfg(target_os = "macos")]
 use core_foundation::{
@@ -20,17 +24,23 @@ use core_graphics::window::{
 };
 #[cfg(target_os = "macos")]
 use objc2::{
-    define_class, msg_send, rc::Retained, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly,
+    define_class, msg_send, rc::Retained, AnyThread, ClassType, DefinedClass, MainThreadMarker,
+    MainThreadOnly,
 };
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{
-    NSAnimationContext, NSBackingStoreType, NSColor, NSEvent, NSFont, NSImageView, NSScreen,
-    NSStatusWindowLevel, NSTextField, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
-    NSVisualEffectState, NSVisualEffectView, NSWindow, NSWindowCollectionBehavior,
-    NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
+    NSAnimationContext, NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSEvent, NSFont,
+    NSImage, NSImageScaling, NSImageView, NSScreen, NSStatusWindowLevel, NSTextAlignment,
+    NSTextField, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
+    NSVisualEffectView, NSWindow, NSWindowCollectionBehavior, NSWindowOrderingMode,
+    NSWindowStyleMask, NSWorkspace,
 };
 #[cfg(target_os = "macos")]
-use objc2_foundation::{NSBundle, NSInteger, NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{
+    NSBundle, NSData, NSDataBase64DecodingOptions, NSInteger, NSPoint, NSRect, NSSize, NSString,
+};
+#[cfg(target_os = "macos")]
+use objc2_quartz_core::{kCAMediaTimingFunctionEaseInEaseOut, CAMediaTimingFunction};
 #[cfg(target_os = "macos")]
 use tauri::{AppHandle, Manager, WebviewWindow};
 #[cfg(target_os = "macos")]
@@ -129,7 +139,14 @@ pub struct PermissionDragState {
 #[derive(Default)]
 pub struct PermissionAssistantState {
     window_ptr: Mutex<Option<usize>>,
+    active_panel: Mutex<Option<PermissionPanel>>,
+    active_source_frame: Mutex<Option<AssistantFrameSnapshot>>,
+    payload_ptr: Mutex<Option<usize>>,
+    landing_payload_ptr: Mutex<Option<usize>>,
     last_frame: Mutex<Option<AssistantFrameSnapshot>>,
+    opening_until: Mutex<Option<Instant>>,
+    returning_until: Mutex<Option<Instant>>,
+    target_candidate: Mutex<Option<AssistantFrameCandidate>>,
     window_flow: Mutex<PermissionWindowFlowState>,
 }
 
@@ -170,13 +187,39 @@ impl AssistantFrameSnapshot {
 }
 
 #[cfg(target_os = "macos")]
+struct AssistantFrameCandidate {
+    frame: AssistantFrameSnapshot,
+    since: Instant,
+}
+
+#[cfg(target_os = "macos")]
+struct AssistantContentViews {
+    root: Retained<NSView>,
+    payload: Retained<NSView>,
+    landing_payload: Retained<NSView>,
+}
+
+#[cfg(target_os = "macos")]
+const ASSISTANT_OPEN_ANIMATION_MILLIS: u64 = 460;
+#[cfg(target_os = "macos")]
+const ASSISTANT_OPEN_ANIMATION_SECONDS: f64 = ASSISTANT_OPEN_ANIMATION_MILLIS as f64 / 1000.0;
+#[cfg(target_os = "macos")]
+const ASSISTANT_RETURN_ANIMATION_MILLIS: u64 = 260;
+#[cfg(target_os = "macos")]
+const ASSISTANT_RETURN_ANIMATION_SECONDS: f64 = ASSISTANT_RETURN_ANIMATION_MILLIS as f64 / 1000.0;
+#[cfg(target_os = "macos")]
+const ASSISTANT_CONTENT_FADE_SECONDS: f64 = 0.18;
+#[cfg(target_os = "macos")]
+const ASSISTANT_TARGET_SETTLE_MILLIS: u64 = 140;
+
+#[cfg(target_os = "macos")]
 #[derive(Default)]
 struct PermissionWindowFlowState {
     lowered: bool,
 }
 
 #[cfg(target_os = "macos")]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum PermissionPanel {
     Accessibility,
     ScreenRecording,
@@ -196,6 +239,27 @@ impl PermissionPanel {
         match self {
             Self::Accessibility => "Accessibility",
             Self::ScreenRecording => "Screen Recording",
+        }
+    }
+
+    fn gate_description(self) -> &'static str {
+        match self {
+            Self::Accessibility => "Captures keyboard and mouse input.",
+            Self::ScreenRecording => "Captures screen video for recordings.",
+        }
+    }
+
+    fn gate_symbol_name(self) -> &'static str {
+        match self {
+            Self::Accessibility => "accessibility",
+            Self::ScreenRecording => "camera",
+        }
+    }
+
+    fn gate_symbol_fallback_name(self) -> &'static str {
+        match self {
+            Self::Accessibility => "figure.arms.open",
+            Self::ScreenRecording => "record.circle",
         }
     }
 }
@@ -262,16 +326,65 @@ fn fade_drag_view_in(view: &NSView) {
 }
 
 #[cfg(target_os = "macos")]
-fn fade_window_in(window: &NSWindow) {
-    const DURATION_SECONDS: f64 = 0.16;
+fn animate_view_alpha(view: &NSView, alpha: f64, duration: f64) {
+    NSAnimationContext::beginGrouping();
+    let context = NSAnimationContext::currentContext();
+    context.setDuration(duration);
+    context.setAllowsImplicitAnimation(true);
+    let timing =
+        CAMediaTimingFunction::functionWithName(unsafe { kCAMediaTimingFunctionEaseInEaseOut });
+    context.setTimingFunction(Some(&timing));
+
+    let animator: Retained<NSView> = unsafe { msg_send![view, animator] };
+    animator.setAlphaValue(alpha);
+
+    NSAnimationContext::endGrouping();
+}
+
+#[cfg(target_os = "macos")]
+fn animate_window_to_target(window: &NSWindow, target_frame: NSRect) {
+    NSAnimationContext::beginGrouping();
+    let context = NSAnimationContext::currentContext();
+    context.setDuration(ASSISTANT_OPEN_ANIMATION_SECONDS);
+    context.setAllowsImplicitAnimation(true);
+    let timing =
+        CAMediaTimingFunction::functionWithName(unsafe { kCAMediaTimingFunctionEaseInEaseOut });
+    context.setTimingFunction(Some(&timing));
+
+    let animator: Retained<NSWindow> = unsafe { msg_send![window, animator] };
+    animator.setFrame_display(target_frame, true);
+    animator.setAlphaValue(1.0);
+
+    NSAnimationContext::endGrouping();
+}
+
+#[cfg(target_os = "macos")]
+fn animate_window_back_to_source(
+    window: &NSWindow,
+    source_frame: NSRect,
+    payload_ptr: Option<usize>,
+    landing_payload_ptr: Option<usize>,
+) {
+    if let Some(landing_payload) =
+        landing_payload_ptr.and_then(|ptr| unsafe { (ptr as *const NSView).as_ref() })
+    {
+        animate_view_alpha(landing_payload, 1.0, ASSISTANT_CONTENT_FADE_SECONDS);
+    }
+
+    if let Some(payload) = payload_ptr.and_then(|ptr| unsafe { (ptr as *const NSView).as_ref() }) {
+        animate_view_alpha(payload, 0.0, ASSISTANT_CONTENT_FADE_SECONDS);
+    }
 
     NSAnimationContext::beginGrouping();
     let context = NSAnimationContext::currentContext();
-    context.setDuration(DURATION_SECONDS);
+    context.setDuration(ASSISTANT_RETURN_ANIMATION_SECONDS);
     context.setAllowsImplicitAnimation(true);
+    let timing =
+        CAMediaTimingFunction::functionWithName(unsafe { kCAMediaTimingFunctionEaseInEaseOut });
+    context.setTimingFunction(Some(&timing));
 
     let animator: Retained<NSWindow> = unsafe { msg_send![window, animator] };
-    animator.setAlphaValue(1.0);
+    animator.setFrame_display(source_frame, true);
 
     NSAnimationContext::endGrouping();
 }
@@ -383,6 +496,7 @@ pub fn present_permission_assistant(
     window: WebviewWindow,
     panel: String,
     source_rect: Option<PermissionAssistantSourceRect>,
+    source_image_data_url: Option<String>,
     trace_id: Option<String>,
 ) -> Result<bool, String> {
     observability::trace_command("present_permission_assistant", trace_id, None, || {
@@ -401,26 +515,170 @@ pub fn present_permission_assistant(
                     .window_ptr
                     .lock()
                     .map_err(|_| "permission assistant state mutex poisoned".to_string())?;
+                let mut active_panel = state
+                    .active_panel
+                    .lock()
+                    .map_err(|_| "permission assistant panel mutex poisoned".to_string())?;
+                let mut active_source_frame = state
+                    .active_source_frame
+                    .lock()
+                    .map_err(|_| "permission assistant source mutex poisoned".to_string())?;
+                let mut payload_ptr = state
+                    .payload_ptr
+                    .lock()
+                    .map_err(|_| "permission assistant payload mutex poisoned".to_string())?;
+                let mut landing_payload_ptr = state.landing_payload_ptr.lock().map_err(|_| {
+                    "permission assistant landing payload mutex poisoned".to_string()
+                })?;
 
                 let mut last_frame = state
                     .last_frame
                     .lock()
                     .map_err(|_| "permission assistant frame mutex poisoned".to_string())?;
+                let mut opening_until = state
+                    .opening_until
+                    .lock()
+                    .map_err(|_| "permission assistant animation mutex poisoned".to_string())?;
+                let mut returning_until = state
+                    .returning_until
+                    .lock()
+                    .map_err(|_| "permission assistant return mutex poisoned".to_string())?;
+                let mut target_candidate = state
+                    .target_candidate
+                    .lock()
+                    .map_err(|_| "permission assistant target mutex poisoned".to_string())?;
                 let mut window_flow = state
                     .window_flow
                     .lock()
                     .map_err(|_| "permission assistant flow mutex poisoned".to_string())?;
 
                 lower_permission_flow_windows(&app, &mut window_flow)?;
-                let Some((assistant, frame)) =
-                    create_assistant_window(mtm, ns_window_ptr, &app_path, panel, source_rect)?
+
+                if let Some(deadline) = returning_until.as_ref().copied() {
+                    if Instant::now() < deadline {
+                        return Ok(false);
+                    }
+                    *active_panel = None;
+                    *active_source_frame = None;
+                    *payload_ptr = None;
+                    *landing_payload_ptr = None;
+                    *last_frame = (*window_ptr)
+                        .and_then(|ptr| unsafe { (ptr as *const NSWindow).as_ref() })
+                        .map(|window| AssistantFrameSnapshot::from_rect(window.frame()));
+                    *opening_until = None;
+                    *returning_until = None;
+                    *target_candidate = None;
+                }
+
+                let is_switching_panels = matches!(
+                    (*active_panel, source_rect),
+                    (Some(active), Some(_)) if active != panel
+                );
+                if is_switching_panels {
+                    let Some(ptr) = *window_ptr else {
+                        *active_panel = None;
+                        *active_source_frame = None;
+                        *payload_ptr = None;
+                        *landing_payload_ptr = None;
+                        *opening_until = None;
+                        *target_candidate = None;
+                        return Ok(false);
+                    };
+                    let assistant = unsafe {
+                        (ptr as *const NSWindow)
+                            .as_ref()
+                            .ok_or_else(|| "null permission assistant window".to_string())?
+                    };
+                    let fallback_return_frame = webview_rect_to_screen_frame(
+                        ns_window_ptr,
+                        source_rect.ok_or_else(|| {
+                            "missing source rect for permission assistant switch".to_string()
+                        })?,
+                    )?;
+                    let return_frame = active_source_frame
+                        .as_ref()
+                        .copied()
+                        .map(AssistantFrameSnapshot::to_rect)
+                        .unwrap_or(fallback_return_frame);
+                    animate_window_back_to_source(
+                        assistant,
+                        return_frame,
+                        *payload_ptr,
+                        *landing_payload_ptr,
+                    );
+                    *opening_until = None;
+                    *returning_until = Some(
+                        Instant::now() + Duration::from_millis(ASSISTANT_RETURN_ANIMATION_MILLIS),
+                    );
+                    *target_candidate = None;
+                    return Ok(false);
+                }
+
+                let Some(target_frame) =
+                    settled_assistant_frame(mtm, ns_window_ptr, &mut target_candidate)?
                 else {
                     return Ok(false);
                 };
+                let (
+                    assistant,
+                    frame,
+                    source_frame,
+                    next_payload_ptr,
+                    next_landing_payload_ptr,
+                    is_opening,
+                ) = if active_panel.is_none() && window_ptr.is_some() {
+                    reuse_assistant_window(
+                        mtm,
+                        *window_ptr,
+                        ns_window_ptr,
+                        &app_path,
+                        panel,
+                        target_frame,
+                        source_rect,
+                        source_image_data_url.as_deref(),
+                    )?
+                } else {
+                    close_assistant_window(&mut window_ptr)?;
+                    *payload_ptr = None;
+                    *landing_payload_ptr = None;
+                    let (
+                        assistant,
+                        frame,
+                        source_frame,
+                        next_payload_ptr,
+                        next_landing_payload_ptr,
+                        is_opening,
+                    ) = create_assistant_window(
+                        mtm,
+                        ns_window_ptr,
+                        &app_path,
+                        panel,
+                        target_frame,
+                        source_rect,
+                        source_image_data_url.as_deref(),
+                    )?;
+                    (
+                        Retained::into_raw(assistant) as usize,
+                        frame,
+                        source_frame,
+                        next_payload_ptr,
+                        next_landing_payload_ptr,
+                        is_opening,
+                    )
+                };
 
-                close_assistant_window(&mut window_ptr)?;
                 *last_frame = Some(AssistantFrameSnapshot::from_rect(frame));
-                *window_ptr = Some(Retained::into_raw(assistant) as usize);
+                *opening_until = if is_opening {
+                    Some(Instant::now() + Duration::from_millis(ASSISTANT_OPEN_ANIMATION_MILLIS))
+                } else {
+                    None
+                };
+                *target_candidate = None;
+                *active_panel = Some(panel);
+                *active_source_frame = source_frame.map(AssistantFrameSnapshot::from_rect);
+                *payload_ptr = Some(next_payload_ptr);
+                *landing_payload_ptr = Some(next_landing_payload_ptr);
+                *window_ptr = Some(assistant);
 
                 Ok(true)
             })();
@@ -440,6 +698,7 @@ pub fn present_permission_assistant(
     _window: tauri::WebviewWindow,
     _panel: String,
     _source_rect: Option<PermissionAssistantSourceRect>,
+    _source_image_data_url: Option<String>,
     _trace_id: Option<String>,
 ) -> Result<bool, String> {
     Ok(true)
@@ -465,10 +724,34 @@ pub fn refresh_permission_assistant(
                 .window_ptr
                 .lock()
                 .map_err(|_| "permission assistant state mutex poisoned".to_string())?;
+            let mut active_panel = state
+                .active_panel
+                .lock()
+                .map_err(|_| "permission assistant panel mutex poisoned".to_string())?;
+            let mut active_source_frame = state
+                .active_source_frame
+                .lock()
+                .map_err(|_| "permission assistant source mutex poisoned".to_string())?;
+            let mut payload_ptr = state
+                .payload_ptr
+                .lock()
+                .map_err(|_| "permission assistant payload mutex poisoned".to_string())?;
+            let mut landing_payload_ptr = state
+                .landing_payload_ptr
+                .lock()
+                .map_err(|_| "permission assistant landing payload mutex poisoned".to_string())?;
             let mut last_frame = state
                 .last_frame
                 .lock()
                 .map_err(|_| "permission assistant frame mutex poisoned".to_string())?;
+            let mut opening_until = state
+                .opening_until
+                .lock()
+                .map_err(|_| "permission assistant animation mutex poisoned".to_string())?;
+            let mut returning_until = state
+                .returning_until
+                .lock()
+                .map_err(|_| "permission assistant return mutex poisoned".to_string())?;
 
             let Some(ptr) = *window_ptr else {
                 let mut window_flow = state
@@ -476,13 +759,45 @@ pub fn refresh_permission_assistant(
                     .lock()
                     .map_err(|_| "permission assistant flow mutex poisoned".to_string())?;
                 restore_permission_flow_windows(&app, &mut window_flow)?;
+                *active_panel = None;
+                *active_source_frame = None;
+                *payload_ptr = None;
+                *landing_payload_ptr = None;
                 *last_frame = None;
+                *opening_until = None;
+                *returning_until = None;
                 return Ok(false);
             };
 
+            if let Some(deadline) = returning_until.as_ref().copied() {
+                if Instant::now() < deadline {
+                    return Ok(true);
+                }
+                *active_panel = None;
+                *active_source_frame = None;
+                *payload_ptr = None;
+                *landing_payload_ptr = None;
+                *last_frame = (*window_ptr)
+                    .and_then(|ptr| unsafe { (ptr as *const NSWindow).as_ref() })
+                    .map(|window| AssistantFrameSnapshot::from_rect(window.frame()));
+                *opening_until = None;
+                *returning_until = None;
+                return Ok(true);
+            }
+
+            if active_panel.is_none() {
+                return Ok(true);
+            }
+
             let Some(target_frame) = assistant_frame(mtm, ns_window_ptr)? else {
                 close_assistant_window(&mut window_ptr)?;
+                *active_panel = None;
+                *active_source_frame = None;
+                *payload_ptr = None;
+                *landing_payload_ptr = None;
                 *last_frame = None;
+                *opening_until = None;
+                *returning_until = None;
                 let mut window_flow = state
                     .window_flow
                     .lock()
@@ -490,6 +805,15 @@ pub fn refresh_permission_assistant(
                 restore_permission_flow_windows(&app, &mut window_flow)?;
                 return Ok(false);
             };
+
+            if let Some(deadline) = opening_until.as_ref().copied() {
+                if Instant::now() < deadline {
+                    return Ok(true);
+                }
+                *opening_until = None;
+                *last_frame = Some(AssistantFrameSnapshot::from_rect(target_frame));
+            }
+
             let frame = smoothed_assistant_frame(*last_frame, target_frame);
             *last_frame = Some(AssistantFrameSnapshot::from_rect(frame));
 
@@ -539,17 +863,51 @@ pub fn dismiss_permission_assistant(
                     .window_ptr
                     .lock()
                     .map_err(|_| "permission assistant state mutex poisoned".to_string())?;
+                let mut active_panel = state
+                    .active_panel
+                    .lock()
+                    .map_err(|_| "permission assistant panel mutex poisoned".to_string())?;
+                let mut active_source_frame = state
+                    .active_source_frame
+                    .lock()
+                    .map_err(|_| "permission assistant source mutex poisoned".to_string())?;
+                let mut payload_ptr = state
+                    .payload_ptr
+                    .lock()
+                    .map_err(|_| "permission assistant payload mutex poisoned".to_string())?;
+                let mut landing_payload_ptr = state.landing_payload_ptr.lock().map_err(|_| {
+                    "permission assistant landing payload mutex poisoned".to_string()
+                })?;
                 let mut last_frame = state
                     .last_frame
                     .lock()
                     .map_err(|_| "permission assistant frame mutex poisoned".to_string())?;
+                let mut opening_until = state
+                    .opening_until
+                    .lock()
+                    .map_err(|_| "permission assistant animation mutex poisoned".to_string())?;
+                let mut returning_until = state
+                    .returning_until
+                    .lock()
+                    .map_err(|_| "permission assistant return mutex poisoned".to_string())?;
+                let mut target_candidate = state
+                    .target_candidate
+                    .lock()
+                    .map_err(|_| "permission assistant target mutex poisoned".to_string())?;
                 let mut window_flow = state
                     .window_flow
                     .lock()
                     .map_err(|_| "permission assistant flow mutex poisoned".to_string())?;
 
                 let close_result = close_assistant_window(&mut window_ptr);
+                *active_panel = None;
+                *active_source_frame = None;
+                *payload_ptr = None;
+                *landing_payload_ptr = None;
                 *last_frame = None;
+                *opening_until = None;
+                *returning_until = None;
+                *target_candidate = None;
                 let restore_result = restore_permission_flow_windows(&app, &mut window_flow);
 
                 close_result.and(restore_result)
@@ -659,21 +1017,29 @@ fn create_assistant_window(
     source_window_ptr: usize,
     app_path: &str,
     panel: PermissionPanel,
+    target_frame: NSRect,
     source_rect: Option<PermissionAssistantSourceRect>,
-) -> Result<Option<(Retained<NSWindow>, NSRect)>, String> {
-    let Some(target_frame) = assistant_frame(mtm, source_window_ptr)? else {
-        return Ok(None);
-    };
-    let frame = source_rect
-        .and_then(|rect| {
-            assistant_initial_frame_from_source(mtm, source_window_ptr, rect, target_frame).ok()
-        })
-        .unwrap_or(target_frame);
-    let should_animate_from_source = !rects_nearly_equal(frame, target_frame);
+    source_image_data_url: Option<&str>,
+) -> Result<
+    (
+        Retained<NSWindow>,
+        NSRect,
+        Option<NSRect>,
+        usize,
+        usize,
+        bool,
+    ),
+    String,
+> {
+    let source_frame = source_rect
+        .map(|rect| webview_rect_to_screen_frame(source_window_ptr, rect))
+        .transpose()?;
+    let initial_frame = source_frame.unwrap_or(target_frame);
+    let should_animate_from_source = !rects_nearly_equal(initial_frame, target_frame);
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             mtm.alloc(),
-            frame,
+            initial_frame,
             NSWindowStyleMask::Borderless
                 | NSWindowStyleMask::NonactivatingPanel
                 | NSWindowStyleMask::UtilityWindow,
@@ -703,14 +1069,88 @@ fn create_assistant_window(
             | NSWindowCollectionBehavior::FullScreenAuxiliary,
     );
 
-    let content = build_assistant_content(mtm, app_path, panel)?;
-    window.setContentView(Some(&content));
+    let content = build_assistant_content(mtm, app_path, panel, source_image_data_url)?;
+    content
+        .root
+        .setFrame(NSRect::new(NSPoint::new(0.0, 0.0), initial_frame.size));
+    if should_animate_from_source {
+        content.payload.setAlphaValue(0.0);
+        content.landing_payload.setAlphaValue(1.0);
+    }
+    let payload_ptr = Retained::as_ptr(&content.payload) as usize;
+    let landing_payload_ptr = Retained::as_ptr(&content.landing_payload) as usize;
+    window.setContentView(Some(&content.root));
     window.orderFrontRegardless();
     if should_animate_from_source {
-        fade_window_in(&window);
+        animate_view_alpha(
+            &content.landing_payload,
+            0.0,
+            ASSISTANT_CONTENT_FADE_SECONDS,
+        );
+        animate_view_alpha(&content.payload, 1.0, ASSISTANT_CONTENT_FADE_SECONDS);
+        animate_window_to_target(&window, target_frame);
     }
 
-    Ok(Some((window, frame)))
+    Ok((
+        window,
+        target_frame,
+        source_frame,
+        payload_ptr,
+        landing_payload_ptr,
+        should_animate_from_source,
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn reuse_assistant_window(
+    mtm: MainThreadMarker,
+    window_ptr: Option<usize>,
+    source_window_ptr: usize,
+    app_path: &str,
+    panel: PermissionPanel,
+    target_frame: NSRect,
+    source_rect: Option<PermissionAssistantSourceRect>,
+    source_image_data_url: Option<&str>,
+) -> Result<(usize, NSRect, Option<NSRect>, usize, usize, bool), String> {
+    let ptr = window_ptr.ok_or_else(|| "missing permission assistant window".to_string())?;
+    let window = unsafe {
+        (ptr as *const NSWindow)
+            .as_ref()
+            .ok_or_else(|| "null permission assistant window".to_string())?
+    };
+    let source_frame = source_rect
+        .map(|rect| webview_rect_to_screen_frame(source_window_ptr, rect))
+        .transpose()?;
+    let initial_frame = source_frame.unwrap_or_else(|| window.frame());
+    let content = build_assistant_content(mtm, app_path, panel, source_image_data_url)?;
+    content
+        .root
+        .setFrame(NSRect::new(NSPoint::new(0.0, 0.0), initial_frame.size));
+    content.payload.setAlphaValue(0.0);
+    content.landing_payload.setAlphaValue(1.0);
+    let payload_ptr = Retained::as_ptr(&content.payload) as usize;
+    let landing_payload_ptr = Retained::as_ptr(&content.landing_payload) as usize;
+
+    window.setFrame_display(initial_frame, false);
+    window.setAlphaValue(1.0);
+    window.setContentView(Some(&content.root));
+    window.orderFrontRegardless();
+    animate_view_alpha(
+        &content.landing_payload,
+        0.0,
+        ASSISTANT_CONTENT_FADE_SECONDS,
+    );
+    animate_view_alpha(&content.payload, 1.0, ASSISTANT_CONTENT_FADE_SECONDS);
+    animate_window_to_target(window, target_frame);
+
+    Ok((
+        ptr,
+        target_frame,
+        source_frame,
+        payload_ptr,
+        landing_payload_ptr,
+        true,
+    ))
 }
 
 #[cfg(target_os = "macos")]
@@ -777,6 +1217,36 @@ fn restore_permission_flow_windows(
 }
 
 #[cfg(target_os = "macos")]
+fn settled_assistant_frame(
+    mtm: MainThreadMarker,
+    source_window_ptr: usize,
+    target_candidate: &mut Option<AssistantFrameCandidate>,
+) -> Result<Option<NSRect>, String> {
+    let Some(target_frame) = assistant_frame(mtm, source_window_ptr)? else {
+        *target_candidate = None;
+        return Ok(None);
+    };
+
+    let now = Instant::now();
+    if let Some(candidate) = target_candidate.as_ref() {
+        if rects_nearly_equal(candidate.frame.to_rect(), target_frame) {
+            if now.duration_since(candidate.since)
+                >= Duration::from_millis(ASSISTANT_TARGET_SETTLE_MILLIS)
+            {
+                return Ok(Some(target_frame));
+            }
+            return Ok(None);
+        }
+    }
+
+    *target_candidate = Some(AssistantFrameCandidate {
+        frame: AssistantFrameSnapshot::from_rect(target_frame),
+        since: now,
+    });
+    Ok(None)
+}
+
+#[cfg(target_os = "macos")]
 fn smoothed_assistant_frame(current: Option<AssistantFrameSnapshot>, target: NSRect) -> NSRect {
     const EASE: f64 = 0.42;
     const DEADZONE: f64 = 1.25;
@@ -811,25 +1281,6 @@ fn ease_axis(current: f64, target: f64, ease: f64, deadzone: f64) -> f64 {
 }
 
 #[cfg(target_os = "macos")]
-fn assistant_initial_frame_from_source(
-    mtm: MainThreadMarker,
-    source_window_ptr: usize,
-    source_rect: PermissionAssistantSourceRect,
-    target_frame: NSRect,
-) -> Result<NSRect, String> {
-    let source_frame = webview_rect_to_screen_frame(source_window_ptr, source_rect)?;
-    let frame = NSRect::new(
-        NSPoint::new(
-            source_frame.origin.x + (source_frame.size.width - target_frame.size.width) / 2.0,
-            source_frame.origin.y + (source_frame.size.height - target_frame.size.height) / 2.0,
-        ),
-        target_frame.size,
-    );
-
-    Ok(clamp_frame_to_visible_screen(mtm, frame, source_frame))
-}
-
-#[cfg(target_os = "macos")]
 fn webview_rect_to_screen_frame(
     ns_window_ptr: usize,
     rect: PermissionAssistantSourceRect,
@@ -858,34 +1309,6 @@ fn webview_rect_to_screen_frame(
         ),
         NSSize::new(w_pt, h_pt),
     ))
-}
-
-#[cfg(target_os = "macos")]
-fn clamp_frame_to_visible_screen(
-    mtm: MainThreadMarker,
-    frame: NSRect,
-    reference_frame: NSRect,
-) -> NSRect {
-    const MARGIN: f64 = 8.0;
-
-    let Some(screen) =
-        screen_for_frame(mtm, reference_frame).or_else(|| screen_for_frame(mtm, frame))
-    else {
-        return frame;
-    };
-    let visible = screen.visibleFrame();
-    let min_x = visible.origin.x + MARGIN;
-    let max_x = (visible.origin.x + visible.size.width - frame.size.width - MARGIN).max(min_x);
-    let min_y = visible.origin.y + MARGIN;
-    let max_y = (visible.origin.y + visible.size.height - frame.size.height - MARGIN).max(min_y);
-
-    NSRect::new(
-        NSPoint::new(
-            frame.origin.x.clamp(min_x, max_x),
-            frame.origin.y.clamp(min_y, max_y),
-        ),
-        frame.size,
-    )
 }
 
 #[cfg(target_os = "macos")]
@@ -947,7 +1370,10 @@ fn build_assistant_content(
     mtm: MainThreadMarker,
     app_path: &str,
     panel: PermissionPanel,
-) -> Result<Retained<NSView>, String> {
+    source_image_data_url: Option<&str>,
+) -> Result<AssistantContentViews, String> {
+    let resize_mask =
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable;
     let content = NSView::initWithFrame(
         mtm.alloc(),
         NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(530.0, 109.0)),
@@ -958,6 +1384,7 @@ fn build_assistant_content(
         NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(530.0, 109.0)),
     );
     material.setMaterial(NSVisualEffectMaterial::Popover);
+    material.setAutoresizingMask(resize_mask);
     material.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
     material.setState(NSVisualEffectState::Active);
     material.setWantsLayer(true);
@@ -970,8 +1397,14 @@ fn build_assistant_content(
     )?;
     content.addSubview(&material);
 
+    let payload = NSView::initWithFrame(
+        mtm.alloc(),
+        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(530.0, 109.0)),
+    );
+    payload.setAutoresizingMask(resize_mask);
+
     add_label(
-        &content,
+        &payload,
         &format!(
             "Drag Macroni to the list above to allow {}",
             panel.allowed_target()
@@ -985,9 +1418,17 @@ fn build_assistant_content(
     );
 
     let row = build_assistant_drag_row(mtm, app_path)?;
-    content.addSubview(&row);
+    payload.addSubview(&row);
 
-    Ok(content)
+    let landing_payload = build_assistant_landing_payload(mtm, panel, source_image_data_url)?;
+    content.addSubview(&landing_payload);
+    content.addSubview(&payload);
+
+    Ok(AssistantContentViews {
+        root: content,
+        payload,
+        landing_payload,
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -1031,6 +1472,146 @@ fn build_assistant_drag_row(
 }
 
 #[cfg(target_os = "macos")]
+fn build_assistant_landing_payload(
+    mtm: MainThreadMarker,
+    panel: PermissionPanel,
+    source_image_data_url: Option<&str>,
+) -> Result<Retained<NSView>, String> {
+    let resize_mask =
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable;
+    let landing = NSView::initWithFrame(
+        mtm.alloc(),
+        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(530.0, 109.0)),
+    );
+    landing.setAutoresizingMask(resize_mask);
+    landing.setAlphaValue(0.0);
+
+    if let Some(snapshot) = source_image_data_url.and_then(source_snapshot_image) {
+        let snapshot_view = NSImageView::imageViewWithImage(&snapshot, mtm);
+        snapshot_view.setFrame(NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(530.0, 109.0),
+        ));
+        snapshot_view.setAutoresizingMask(resize_mask);
+        snapshot_view.setImageScaling(NSImageScaling::ScaleAxesIndependently);
+        landing.addSubview(&snapshot_view);
+
+        return Ok(landing);
+    }
+
+    if let Some(icon) = permission_gate_icon(panel) {
+        icon.setSize(NSSize::new(40.0, 40.0));
+        icon.setTemplate(true);
+        let icon_view = NSImageView::imageViewWithImage(&icon, mtm);
+        icon_view.setFrame(NSRect::new(
+            NSPoint::new(24.0, 35.0),
+            NSSize::new(40.0, 40.0),
+        ));
+        icon_view.setContentTintColor(Some(&NSColor::labelColor().colorWithAlphaComponent(0.92)));
+        icon_view.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewMaxXMargin
+                | NSAutoresizingMaskOptions::ViewMinYMargin
+                | NSAutoresizingMaskOptions::ViewMaxYMargin,
+        );
+        landing.addSubview(&icon_view);
+    }
+
+    let title = NSTextField::labelWithString(&NSString::from_str(panel.allowed_target()), mtm);
+    title.setFont(Some(&NSFont::boldSystemFontOfSize(18.0)));
+    title.setTextColor(Some(&NSColor::labelColor().colorWithAlphaComponent(0.92)));
+    title.setMaximumNumberOfLines(1);
+    title.setFrame(NSRect::new(
+        NSPoint::new(84.0, 58.0),
+        NSSize::new(268.0, 24.0),
+    ));
+    title.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable
+            | NSAutoresizingMaskOptions::ViewMinYMargin
+            | NSAutoresizingMaskOptions::ViewMaxYMargin,
+    );
+    landing.addSubview(&title);
+
+    let description =
+        NSTextField::labelWithString(&NSString::from_str(panel.gate_description()), mtm);
+    description.setFont(Some(&NSFont::systemFontOfSize(14.0)));
+    description.setTextColor(Some(
+        &NSColor::secondaryLabelColor().colorWithAlphaComponent(0.9),
+    ));
+    description.setMaximumNumberOfLines(1);
+    description.setFrame(NSRect::new(
+        NSPoint::new(84.0, 35.0),
+        NSSize::new(268.0, 20.0),
+    ));
+    description.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable
+            | NSAutoresizingMaskOptions::ViewMinYMargin
+            | NSAutoresizingMaskOptions::ViewMaxYMargin,
+    );
+    landing.addSubview(&description);
+
+    let button = NSView::initWithFrame(
+        mtm.alloc(),
+        NSRect::new(NSPoint::new(394.0, 33.0), NSSize::new(112.0, 44.0)),
+    );
+    button.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewMinXMargin
+            | NSAutoresizingMaskOptions::ViewMinYMargin
+            | NSAutoresizingMaskOptions::ViewMaxYMargin,
+    );
+    style_view_layer(
+        &button,
+        &NSColor::systemBlueColor().colorWithAlphaComponent(0.96),
+        12.0,
+        None,
+        0.0,
+    )?;
+    landing.addSubview(&button);
+
+    add_centered_label(
+        &button,
+        "Allow",
+        NSRect::new(NSPoint::new(0.0, 12.0), NSSize::new(112.0, 20.0)),
+        14.0,
+        true,
+        &NSColor::whiteColor().colorWithAlphaComponent(0.98),
+        mtm,
+    );
+
+    Ok(landing)
+}
+
+#[cfg(target_os = "macos")]
+fn permission_gate_icon(panel: PermissionPanel) -> Option<Retained<NSImage>> {
+    let description = NSString::from_str(panel.allowed_target());
+    NSImage::imageWithSystemSymbolName_accessibilityDescription(
+        &NSString::from_str(panel.gate_symbol_name()),
+        Some(&description),
+    )
+    .or_else(|| {
+        NSImage::imageWithSystemSymbolName_accessibilityDescription(
+            &NSString::from_str(panel.gate_symbol_fallback_name()),
+            Some(&description),
+        )
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn source_snapshot_image(data_url: &str) -> Option<Retained<NSImage>> {
+    if !data_url.starts_with("data:image/") {
+        return None;
+    }
+
+    let (_, encoded) = data_url.split_once(',')?;
+    let data = NSData::initWithBase64EncodedString_options(
+        NSData::alloc(),
+        &NSString::from_str(encoded),
+        NSDataBase64DecodingOptions::IgnoreUnknownCharacters,
+    )?;
+
+    NSImage::initWithData(NSImage::alloc(), &data)
+}
+
+#[cfg(target_os = "macos")]
 fn add_label(
     parent: &NSView,
     text: &str,
@@ -1051,6 +1632,35 @@ fn add_label(
     label.setTextColor(Some(color));
     label.setMaximumNumberOfLines(lines);
     label.setFrame(frame);
+    parent.addSubview(&label);
+}
+
+#[cfg(target_os = "macos")]
+fn add_centered_label(
+    parent: &NSView,
+    text: &str,
+    frame: NSRect,
+    font_size: f64,
+    bold: bool,
+    color: &NSColor,
+    mtm: MainThreadMarker,
+) {
+    let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
+    let font = if bold {
+        NSFont::boldSystemFontOfSize(font_size)
+    } else {
+        NSFont::systemFontOfSize(font_size)
+    };
+    label.setFont(Some(&font));
+    label.setTextColor(Some(color));
+    label.setAlignment(NSTextAlignment(2));
+    label.setMaximumNumberOfLines(1);
+    label.setFrame(frame);
+    label.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable
+            | NSAutoresizingMaskOptions::ViewMinYMargin
+            | NSAutoresizingMaskOptions::ViewMaxYMargin,
+    );
     parent.addSubview(&label);
 }
 

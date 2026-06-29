@@ -247,6 +247,54 @@ describe("usePermissionStatus", () => {
     );
   });
 
+  it("reveals the previous permission row while switching assistants", async () => {
+    let presentCalls = 0;
+    let resolveSecondPresent: ((value: boolean) => void) | undefined;
+    invokeMock.mockImplementation((cmd: string) => {
+      if (
+        cmd === "check_screen_recording_permission" ||
+        cmd === "check_accessibility_permission"
+      ) {
+        return Promise.resolve(false);
+      }
+      if (cmd === "present_permission_assistant") {
+        presentCalls += 1;
+        if (presentCalls === 1) {
+          return Promise.resolve(true);
+        }
+        return new Promise<boolean>((resolve) => {
+          resolveSecondPresent = resolve;
+        });
+      }
+      if (cmd === "refresh_permission_assistant") {
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const { result } = renderHook(() => usePermissionStatus());
+    await waitFor(() => expect(result.current.state.accessibility).toBe(false));
+
+    await act(async () => {
+      await result.current.openAccessibilitySettings();
+    });
+    expect(result.current.activeAssistantPanel).toBe("accessibility");
+
+    let switchPromise: Promise<void> | undefined;
+    act(() => {
+      switchPromise = result.current.openSystemSettings({ x: 10, y: 20, width: 300, height: 80 });
+    });
+
+    await waitFor(() => expect(result.current.activeAssistantPanel).toBeNull());
+    expect(resolveSecondPresent).toBeDefined();
+
+    await act(async () => {
+      resolveSecondPresent?.(true);
+      await switchPromise;
+    });
+    expect(result.current.activeAssistantPanel).toBe("screen-recording");
+  });
+
   it("polls while the assistant is open and updates when permissions are granted", async () => {
     let screenRecordingGranted = false;
     invokeMock.mockImplementation((cmd: string) => {

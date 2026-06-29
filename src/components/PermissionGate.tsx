@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { toPng } from "html-to-image";
 import { Accessibility, Camera, Check, Loader2, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -9,6 +10,7 @@ interface PermissionGateProps {
   accessibility: boolean | null;
   screenRecording: boolean | null;
   activeAssistantPanel: PermissionKind | null;
+  onClose?: () => void;
   onOpenAccessibilitySettings: (sourceRect?: PermissionAssistantSourceRect) => void;
   onOpenScreenRecordingSettings: (sourceRect?: PermissionAssistantSourceRect) => void;
 }
@@ -19,6 +21,7 @@ export function PermissionGate({
   accessibility,
   screenRecording,
   activeAssistantPanel,
+  onClose,
   onOpenAccessibilitySettings,
   onOpenScreenRecordingSettings,
 }: PermissionGateProps) {
@@ -33,7 +36,7 @@ export function PermissionGate({
       data-tauri-drag-region
     >
       <PermissionGateTrafficLights
-        onClose={() => void win.close()}
+        onClose={onClose ?? (() => void win.hide())}
         onMinimize={() => void win.minimize()}
       />
       <div className="relative mx-auto flex max-w-xl flex-col items-center text-center">
@@ -77,6 +80,10 @@ function PermissionGateTrafficLights({
   onMinimize: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  const stopWindowDrag = (event: MouseEvent | PointerEvent) => {
+    event.stopPropagation();
+    event.nativeEvent.stopImmediatePropagation();
+  };
 
   return (
     <>
@@ -100,12 +107,17 @@ function PermissionGateTrafficLights({
         @keyframes permission-traffic-glyph-in { from { opacity: 0; } to { opacity: 1; } }
       `}</style>
       <div
-        className="permission-traffic-lights absolute left-5 top-5 z-10"
+        className={cn(
+          "permission-traffic-lights absolute left-5 top-5 z-10",
+          hovered && "is-hovered",
+        )}
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
         onPointerCancel={() => setHovered(false)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onPointerDownCapture={stopWindowDrag}
+        onMouseDownCapture={stopWindowDrag}
         onDoubleClick={(event) => event.stopPropagation()}
       >
         <button
@@ -167,9 +179,34 @@ function PermissionGateRow({
   onAllow: (sourceRect?: PermissionAssistantSourceRect) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
-  const allow = () => {
-    const rect = rowRef.current?.getBoundingClientRect();
-    onAllow(rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : undefined);
+  const allow = async () => {
+    const row = rowRef.current;
+    const rect = row?.getBoundingClientRect();
+    const scale = window.devicePixelRatio || 1;
+    let sourceImageDataUrl: string | undefined;
+
+    if (row) {
+      try {
+        sourceImageDataUrl = await toPng(row, {
+          cacheBust: true,
+          pixelRatio: scale,
+        });
+      } catch {
+        sourceImageDataUrl = undefined;
+      }
+    }
+
+    onAllow(
+      rect
+        ? {
+            x: rect.x * scale,
+            y: rect.y * scale,
+            width: rect.width * scale,
+            height: rect.height * scale,
+            sourceImageDataUrl,
+          }
+        : undefined,
+    );
   };
 
   if (isSystemSettingsActive && granted !== true) {

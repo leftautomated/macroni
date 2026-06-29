@@ -18,6 +18,7 @@ export interface PermissionAssistantSourceRect {
   y: number;
   width: number;
   height: number;
+  sourceImageDataUrl?: string;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -92,17 +93,22 @@ export const usePermissionStatus = () => {
       const url =
         panel === "accessibility" ? ACCESSIBILITY_SETTINGS_URL : SCREEN_RECORDING_SETTINGS_URL;
       try {
-        setActiveAssistantPanel(panel);
+        if (activeAssistantPanel && activeAssistantPanel !== panel) {
+          setActiveAssistantPanel(null);
+        }
         await measureAsync("permissions", `open_${panel}_settings`, () => openUrl(url));
         let lastError: unknown = null;
         for (let attempt = 0; attempt < 18; attempt += 1) {
           try {
+            const { sourceImageDataUrl, ...rect } = sourceRect ?? {};
             const presented = await invoke<boolean>("present_permission_assistant", {
               panel,
-              sourceRect,
+              sourceRect: sourceRect ? rect : undefined,
+              sourceImageDataUrl,
             });
             if (presented) {
               assistantVisible.current = true;
+              setActiveAssistantPanel(panel);
               setAssistantActive(true);
               const complete = await recheck();
               if (complete) {
@@ -124,7 +130,7 @@ export const usePermissionStatus = () => {
         await dismissPermissionAssistant();
       }
     },
-    [dismissPermissionAssistant, recheck],
+    [activeAssistantPanel, dismissPermissionAssistant, recheck],
   );
 
   useEffect(() => {
@@ -281,6 +287,7 @@ export const usePermissionStatus = () => {
     openScreenRecordingSettings,
     openAccessibilitySettings,
     activeAssistantPanel,
+    dismissPermissionAssistant,
     dismissCaptureError,
     dismissPermissionPrompt,
   } as const;

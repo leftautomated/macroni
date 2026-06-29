@@ -156,6 +156,22 @@ export function StudioEditor() {
         *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.32); background-clip: padding-box; }
         .studio-gear { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 24px; padding: 0; border: none; border-radius: 6px; background: transparent; color: rgba(255,255,255,0.65); cursor: pointer; transition: background 120ms ease, color 120ms ease; }
         .studio-gear:hover, .studio-gear.active { background: rgba(255,255,255,0.1); color: #fff; }
+
+        /* Custom scrollbar for the settings page — a rounded thumb that floats
+           inset from the edge (transparent border + padding-box clip), brighter
+           on hover/drag. Overrides the subtle global bar above for this view. */
+        .studio-settings-scroll { scrollbar-gutter: stable; }
+        .studio-settings-scroll::-webkit-scrollbar { width: 12px; }
+        .studio-settings-scroll::-webkit-scrollbar-track { background: transparent; }
+        .studio-settings-scroll::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.16);
+          border-radius: 999px;
+          border: 4px solid transparent;
+          background-clip: padding-box;
+          min-height: 48px;
+        }
+        .studio-settings-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); background-clip: padding-box; }
+        .studio-settings-scroll::-webkit-scrollbar-thumb:active { background: rgba(255,255,255,0.42); background-clip: padding-box; }
       `}</style>
 
       <StudioTitleBar
@@ -192,8 +208,11 @@ export function StudioEditor() {
       {/* Body — settings view, else top is the clip and bottom is all the events. */}
       <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column" }}>
         {showSettings ? (
-          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 24 }}>
-            <div style={{ maxWidth: 560, margin: "0 auto" }}>
+          <div
+            className="studio-settings-scroll"
+            style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "28px 24px 48px" }}
+          >
+            <div style={{ maxWidth: 600, margin: "0 auto" }}>
               <SettingsTab />
             </div>
           </div>

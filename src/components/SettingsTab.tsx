@@ -1,15 +1,16 @@
 import {
-  Moon,
-  Sun,
-  Monitor,
-  Keyboard,
-  Shield,
-  Video,
   CheckCircle2,
-  XCircle,
   ExternalLink,
+  Keyboard,
+  Monitor,
+  Moon,
+  Palette,
+  Shield,
+  Sun,
+  Video,
+  XCircle,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import type { ReactNode } from "react";
 import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
 import { useTheme } from "@/components/theme-provider";
 import { useAppSettings } from "@/hooks/useAppSettings";
@@ -28,6 +29,7 @@ const SHORTCUTS = [
 
 const FPS_OPTIONS: Array<15 | 30 | 60> = [15, 30, 60];
 const QUALITY_OPTIONS: CaptureQuality[] = ["low", "med", "high"];
+const QUALITY_LABELS: Record<CaptureQuality, string> = { low: "Low", med: "Med", high: "High" };
 
 export const SettingsTab = () => {
   const { setTheme, theme } = useTheme();
@@ -40,193 +42,327 @@ export const SettingsTab = () => {
   };
 
   return (
-    <div className="space-y-3">
-      <div>
-        <h3 className="text-sm font-semibold">Settings</h3>
-        <p className="text-xs text-muted-foreground">Configure application preferences</p>
-      </div>
-      <div className="h-80 w-full rounded-lg border bg-muted/20 p-4 overflow-y-auto">
-        <div className="space-y-5">
-          <div className="space-y-2">
-            <h4 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-              <Keyboard className="h-3 w-3" /> Keyboard Shortcuts
-            </h4>
-            <div className="space-y-1.5">
-              {SHORTCUTS.map((s) => (
-                <div key={s.keys} className="flex items-center justify-between text-sm">
-                  <span className="text-xs text-muted-foreground">{s.description}</span>
-                  <kbd className="text-xs font-mono px-2 py-0.5 rounded bg-secondary/50 text-secondary-foreground">
-                    {s.keys}
-                  </kbd>
-                </div>
-              ))}
-            </div>
-          </div>
+    <div className="st-root">
+      <style>{`
+        .st-root { display: flex; flex-direction: column; gap: 26px; padding-bottom: 8px; }
+        .st-section { display: flex; flex-direction: column; gap: 9px; }
+        .st-label {
+          display: flex; align-items: center; gap: 7px;
+          padding-left: 3px;
+          font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+          color: rgba(255,255,255,0.42);
+        }
+        .st-label svg { width: 13px; height: 13px; }
+        .st-panel {
+          border: 1px solid rgba(255,255,255,0.07);
+          background: rgba(255,255,255,0.025);
+          border-radius: 12px;
+          overflow: hidden;
+        }
+        .st-row {
+          display: flex; align-items: center; justify-content: space-between; gap: 16px;
+          padding: 11px 14px; min-height: 46px; box-sizing: border-box;
+        }
+        .st-row + .st-row { border-top: 1px solid rgba(255,255,255,0.06); }
+        .st-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .st-row-label { font-size: 13px; color: rgba(255,255,255,0.86); }
+        .st-row-desc { font-size: 11.5px; line-height: 1.45; color: rgba(255,255,255,0.45); }
+        .st-note { font-size: 12px; line-height: 1.5; color: rgba(255,255,255,0.5); padding: 0 3px; }
+        .st-note strong { color: rgba(255,255,255,0.82); font-weight: 500; }
 
-          <div className="h-px bg-border" />
+        .st-seg {
+          display: inline-flex; gap: 2px; padding: 2px; flex-shrink: 0;
+          background: rgba(0,0,0,0.28);
+          border: 1px solid rgba(255,255,255,0.07);
+          border-radius: 8px;
+        }
+        .st-seg-btn {
+          appearance: none; border: none; background: transparent; cursor: pointer;
+          display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+          font: inherit; font-size: 12px; font-weight: 500;
+          color: rgba(255,255,255,0.6);
+          padding: 5px 11px; border-radius: 6px;
+          transition: background 120ms ease, color 120ms ease;
+        }
+        .st-seg-btn svg { width: 13px; height: 13px; }
+        .st-seg-btn:hover:not(.active) { color: rgba(255,255,255,0.92); background: rgba(255,255,255,0.05); }
+        .st-seg-btn.active {
+          background: #6366f1; color: #fff;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.28);
+        }
 
-          <div className="space-y-2">
-            <h4 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-              <Video className="h-3 w-3" /> Video Capture
-            </h4>
-            {isWindows && (
-              <p className="text-xs text-muted-foreground italic">
-                Video capture is temporarily unavailable on Windows (upstream library issue). Event
-                recording still works. These settings apply once video support ships.
-              </p>
-            )}
-            {settings ? (
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1.5">Frame rate</p>
-                  <div className="flex gap-2">
-                    {FPS_OPTIONS.map((fps) => (
-                      <Button
-                        key={fps}
-                        variant={settings.capture.fps === fps ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setCapture({ fps })}
-                      >
-                        {fps} fps
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1.5">Quality</p>
-                  <div className="flex gap-2">
-                    {QUALITY_OPTIONS.map((q) => (
-                      <Button
-                        key={q}
-                        variant={settings.capture.quality === q ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setCapture({ quality: q })}
-                      >
-                        {q.charAt(0).toUpperCase() + q.slice(1)}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-muted-foreground">Capture system audio</p>
-                  <Button
-                    variant={settings.capture.audio ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setCapture({ audio: !settings.capture.audio })}
-                  >
-                    {settings.capture.audio ? "On" : "Off"}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">Loading…</p>
-            )}
-          </div>
+        .st-switch {
+          position: relative; flex-shrink: 0;
+          width: 38px; height: 22px; padding: 0; border: none; border-radius: 999px;
+          background: rgba(255,255,255,0.16); cursor: pointer;
+          transition: background 140ms ease;
+        }
+        .st-switch.on { background: #6366f1; }
+        .st-knob {
+          position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+          border-radius: 50%; background: #fff;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.35);
+          transition: transform 140ms cubic-bezier(0.2,0.8,0.2,1);
+        }
+        .st-switch.on .st-knob { transform: translateX(16px); }
 
-          <div className="h-px bg-border" />
+        .st-keys { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
+        .st-kbd {
+          display: inline-flex; align-items: center; justify-content: center;
+          min-width: 21px; height: 22px; padding: 0 7px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.82);
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.09);
+          border-bottom-color: rgba(0,0,0,0.32);
+          border-radius: 5px;
+        }
+        .st-kbd-plus { color: rgba(255,255,255,0.3); font-size: 11px; }
 
-          <div className="space-y-2">
-            <h4 className="text-xs font-medium text-muted-foreground">Theme</h4>
-            <div className="flex gap-2">
-              <Button
-                variant={theme === "light" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setTheme("light")}
-                className="flex items-center gap-2"
-              >
-                <Sun className="h-3.5 w-3.5" /> Light
-              </Button>
-              <Button
-                variant={theme === "dark" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setTheme("dark")}
-                className="flex items-center gap-2"
-              >
-                <Moon className="h-3.5 w-3.5" /> Dark
-              </Button>
-              <Button
-                variant={theme === "system" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setTheme("system")}
-                className="flex items-center gap-2"
-              >
-                <Monitor className="h-3.5 w-3.5" /> System
-              </Button>
-            </div>
-          </div>
+        .st-perm { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+        .st-perm-dot { flex-shrink: 0; width: 15px; height: 15px; }
+        .st-perm-dot.ok { color: #34d399; }
+        .st-perm-dot.no { color: #f87171; }
+        .st-perm-sub { font-size: 11.5px; color: rgba(255,255,255,0.42); }
 
-          <div className="h-px bg-border" />
+        .st-btn {
+          display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+          font: inherit; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.82);
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.1); border-radius: 7px;
+          padding: 5px 10px; cursor: pointer;
+          transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+        }
+        .st-btn svg { width: 13px; height: 13px; }
+        .st-btn:hover { background: rgba(255,255,255,0.09); color: #fff; border-color: rgba(255,255,255,0.18); }
+        .st-btn:disabled { opacity: 0.5; cursor: default; }
+      `}</style>
 
-          <div className="space-y-2">
-            <h4 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-              <Shield className="h-3 w-3" /> Permissions
-            </h4>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Macroni needs <span className="font-medium text-foreground">Accessibility</span>{" "}
-              permission to capture keyboard and mouse input
-              {isMac ? (
-                <>
-                  {" and "}
-                  <span className="font-medium text-foreground">Screen Recording</span> permission
-                  to capture screen video.
-                </>
-              ) : (
-                "."
-              )}
-            </p>
-            {isMac && (
-              <div className="space-y-2 pt-1">
-                <div className="grid gap-1.5 text-xs sm:grid-cols-2">
-                  <PermissionLine label="Accessibility" granted={perms.state.accessibility} />
-                  <PermissionLine label="Screen Recording" granted={perms.state.screenRecording} />
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void perms.openAccessibilitySettings()}
-                  >
-                    <ExternalLink className="h-3 w-3 mr-1" /> Accessibility
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void perms.openScreenRecordingSettings()}
-                  >
-                    <ExternalLink className="h-3 w-3 mr-1" /> Screen Recording
-                  </Button>
+      {/* Capture */}
+      <Section icon={<Video />} label="Capture">
+        {isWindows && (
+          <p className="st-note">
+            Video capture is temporarily unavailable on Windows (upstream library issue). Event
+            recording still works — these settings apply once video support ships.
+          </p>
+        )}
+        <div className="st-panel">
+          {settings ? (
+            <>
+              <div className="st-row">
+                <span className="st-row-label">Frame rate</span>
+                <div className="st-seg">
+                  {FPS_OPTIONS.map((fps) => (
+                    <button
+                      key={fps}
+                      type="button"
+                      className={`st-seg-btn${settings.capture.fps === fps ? " active" : ""}`}
+                      aria-pressed={settings.capture.fps === fps}
+                      onClick={() => setCapture({ fps })}
+                    >
+                      {fps}
+                    </button>
+                  ))}
                 </div>
               </div>
-            )}
-          </div>
-
-          <div className="h-px bg-border" />
-
-          <DiagnosticsPanel />
+              <div className="st-row">
+                <span className="st-row-label">Quality</span>
+                <div className="st-seg">
+                  {QUALITY_OPTIONS.map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      className={`st-seg-btn${settings.capture.quality === q ? " active" : ""}`}
+                      aria-pressed={settings.capture.quality === q}
+                      onClick={() => setCapture({ quality: q })}
+                    >
+                      {QUALITY_LABELS[q]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="st-row">
+                <div className="st-row-main">
+                  <span className="st-row-label">System audio</span>
+                  <span className="st-row-desc">Capture audio playing on this device</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.capture.audio}
+                  aria-label="Capture system audio"
+                  className={`st-switch${settings.capture.audio ? " on" : ""}`}
+                  onClick={() => setCapture({ audio: !settings.capture.audio })}
+                >
+                  <span className="st-knob" />
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="st-row">
+              <span className="st-row-desc">Loading…</span>
+            </div>
+          )}
         </div>
-      </div>
+      </Section>
+
+      {/* Appearance */}
+      <Section icon={<Palette />} label="Appearance">
+        <div className="st-panel">
+          <div className="st-row">
+            <span className="st-row-label">Theme</span>
+            <div className="st-seg">
+              <SegIcon active={theme === "light"} onClick={() => setTheme("light")} label="Light">
+                <Sun />
+              </SegIcon>
+              <SegIcon active={theme === "dark"} onClick={() => setTheme("dark")} label="Dark">
+                <Moon />
+              </SegIcon>
+              <SegIcon
+                active={theme === "system"}
+                onClick={() => setTheme("system")}
+                label="System"
+              >
+                <Monitor />
+              </SegIcon>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* Keyboard shortcuts */}
+      <Section icon={<Keyboard />} label="Keyboard Shortcuts">
+        <div className="st-panel">
+          {SHORTCUTS.map((s) => (
+            <div key={s.keys} className="st-row">
+              <span className="st-row-label">{s.description}</span>
+              <ShortcutKeys keys={s.keys} />
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* Permissions */}
+      <Section icon={<Shield />} label="Permissions">
+        <p className="st-note">
+          Macroni needs <strong>Accessibility</strong> permission to capture keyboard and mouse
+          input
+          {isMac ? (
+            <>
+              {" and "}
+              <strong>Screen Recording</strong> permission to capture screen video.
+            </>
+          ) : (
+            "."
+          )}
+        </p>
+        {isMac && (
+          <div className="st-panel">
+            <PermissionRow
+              label="Accessibility"
+              granted={perms.state.accessibility}
+              onOpen={() => void perms.openAccessibilitySettings()}
+            />
+            <PermissionRow
+              label="Screen Recording"
+              granted={perms.state.screenRecording}
+              onOpen={() => void perms.openScreenRecordingSettings()}
+            />
+          </div>
+        )}
+      </Section>
+
+      {/* Diagnostics */}
+      <DiagnosticsPanel />
     </div>
   );
 };
 
-function PermissionLine({ label, granted }: { label: string; granted: boolean | null }) {
-  if (granted === null) {
-    return <span className="text-muted-foreground">Checking {label}…</span>;
-  }
-
-  if (granted) {
-    return (
-      <span className="inline-flex items-center gap-1.5">
-        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-        {label}: granted
-      </span>
-    );
-  }
-
+function Section({
+  icon,
+  label,
+  children,
+}: {
+  icon: ReactNode;
+  label: string;
+  children: ReactNode;
+}) {
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <XCircle className="h-3.5 w-3.5 text-destructive" />
-      {label}: not granted
+    <section className="st-section">
+      <div className="st-label">
+        {icon}
+        {label}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function SegIcon({
+  active,
+  onClick,
+  label,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={`st-seg-btn${active ? " active" : ""}`}
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {children}
+      {label}
+    </button>
+  );
+}
+
+function ShortcutKeys({ keys }: { keys: string }) {
+  const parts = keys.split(" + ");
+  return (
+    <span className="st-keys">
+      {parts.map((part, i) => (
+        <span key={`${part}-${i}`} className="st-keys">
+          {i > 0 && <span className="st-kbd-plus">+</span>}
+          <kbd className="st-kbd">{part}</kbd>
+        </span>
+      ))}
     </span>
+  );
+}
+
+function PermissionRow({
+  label,
+  granted,
+  onOpen,
+}: {
+  label: string;
+  granted: boolean | null;
+  onOpen: () => void;
+}) {
+  return (
+    <div className="st-row">
+      <span className="st-perm">
+        {granted === null ? (
+          <CheckCircle2 className="st-perm-dot" style={{ opacity: 0.35 }} />
+        ) : granted ? (
+          <CheckCircle2 className="st-perm-dot ok" />
+        ) : (
+          <XCircle className="st-perm-dot no" />
+        )}
+        <span className="st-row-label">{label}</span>
+        <span className="st-perm-sub">
+          {granted === null ? "Checking…" : granted ? "Granted" : "Not granted"}
+        </span>
+      </span>
+      <button type="button" className="st-btn" onClick={onOpen}>
+        <ExternalLink /> Open
+      </button>
+    </div>
   );
 }

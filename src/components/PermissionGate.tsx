@@ -92,7 +92,10 @@ function PermissionGateTrafficLights({
         .permission-traffic-close { background: #ff5f57; }
         .permission-traffic-minimize { background: #febc2e; }
         .permission-traffic-zoom { background: #28c840; opacity: 0.45; }
-        .permission-traffic-glyph { width: 10px; height: 10px; animation: permission-traffic-glyph-in 90ms ease; }
+        .permission-traffic-glyph {
+          width: 10px; height: 10px;
+          animation: permission-traffic-glyph-in 100ms ease;
+        }
         .permission-traffic-glyph path { stroke: rgba(0,0,0,0.56); stroke-width: 1.3; stroke-linecap: round; fill: none; }
         @keyframes permission-traffic-glyph-in { from { opacity: 0; } to { opacity: 1; } }
       `}</style>
@@ -100,6 +103,9 @@ function PermissionGateTrafficLights({
         className="permission-traffic-lights absolute left-5 top-5 z-10"
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
+        onPointerCancel={() => setHovered(false)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         onDoubleClick={(event) => event.stopPropagation()}
       >
         <button

@@ -57,6 +57,28 @@ describe("PermissionGate", () => {
     expect(win.minimize).toHaveBeenCalledTimes(1);
   });
 
+  it("reveals traffic light glyphs while hovering the cluster", async () => {
+    const { container } = render(
+      <PermissionGate
+        accessibility={false}
+        screenRecording={false}
+        activeAssistantPanel={null}
+        onOpenAccessibilitySettings={vi.fn()}
+        onOpenScreenRecordingSettings={vi.fn()}
+      />,
+    );
+    const lights = container.querySelector(".permission-traffic-lights");
+
+    expect(lights).toBeInstanceOf(HTMLElement);
+    expect(container.querySelectorAll(".permission-traffic-glyph")).toHaveLength(0);
+
+    await userEvent.hover(lights as HTMLElement);
+    expect(container.querySelectorAll(".permission-traffic-glyph")).toHaveLength(3);
+
+    await userEvent.unhover(lights as HTMLElement);
+    expect(container.querySelectorAll(".permission-traffic-glyph")).toHaveLength(0);
+  });
+
   it("passes the clicked row rect when opening System Settings", async () => {
     const openAccessibility = vi.fn();
 

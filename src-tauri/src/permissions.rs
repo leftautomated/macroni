@@ -200,6 +200,19 @@ struct AssistantContentViews {
 }
 
 #[cfg(target_os = "macos")]
+type CreatedAssistantWindow = (
+    Retained<NSWindow>,
+    NSRect,
+    Option<NSRect>,
+    usize,
+    usize,
+    bool,
+);
+
+#[cfg(target_os = "macos")]
+type ReusedAssistantWindow = (usize, NSRect, Option<NSRect>, usize, usize, bool);
+
+#[cfg(target_os = "macos")]
 const ASSISTANT_OPEN_ANIMATION_MILLIS: u64 = 460;
 #[cfg(target_os = "macos")]
 const ASSISTANT_OPEN_ANIMATION_SECONDS: f64 = ASSISTANT_OPEN_ANIMATION_MILLIS as f64 / 1000.0;
@@ -1020,17 +1033,7 @@ fn create_assistant_window(
     target_frame: NSRect,
     source_rect: Option<PermissionAssistantSourceRect>,
     source_image_data_url: Option<&str>,
-) -> Result<
-    (
-        Retained<NSWindow>,
-        NSRect,
-        Option<NSRect>,
-        usize,
-        usize,
-        bool,
-    ),
-    String,
-> {
+) -> Result<CreatedAssistantWindow, String> {
     let source_frame = source_rect
         .map(|rect| webview_rect_to_screen_frame(source_window_ptr, rect))
         .transpose()?;
@@ -1111,7 +1114,7 @@ fn reuse_assistant_window(
     target_frame: NSRect,
     source_rect: Option<PermissionAssistantSourceRect>,
     source_image_data_url: Option<&str>,
-) -> Result<(usize, NSRect, Option<NSRect>, usize, usize, bool), String> {
+) -> Result<ReusedAssistantWindow, String> {
     let ptr = window_ptr.ok_or_else(|| "missing permission assistant window".to_string())?;
     let window = unsafe {
         (ptr as *const NSWindow)

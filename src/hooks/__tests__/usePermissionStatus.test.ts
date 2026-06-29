@@ -251,10 +251,7 @@ describe("usePermissionStatus", () => {
     let presentCalls = 0;
     let resolveSecondPresent: ((value: boolean) => void) | undefined;
     invokeMock.mockImplementation((cmd: string) => {
-      if (
-        cmd === "check_screen_recording_permission" ||
-        cmd === "check_accessibility_permission"
-      ) {
+      if (cmd === "check_screen_recording_permission" || cmd === "check_accessibility_permission") {
         return Promise.resolve(false);
       }
       if (cmd === "present_permission_assistant") {

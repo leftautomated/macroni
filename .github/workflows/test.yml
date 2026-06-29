@@ -167,15 +167,14 @@ jobs:
             echo "::warning::libclang_rt.osx.a not found on the runner"
           fi
 
-      # Ratchet baseline: total line coverage sits ~45% now that the codebase
-      # has a large macOS-API / Tauri-glue / GPU surface that's impractical to
-      # unit-test (permissions, lib command glue, preview_surface). The testable
-      # core stays high (playback ~96%, event_capture ~95%, recordings_store
-      # ~88%). TODO: refine to exclude integration files and keep a high bar
-      # on the core, then raise this back up.
+      # Ratchet baseline: total line coverage sits ~45% after excluding native
+      # macOS permission/onboarding glue that's impractical to unit-test in CI.
+      # The testable core stays high (playback ~96%, event_capture ~95%,
+      # recordings_store ~88%). TODO: keep refining coverage around integration
+      # files and raise this back up.
       - name: Rust coverage gate (fail under 44% lines)
         working-directory: src-tauri
-        run: cargo llvm-cov --fail-under-lines 44 --summary-only
+        run: cargo llvm-cov --ignore-filename-regex 'permissions\.rs$' --fail-under-lines 44 --summary-only
 
       - name: Frontend coverage gate (vitest thresholds in vitest.config.ts)
         run: pnpm test:coverage

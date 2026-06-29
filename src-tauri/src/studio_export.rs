@@ -5,14 +5,21 @@
 //! Progress / done / error are surfaced via Tauri events so the frontend can
 //! display a progress bar without blocking.
 
+#[cfg(not(target_os = "windows"))]
 use render_core::decode::Mp4FrameSource;
+#[cfg(not(target_os = "windows"))]
 use render_core::doc::ProjectDoc;
+#[cfg(not(target_os = "windows"))]
 use render_core::engine::Engine;
 use serde_json::json;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::AppHandle;
+#[cfg(not(target_os = "windows"))]
+use tauri::{Emitter, Manager};
 
 use crate::observability;
+#[cfg(not(target_os = "windows"))]
 use crate::project_store;
+#[cfg(not(target_os = "windows"))]
 use crate::recordings_store::RecordingsStore;
 
 /// Begin an offscreen export of `recording_id`.
@@ -22,6 +29,7 @@ use crate::recordings_store::RecordingsStore;
 ///   - `studio-export-progress`  — `f32` in `(0, 1]`
 ///   - `studio-export-done`      — `String` (final output path)
 ///   - `studio-export-error`     — `String` (error message)
+#[cfg(not(target_os = "windows"))]
 #[tauri::command]
 pub fn studio_export(
     app: AppHandle,
@@ -150,5 +158,20 @@ pub fn studio_export(
         });
 
         Ok(out_path_str)
+    })
+}
+
+/// Windows currently runs in event-only mode: video capture and the H.264 export
+/// stack are disabled until the capture backend is replaced or fixed upstream.
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub fn studio_export(
+    _app: AppHandle,
+    recording_id: String,
+    trace_id: Option<String>,
+) -> Result<String, String> {
+    let fields = json!({ "recordingId": recording_id });
+    observability::trace_command("studio_export", trace_id, Some(fields), || {
+        Err("Studio export is unavailable on Windows because video capture is disabled".to_string())
     })
 }

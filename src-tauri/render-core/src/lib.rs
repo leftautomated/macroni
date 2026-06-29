@@ -1,11 +1,17 @@
 //! Host-agnostic rendering core for the studio editor.
 //! MUST NOT depend on `tauri`.
 
-pub mod compositor;
-pub mod decode;
 pub mod doc;
+
+#[cfg(not(target_os = "windows"))]
+pub mod compositor;
+#[cfg(not(target_os = "windows"))]
+pub mod decode;
+#[cfg(not(target_os = "windows"))]
 pub mod encode;
+#[cfg(not(target_os = "windows"))]
 pub mod engine;
+#[cfg(not(target_os = "windows"))]
 pub mod gpu;
 
 pub fn version() -> &'static str {

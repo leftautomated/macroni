@@ -1,5 +1,6 @@
 mod capture;
 mod crash_log;
+#[cfg(not(target_os = "windows"))]
 mod encoder;
 mod event_capture;
 mod key_mapping;
@@ -550,57 +551,98 @@ pub fn run() {
             observability::init(app.handle());
             observability::log_info("app", "setup.start", None);
 
-            // Register global shortcuts inside setup using the correct Tauri v2 pattern
+            // Register global shortcuts inside setup using the correct Tauri v2 pattern.
+            // `CommandOrControl` maps to Cmd on macOS and Ctrl elsewhere; using
+            // `super` on Windows maps to the Windows key, where Win+R/Win+M are reserved.
             #[cfg(desktop)]
             {
-                app.handle().plugin(
-                    tauri_plugin_global_shortcut::Builder::new()
-                        .with_shortcuts(["super+m", "super+r", "super+shift+r"])?
-                        .with_handler({
-                            let engine = Arc::clone(&shortcut_engine);
-                            move |app, shortcut, event| {
-                                use tauri_plugin_global_shortcut::{
-                                    Code, Modifiers, ShortcutState,
-                                };
+                use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
-                                if event.state() != ShortcutState::Pressed {
-                                    return;
-                                }
+                let primary_modifier = if cfg!(target_os = "macos") {
+                    Modifiers::SUPER
+                } else {
+                    Modifiers::CONTROL
+                };
+                let shortcut_builder =
+                    tauri_plugin_global_shortcut::Builder::new().with_shortcuts([
+                        "CommandOrControl+M",
+                        "CommandOrControl+R",
+                        "CommandOrControl+Shift+R",
+                    ]);
 
-                                // Cmd+M / Ctrl+M — toggle visibility
-                                if shortcut.matches(Modifiers::SUPER, Code::KeyM) {
-                                    observability::log_info("shortcut", "toggle_visibility", None);
-                                    let _ = toggle_visibility(app.clone(), None);
-                                }
-                                // Cmd+R / Ctrl+R — toggle playback.
-                                // Stop directly in Rust to avoid frontend round-trip
-                                // latency and simulated keystrokes interfering with
-                                // the shortcut.
-                                else if shortcut.matches(Modifiers::SUPER, Code::KeyR) {
-                                    if engine.is_playing() {
-                                        observability::log_info("shortcut", "stop_playback", None);
-                                        engine.stop();
-                                        let _ = app.emit("playback-stopped", ());
-                                    } else {
+                match shortcut_builder {
+                    Ok(builder) => {
+                        let plugin = builder
+                            .with_handler({
+                                let engine = Arc::clone(&shortcut_engine);
+                                move |app, shortcut, event| {
+                                    if event.state() != ShortcutState::Pressed {
+                                        return;
+                                    }
+
+                                    // Cmd+M / Ctrl+M — toggle visibility.
+                                    if shortcut.matches(primary_modifier, Code::KeyM) {
                                         observability::log_info(
                                             "shortcut",
-                                            "toggle_playback",
+                                            "toggle_visibility",
                                             None,
                                         );
-                                        let _ = app.emit("toggle-playback", ());
+                                        let _ = toggle_visibility(app.clone(), None);
+                                    }
+                                    // Cmd+R / Ctrl+R — toggle playback.
+                                    // Stop directly in Rust to avoid frontend round-trip
+                                    // latency and simulated keystrokes interfering with
+                                    // the shortcut.
+                                    else if shortcut.matches(primary_modifier, Code::KeyR) {
+                                        if engine.is_playing() {
+                                            observability::log_info(
+                                                "shortcut",
+                                                "stop_playback",
+                                                None,
+                                            );
+                                            engine.stop();
+                                            let _ = app.emit("playback-stopped", ());
+                                        } else {
+                                            observability::log_info(
+                                                "shortcut",
+                                                "toggle_playback",
+                                                None,
+                                            );
+                                            let _ = app.emit("toggle-playback", ());
+                                        }
+                                    }
+                                    // Cmd+Shift+R / Ctrl+Shift+R — toggle recording.
+                                    else if shortcut
+                                        .matches(primary_modifier | Modifiers::SHIFT, Code::KeyR)
+                                    {
+                                        observability::log_info(
+                                            "shortcut",
+                                            "toggle_recording",
+                                            None,
+                                        );
+                                        let _ = app.emit("toggle-recording", ());
                                     }
                                 }
-                                // Cmd+Shift+R / Ctrl+Shift+R — toggle recording
-                                else if shortcut
-                                    .matches(Modifiers::SUPER | Modifiers::SHIFT, Code::KeyR)
-                                {
-                                    observability::log_info("shortcut", "toggle_recording", None);
-                                    let _ = app.emit("toggle-recording", ());
-                                }
-                            }
-                        })
-                        .build(),
-                )?;
+                            })
+                            .build();
+
+                        if let Err(e) = app.handle().plugin(plugin) {
+                            let message = format!("global shortcut plugin unavailable: {e}");
+                            observability::log_warn(
+                                "shortcut",
+                                "plugin_unavailable",
+                                &message,
+                                None,
+                            );
+                            crash_log::log_line(&message);
+                        }
+                    }
+                    Err(e) => {
+                        let message = format!("global shortcut parse failed: {e}");
+                        observability::log_warn("shortcut", "parse_failed", &message, None);
+                        crash_log::log_line(&message);
+                    }
+                }
             }
 
             crash_log::log_line("setup: start");

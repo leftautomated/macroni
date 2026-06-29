@@ -228,7 +228,9 @@ export function StudioTimeline({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <style>{`
-        .tl-scroll { overflow-x: auto; overflow-y: hidden; }
+        /* Headroom for the ruler labels, which sit just above the tick marks at
+           the very top of the track; without it, overflow-y:hidden clips their tops. */
+        .tl-scroll { overflow-x: auto; overflow-y: hidden; padding-top: 4px; }
         .tl-track { position: relative; user-select: none; cursor: pointer; touch-action: none; display: flex; flex-direction: column; gap: 4px; }
         .tl-ruler { position: relative; height: 18px; }
         .tl-tickmark { position: absolute; bottom: 0; width: 1px; background: rgba(255,255,255,0.22); pointer-events: none; }

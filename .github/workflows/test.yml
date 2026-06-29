@@ -97,6 +97,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Make clang_rt discoverable (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          RT=$(find /Applications/Xcode*.app /Library/Developer/CommandLineTools \
+                 -name 'libclang_rt.osx.a' 2>/dev/null | head -1)
+          if [ -n "$RT" ]; then
+            echo "clang_rt found: $RT"
+            echo "LIBRARY_PATH=$(dirname "$RT"):${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          else
+            echo "::warning::libclang_rt.osx.a not found on the runner"
+          fi
+
       - name: Run Rust tests
         run: cd src-tauri && cargo test
 
@@ -193,6 +205,17 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-mutants
+
+      - name: Make clang_rt discoverable
+        run: |
+          RT=$(find /Applications/Xcode*.app /Library/Developer/CommandLineTools \
+                 -name 'libclang_rt.osx.a' 2>/dev/null | head -1)
+          if [ -n "$RT" ]; then
+            echo "clang_rt found: $RT"
+            echo "LIBRARY_PATH=$(dirname "$RT"):${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          else
+            echo "::warning::libclang_rt.osx.a not found on the runner"
+          fi
 
       - name: Mutation gate (PR — changed files only)
         if: github.event_name == 'pull_request'

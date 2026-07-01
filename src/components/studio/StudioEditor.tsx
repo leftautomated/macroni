@@ -105,11 +105,11 @@ export function StudioEditor() {
 
   // Replay runs from the main control panel (focus-safe). Hand it the recording;
   // the main window comes forward with it loaded, ready for the user to play.
-  const handleReplay = useCallback((id: string) => {
-    void invoke("request_replay", { id }).catch((e) =>
+  const handleReplay = useCallback((id: string, loopForever: boolean) => {
+    void invoke("request_replay", { id, loopForever }).catch((e) =>
       logEvent("error", "studio", "request_replay_failed", {
         error: e,
-        fields: { recordingId: id },
+        fields: { recordingId: id, loopForever },
       }),
     );
   }, []);
@@ -235,7 +235,7 @@ export function StudioEditor() {
                 src={url}
                 fps={selected.video?.fps ?? 30}
                 onTimeUpdate={sync.onVideoTime}
-                onReplay={() => handleReplay(selected.id)}
+                onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
                 loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
                 controlsHost={controlsHost}
               />

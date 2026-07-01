@@ -17,7 +17,19 @@ describe("StudioPlayer", () => {
     expect(screen.getByRole("button", { name: /jump to end/i })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /replay macro/i }));
-    expect(onReplay).toHaveBeenCalledTimes(1);
+    expect(onReplay).toHaveBeenCalledWith(true);
+  });
+
+  it("passes the current loop toggle state to Replay macro", async () => {
+    const onReplay = vi.fn();
+    render(
+      <StudioPlayer src="asset://clip.mp4" fps={30} onTimeUpdate={noop} onReplay={onReplay} />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /loop on/i }));
+    await userEvent.click(screen.getByRole("button", { name: /replay macro/i }));
+
+    expect(onReplay).toHaveBeenCalledWith(false);
   });
 
   it("changes playback speed via the slider", () => {

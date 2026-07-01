@@ -224,6 +224,10 @@ const ASSISTANT_RETURN_ANIMATION_SECONDS: f64 = ASSISTANT_RETURN_ANIMATION_MILLI
 const ASSISTANT_CONTENT_FADE_SECONDS: f64 = 0.18;
 #[cfg(target_os = "macos")]
 const ASSISTANT_TARGET_SETTLE_MILLIS: u64 = 140;
+#[cfg(target_os = "macos")]
+const ASSISTANT_READY_POLL_MILLIS: u64 = 50;
+#[cfg(target_os = "macos")]
+const ASSISTANT_READY_TIMEOUT_MILLIS: u64 = 30_000;
 
 #[cfg(target_os = "macos")]
 #[derive(Default)]
@@ -514,195 +518,44 @@ pub fn present_permission_assistant(
 ) -> Result<bool, String> {
     observability::trace_command("present_permission_assistant", trace_id, None, || {
         let panel = PermissionPanel::parse(&panel)?;
-        let app_path = permission_drag_path()?;
-        let ns_window_ptr = window.ns_window().map_err(|e| e.to_string())? as usize;
-        let app = window.app_handle().clone();
-        let (tx, rx) = std::sync::mpsc::channel::<Result<bool, String>>();
-
-        let run = window.run_on_main_thread(move || {
-            let result = (|| -> Result<bool, String> {
-                let mtm = MainThreadMarker::new()
-                    .ok_or_else(|| "run_on_main_thread closure not on main thread".to_string())?;
-                let state = app.state::<PermissionAssistantState>();
-                let mut window_ptr = state
-                    .window_ptr
-                    .lock()
-                    .map_err(|_| "permission assistant state mutex poisoned".to_string())?;
-                let mut active_panel = state
-                    .active_panel
-                    .lock()
-                    .map_err(|_| "permission assistant panel mutex poisoned".to_string())?;
-                let mut active_source_frame = state
-                    .active_source_frame
-                    .lock()
-                    .map_err(|_| "permission assistant source mutex poisoned".to_string())?;
-                let mut payload_ptr = state
-                    .payload_ptr
-                    .lock()
-                    .map_err(|_| "permission assistant payload mutex poisoned".to_string())?;
-                let mut landing_payload_ptr = state.landing_payload_ptr.lock().map_err(|_| {
-                    "permission assistant landing payload mutex poisoned".to_string()
-                })?;
-
-                let mut last_frame = state
-                    .last_frame
-                    .lock()
-                    .map_err(|_| "permission assistant frame mutex poisoned".to_string())?;
-                let mut opening_until = state
-                    .opening_until
-                    .lock()
-                    .map_err(|_| "permission assistant animation mutex poisoned".to_string())?;
-                let mut returning_until = state
-                    .returning_until
-                    .lock()
-                    .map_err(|_| "permission assistant return mutex poisoned".to_string())?;
-                let mut target_candidate = state
-                    .target_candidate
-                    .lock()
-                    .map_err(|_| "permission assistant target mutex poisoned".to_string())?;
-                let mut window_flow = state
-                    .window_flow
-                    .lock()
-                    .map_err(|_| "permission assistant flow mutex poisoned".to_string())?;
-
-                lower_permission_flow_windows(&app, &mut window_flow)?;
-
-                if let Some(deadline) = returning_until.as_ref().copied() {
-                    if Instant::now() < deadline {
-                        return Ok(false);
-                    }
-                    *active_panel = None;
-                    *active_source_frame = None;
-                    *payload_ptr = None;
-                    *landing_payload_ptr = None;
-                    *last_frame = (*window_ptr)
-                        .and_then(|ptr| unsafe { (ptr as *const NSWindow).as_ref() })
-                        .map(|window| AssistantFrameSnapshot::from_rect(window.frame()));
-                    *opening_until = None;
-                    *returning_until = None;
-                    *target_candidate = None;
-                }
-
-                let is_switching_panels = matches!(
-                    (*active_panel, source_rect),
-                    (Some(active), Some(_)) if active != panel
-                );
-                if is_switching_panels {
-                    let Some(ptr) = *window_ptr else {
-                        *active_panel = None;
-                        *active_source_frame = None;
-                        *payload_ptr = None;
-                        *landing_payload_ptr = None;
-                        *opening_until = None;
-                        *target_candidate = None;
-                        return Ok(false);
-                    };
-                    let assistant = unsafe {
-                        (ptr as *const NSWindow)
-                            .as_ref()
-                            .ok_or_else(|| "null permission assistant window".to_string())?
-                    };
-                    let fallback_return_frame = webview_rect_to_screen_frame(
-                        ns_window_ptr,
-                        source_rect.ok_or_else(|| {
-                            "missing source rect for permission assistant switch".to_string()
-                        })?,
-                    )?;
-                    let return_frame = active_source_frame
-                        .as_ref()
-                        .copied()
-                        .map(AssistantFrameSnapshot::to_rect)
-                        .unwrap_or(fallback_return_frame);
-                    animate_window_back_to_source(
-                        assistant,
-                        return_frame,
-                        *payload_ptr,
-                        *landing_payload_ptr,
-                    );
-                    *opening_until = None;
-                    *returning_until = Some(
-                        Instant::now() + Duration::from_millis(ASSISTANT_RETURN_ANIMATION_MILLIS),
-                    );
-                    *target_candidate = None;
-                    return Ok(false);
-                }
-
-                let Some(target_frame) =
-                    settled_assistant_frame(mtm, ns_window_ptr, &mut target_candidate)?
-                else {
-                    return Ok(false);
-                };
-                let (
-                    assistant,
-                    frame,
-                    source_frame,
-                    next_payload_ptr,
-                    next_landing_payload_ptr,
-                    is_opening,
-                ) = if active_panel.is_none() && window_ptr.is_some() {
-                    reuse_assistant_window(
-                        mtm,
-                        *window_ptr,
-                        ns_window_ptr,
-                        &app_path,
-                        panel,
-                        target_frame,
-                        source_rect,
-                        source_image_data_url.as_deref(),
-                    )?
-                } else {
-                    close_assistant_window(&mut window_ptr)?;
-                    *payload_ptr = None;
-                    *landing_payload_ptr = None;
-                    let (
-                        assistant,
-                        frame,
-                        source_frame,
-                        next_payload_ptr,
-                        next_landing_payload_ptr,
-                        is_opening,
-                    ) = create_assistant_window(
-                        mtm,
-                        ns_window_ptr,
-                        &app_path,
-                        panel,
-                        target_frame,
-                        source_rect,
-                        source_image_data_url.as_deref(),
-                    )?;
-                    (
-                        Retained::into_raw(assistant) as usize,
-                        frame,
-                        source_frame,
-                        next_payload_ptr,
-                        next_landing_payload_ptr,
-                        is_opening,
-                    )
-                };
-
-                *last_frame = Some(AssistantFrameSnapshot::from_rect(frame));
-                *opening_until = if is_opening {
-                    Some(Instant::now() + Duration::from_millis(ASSISTANT_OPEN_ANIMATION_MILLIS))
-                } else {
-                    None
-                };
-                *target_candidate = None;
-                *active_panel = Some(panel);
-                *active_source_frame = source_frame.map(AssistantFrameSnapshot::from_rect);
-                *payload_ptr = Some(next_payload_ptr);
-                *landing_payload_ptr = Some(next_landing_payload_ptr);
-                *window_ptr = Some(assistant);
-
-                Ok(true)
-            })();
-
-            let _ = tx.send(result);
-        });
-
-        run.map_err(|e| format!("run_on_main_thread failed: {e}"))?;
-        rx.recv()
-            .map_err(|_| "main-thread closure dropped without result".to_string())?
+        present_permission_assistant_once(
+            &window,
+            panel,
+            source_rect,
+            source_image_data_url.as_deref(),
+        )
     })
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn present_permission_assistant_when_ready(
+    window: WebviewWindow,
+    panel: String,
+    source_rect: Option<PermissionAssistantSourceRect>,
+    source_image_data_url: Option<String>,
+    trace_id: Option<String>,
+) -> Result<bool, String> {
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        observability::trace_command(
+            "present_permission_assistant_when_ready",
+            trace_id,
+            None,
+            || {
+                let panel = PermissionPanel::parse(&panel)?;
+                wait_for_permission_assistant(
+                    &window,
+                    panel,
+                    source_rect,
+                    source_image_data_url.as_deref(),
+                )
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    result
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -715,6 +568,238 @@ pub fn present_permission_assistant(
     _trace_id: Option<String>,
 ) -> Result<bool, String> {
     Ok(true)
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn present_permission_assistant_when_ready(
+    _window: tauri::WebviewWindow,
+    _panel: String,
+    _source_rect: Option<PermissionAssistantSourceRect>,
+    _source_image_data_url: Option<String>,
+    _trace_id: Option<String>,
+) -> Result<bool, String> {
+    Ok(true)
+}
+
+#[cfg(target_os = "macos")]
+fn wait_for_permission_assistant(
+    window: &WebviewWindow,
+    panel: PermissionPanel,
+    source_rect: Option<PermissionAssistantSourceRect>,
+    source_image_data_url: Option<&str>,
+) -> Result<bool, String> {
+    let deadline = Instant::now() + Duration::from_millis(ASSISTANT_READY_TIMEOUT_MILLIS);
+
+    loop {
+        if present_permission_assistant_once(window, panel, source_rect, source_image_data_url)? {
+            return Ok(true);
+        }
+
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+
+        std::thread::sleep(Duration::from_millis(ASSISTANT_READY_POLL_MILLIS));
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn present_permission_assistant_once(
+    window: &WebviewWindow,
+    panel: PermissionPanel,
+    source_rect: Option<PermissionAssistantSourceRect>,
+    source_image_data_url: Option<&str>,
+) -> Result<bool, String> {
+    let app_path = permission_drag_path()?;
+    let ns_window_ptr = window.ns_window().map_err(|e| e.to_string())? as usize;
+    let app = window.app_handle().clone();
+    let source_image_data_url = source_image_data_url.map(str::to_owned);
+    let (tx, rx) = std::sync::mpsc::channel::<Result<bool, String>>();
+
+    let run = window.run_on_main_thread(move || {
+        let result = (|| -> Result<bool, String> {
+            let mtm = MainThreadMarker::new()
+                .ok_or_else(|| "run_on_main_thread closure not on main thread".to_string())?;
+            let state = app.state::<PermissionAssistantState>();
+            let mut window_ptr = state
+                .window_ptr
+                .lock()
+                .map_err(|_| "permission assistant state mutex poisoned".to_string())?;
+            let mut active_panel = state
+                .active_panel
+                .lock()
+                .map_err(|_| "permission assistant panel mutex poisoned".to_string())?;
+            let mut active_source_frame = state
+                .active_source_frame
+                .lock()
+                .map_err(|_| "permission assistant source mutex poisoned".to_string())?;
+            let mut payload_ptr = state
+                .payload_ptr
+                .lock()
+                .map_err(|_| "permission assistant payload mutex poisoned".to_string())?;
+            let mut landing_payload_ptr = state
+                .landing_payload_ptr
+                .lock()
+                .map_err(|_| "permission assistant landing payload mutex poisoned".to_string())?;
+
+            let mut last_frame = state
+                .last_frame
+                .lock()
+                .map_err(|_| "permission assistant frame mutex poisoned".to_string())?;
+            let mut opening_until = state
+                .opening_until
+                .lock()
+                .map_err(|_| "permission assistant animation mutex poisoned".to_string())?;
+            let mut returning_until = state
+                .returning_until
+                .lock()
+                .map_err(|_| "permission assistant return mutex poisoned".to_string())?;
+            let mut target_candidate = state
+                .target_candidate
+                .lock()
+                .map_err(|_| "permission assistant target mutex poisoned".to_string())?;
+            let mut window_flow = state
+                .window_flow
+                .lock()
+                .map_err(|_| "permission assistant flow mutex poisoned".to_string())?;
+
+            lower_permission_flow_windows(&app, &mut window_flow)?;
+
+            if let Some(deadline) = returning_until.as_ref().copied() {
+                if Instant::now() < deadline {
+                    return Ok(false);
+                }
+                *active_panel = None;
+                *active_source_frame = None;
+                *payload_ptr = None;
+                *landing_payload_ptr = None;
+                *last_frame = (*window_ptr)
+                    .and_then(|ptr| unsafe { (ptr as *const NSWindow).as_ref() })
+                    .map(|window| AssistantFrameSnapshot::from_rect(window.frame()));
+                *opening_until = None;
+                *returning_until = None;
+                *target_candidate = None;
+            }
+
+            let is_switching_panels = matches!(
+                (*active_panel, source_rect),
+                (Some(active), Some(_)) if active != panel
+            );
+            if is_switching_panels {
+                let Some(ptr) = *window_ptr else {
+                    *active_panel = None;
+                    *active_source_frame = None;
+                    *payload_ptr = None;
+                    *landing_payload_ptr = None;
+                    *opening_until = None;
+                    *target_candidate = None;
+                    return Ok(false);
+                };
+                let assistant = unsafe {
+                    (ptr as *const NSWindow)
+                        .as_ref()
+                        .ok_or_else(|| "null permission assistant window".to_string())?
+                };
+                let fallback_return_frame = webview_rect_to_screen_frame(
+                    ns_window_ptr,
+                    source_rect.ok_or_else(|| {
+                        "missing source rect for permission assistant switch".to_string()
+                    })?,
+                )?;
+                let return_frame = active_source_frame
+                    .as_ref()
+                    .copied()
+                    .map(AssistantFrameSnapshot::to_rect)
+                    .unwrap_or(fallback_return_frame);
+                animate_window_back_to_source(
+                    assistant,
+                    return_frame,
+                    *payload_ptr,
+                    *landing_payload_ptr,
+                );
+                *opening_until = None;
+                *returning_until =
+                    Some(Instant::now() + Duration::from_millis(ASSISTANT_RETURN_ANIMATION_MILLIS));
+                *target_candidate = None;
+                return Ok(false);
+            }
+
+            let Some(target_frame) =
+                settled_assistant_frame(mtm, ns_window_ptr, &mut target_candidate)?
+            else {
+                return Ok(false);
+            };
+            let (
+                assistant,
+                frame,
+                source_frame,
+                next_payload_ptr,
+                next_landing_payload_ptr,
+                is_opening,
+            ) = if active_panel.is_none() && window_ptr.is_some() {
+                reuse_assistant_window(
+                    mtm,
+                    *window_ptr,
+                    ns_window_ptr,
+                    &app_path,
+                    panel,
+                    target_frame,
+                    source_rect,
+                    source_image_data_url.as_deref(),
+                )?
+            } else {
+                close_assistant_window(&mut window_ptr)?;
+                *payload_ptr = None;
+                *landing_payload_ptr = None;
+                let (
+                    assistant,
+                    frame,
+                    source_frame,
+                    next_payload_ptr,
+                    next_landing_payload_ptr,
+                    is_opening,
+                ) = create_assistant_window(
+                    mtm,
+                    ns_window_ptr,
+                    &app_path,
+                    panel,
+                    target_frame,
+                    source_rect,
+                    source_image_data_url.as_deref(),
+                )?;
+                (
+                    Retained::into_raw(assistant) as usize,
+                    frame,
+                    source_frame,
+                    next_payload_ptr,
+                    next_landing_payload_ptr,
+                    is_opening,
+                )
+            };
+
+            *last_frame = Some(AssistantFrameSnapshot::from_rect(frame));
+            *opening_until = if is_opening {
+                Some(Instant::now() + Duration::from_millis(ASSISTANT_OPEN_ANIMATION_MILLIS))
+            } else {
+                None
+            };
+            *target_candidate = None;
+            *active_panel = Some(panel);
+            *active_source_frame = source_frame.map(AssistantFrameSnapshot::from_rect);
+            *payload_ptr = Some(next_payload_ptr);
+            *landing_payload_ptr = Some(next_landing_payload_ptr);
+            *window_ptr = Some(assistant);
+
+            Ok(true)
+        })();
+
+        let _ = tx.send(result);
+    });
+
+    run.map_err(|e| format!("run_on_main_thread failed: {e}"))?;
+    rx.recv()
+        .map_err(|_| "main-thread closure dropped without result".to_string())?
 }
 
 #[cfg(target_os = "macos")]

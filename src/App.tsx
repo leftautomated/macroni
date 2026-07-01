@@ -17,6 +17,18 @@ import { Clapperboard, GripVertical, Square } from "lucide-react";
 
 const isMac = typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
 
+type ReplayRecordingPayload =
+  | string
+  | {
+      id: string;
+      loopForever?: boolean;
+    };
+
+function normalizeReplayPayload(payload: ReplayRecordingPayload) {
+  if (typeof payload === "string") return { id: payload, loopForever: true };
+  return { id: payload.id, loopForever: payload.loopForever ?? true };
+}
+
 const App = () => {
   const recorder = useRecorder();
   const recordingsManager = useRecordings();
@@ -27,6 +39,7 @@ const App = () => {
   const contentRef = useRef<HTMLDivElement>(null);
   // Last recording the Studio asked us to replay — re-played on Cmd+R.
   const replayRecRef = useRef<Recording | null>(null);
+  const replayLoopForeverRef = useRef(true);
 
   useInputEventListener(recorder.addEvent);
 
@@ -90,20 +103,21 @@ const App = () => {
     }
   }, [recorder, recordingsManager]);
 
-  const handlePlay = useCallback(async (rec: Recording) => {
+  const handlePlay = useCallback(async (rec: Recording, loopForever = true) => {
     try {
       setIsPlaying(true);
       setReplayName(rec.name && rec.name !== "Untitled" ? rec.name : null);
       replayRecRef.current = rec;
+      replayLoopForeverRef.current = loopForever;
       await invoke("play_recording", {
         events: rec.events,
-        loopForever: false,
+        loopForever,
         speed: rec.playback_speed,
       });
     } catch (error) {
       logEvent("error", "playback", "play_failed", {
         error,
-        fields: { recordingId: rec.id, eventCount: rec.events.length },
+        fields: { recordingId: rec.id, eventCount: rec.events.length, loopForever },
       });
       setIsPlaying(false);
     }
@@ -155,7 +169,7 @@ const App = () => {
   useEffect(() => {
     const unlisten = listen("toggle-playback", () => {
       if (!isPlayingRef.current && replayRecRef.current) {
-        void handlePlay(replayRecRef.current);
+        void handlePlay(replayRecRef.current, replayLoopForeverRef.current);
       }
     });
     return () => {
@@ -176,10 +190,11 @@ const App = () => {
   // The Studio hands a recording here to replay it — the overlay's
   // non-activating panel is the focus-safe surface, so auto-play immediately.
   useEffect(() => {
-    const unlisten = listen<string>("replay-recording", async (event) => {
+    const unlisten = listen<ReplayRecordingPayload>("replay-recording", async (event) => {
+      const { id, loopForever } = normalizeReplayPayload(event.payload);
       const all = await invoke<Recording[]>("load_recordings");
-      const rec = all.find((r) => r.id === event.payload);
-      if (rec) void handlePlay(rec);
+      const rec = all.find((r) => r.id === id);
+      if (rec) void handlePlay(rec, loopForever);
     });
     return () => {
       unlisten.then((fn) => fn());

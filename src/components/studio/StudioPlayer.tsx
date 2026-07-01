@@ -11,7 +11,7 @@ interface StudioPlayerProps {
   src: string;
   fps: number;
   onTimeUpdate: (seconds: number) => void;
-  onReplay: () => void;
+  onReplay: (loopForever: boolean) => void;
   /** When set (seconds), playback repeats over [a, b]. */
   loopRegion?: { a: number; b: number } | null;
   /** Where to render the transport controls. Defaults to inline below the video. */
@@ -169,6 +169,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
         <button
           type="button"
           className={`sp-btn${loop ? " on" : ""}`}
+          aria-label={loop ? "Loop on" : "Loop off"}
           title={loop ? "Looping (click to turn off)" : "Loop off (click to loop)"}
           onClick={toggleLoop}
         >
@@ -202,7 +203,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           type="button"
           className="sp-replay"
           title="Replay this macro in the control bar"
-          onClick={onReplay}
+          onClick={() => onReplay(loop)}
         >
           <Play size={14} /> Replay macro
         </button>

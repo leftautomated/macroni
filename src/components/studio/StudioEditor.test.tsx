@@ -91,7 +91,23 @@ describe("StudioEditor (recordings browser)", () => {
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith(
         "request_replay",
-        expect.objectContaining({ id: "2000", traceId: expect.any(String) }),
+        expect.objectContaining({ id: "2000", loopForever: true, traceId: expect.any(String) }),
+      );
+    });
+  });
+
+  it("passes the Studio loop toggle to the replay request", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    fake.recordings = [makeRecording("2000", "Beta")];
+
+    render(<StudioEditor />);
+    await userEvent.click(await screen.findByRole("button", { name: /loop on/i }));
+    await userEvent.click(screen.getByRole("button", { name: /replay macro/i }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "request_replay",
+        expect.objectContaining({ id: "2000", loopForever: false, traceId: expect.any(String) }),
       );
     });
   });

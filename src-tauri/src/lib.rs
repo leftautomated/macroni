@@ -350,8 +350,14 @@ fn focus_studio_window(app: AppHandle, trace_id: Option<String>) -> Result<(), S
 }
 
 #[tauri::command]
-fn request_replay(app: AppHandle, id: String, trace_id: Option<String>) -> Result<(), String> {
-    let fields = json!({ "recordingId": id });
+fn request_replay(
+    app: AppHandle,
+    id: String,
+    loop_forever: Option<bool>,
+    trace_id: Option<String>,
+) -> Result<(), String> {
+    let loop_forever = loop_forever.unwrap_or(true);
+    let fields = json!({ "recordingId": id, "loopForever": loop_forever });
     observability::trace_command("request_replay", trace_id, Some(fields), || {
         // Replay runs from the main control panel: it's small and non-activating, so
         // it won't steal focus from the user's target app. Bring it forward, then
@@ -371,10 +377,20 @@ fn request_replay(app: AppHandle, id: String, trace_id: Option<String>) -> Resul
                 window.show().map_err(|e| e.to_string())?;
             }
         }
-        app.emit("replay-recording", id)
-            .map_err(|e| e.to_string())?;
+        app.emit(
+            "replay-recording",
+            ReplayRecordingRequest { id, loop_forever },
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     })
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReplayRecordingRequest {
+    id: String,
+    loop_forever: bool,
 }
 
 #[tauri::command]
@@ -745,6 +761,7 @@ pub fn run() {
             permissions::install_permission_drag_region,
             permissions::remove_permission_drag_region,
             permissions::present_permission_assistant,
+            permissions::present_permission_assistant_when_ready,
             permissions::refresh_permission_assistant,
             permissions::dismiss_permission_assistant,
             focus_studio_window,

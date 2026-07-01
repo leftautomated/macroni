@@ -291,8 +291,9 @@ describe("usePermissionStatus", () => {
     expect(result.current.activeAssistantPanel).toBe("screen-recording");
   });
 
-  it("polls while the assistant is open and updates when permissions are granted", async () => {
+  it("lets the native assistant finish its success transition when permissions are granted", async () => {
     let screenRecordingGranted = false;
+    let assistantStillVisible = true;
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "check_screen_recording_permission") {
         return Promise.resolve(screenRecordingGranted);
@@ -300,10 +301,10 @@ describe("usePermissionStatus", () => {
       if (cmd === "check_accessibility_permission") {
         return Promise.resolve(true);
       }
-      if (
-        cmd === "present_permission_assistant_when_ready" ||
-        cmd === "refresh_permission_assistant"
-      ) {
+      if (cmd === "refresh_permission_assistant") {
+        return Promise.resolve(assistantStillVisible);
+      }
+      if (cmd === "present_permission_assistant_when_ready") {
         return Promise.resolve(true);
       }
       if (cmd === "dismiss_permission_assistant") {
@@ -318,15 +319,18 @@ describe("usePermissionStatus", () => {
     await act(async () => {
       await result.current.openSystemSettings();
     });
+    expect(result.current.activeAssistantPanel).toBe("screen-recording");
+
     screenRecordingGranted = true;
+    assistantStillVisible = false;
 
     await waitFor(() => expect(result.current.state.screenRecording).toBe(true), {
       timeout: 1500,
     });
+    await waitFor(() => expect(result.current.activeAssistantPanel).toBeNull());
     expect(result.current.state.needsScreenRecording).toBe(false);
-    expect(invokeMock).toHaveBeenCalledWith(
-      "dismiss_permission_assistant",
-      expect.objectContaining({ traceId: expect.any(String) }),
+    expect(invokeMock.mock.calls.some(([cmd]) => cmd === "dismiss_permission_assistant")).toBe(
+      false,
     );
   });
 });

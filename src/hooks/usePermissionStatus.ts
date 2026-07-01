@@ -133,6 +133,7 @@ export const usePermissionStatus = () => {
             assistantVisible.current = false;
             setAssistantActive(false);
             setActiveAssistantPanel(null);
+            void recheck();
           }
         } catch (err) {
           logEvent("error", "permissions", "refresh_permission_assistant_failed", { error: err });
@@ -144,7 +145,7 @@ export const usePermissionStatus = () => {
     }, 33);
 
     return () => window.clearInterval(interval);
-  }, [assistantActive]);
+  }, [assistantActive, recheck]);
 
   useEffect(() => {
     if (!isMac()) return;
@@ -157,16 +158,12 @@ export const usePermissionStatus = () => {
       state.screenRecording === false;
     if (!shouldPoll) return;
 
-    let cancelled = false;
     const intervalMs = assistantActive ? 500 : 1500;
     const poll = async () => {
       if (permissionPollInFlight.current) return;
       permissionPollInFlight.current = true;
       try {
-        const complete = await recheck();
-        if (!cancelled && complete && (assistantVisible.current || assistantActive)) {
-          await dismissPermissionAssistant();
-        }
+        await recheck();
       } finally {
         permissionPollInFlight.current = false;
       }
@@ -180,12 +177,10 @@ export const usePermissionStatus = () => {
     }
 
     return () => {
-      cancelled = true;
       window.clearInterval(interval);
     };
   }, [
     assistantActive,
-    dismissPermissionAssistant,
     recheck,
     state.accessibility,
     state.needsAccessibility,

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toPng } from "html-to-image";
-import { Accessibility, Camera, Check, Loader2, type LucideIcon } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { PermissionAssistantSourceRect } from "@/hooks/usePermissionStatus";
@@ -51,18 +51,18 @@ export function PermissionGate({
           <PermissionGateRow
             description="Captures keyboard and mouse input."
             granted={accessibility}
-            icon={Accessibility}
             isPrimary={primaryMissing === "accessibility"}
             isSystemSettingsActive={activeAssistantPanel === "accessibility"}
+            kind="accessibility"
             label="Accessibility"
             onAllow={onOpenAccessibilitySettings}
           />
           <PermissionGateRow
             description="Captures screen video for recordings."
             granted={screenRecording}
-            icon={Camera}
             isPrimary={primaryMissing === "screen-recording"}
             isSystemSettingsActive={activeAssistantPanel === "screen-recording"}
+            kind="screen-recording"
             label="Screen Recording"
             onAllow={onOpenScreenRecordingSettings}
           />
@@ -164,17 +164,17 @@ function PermissionGateTrafficLights({
 function PermissionGateRow({
   description,
   granted,
-  icon: Icon,
   isPrimary,
   isSystemSettingsActive,
+  kind,
   label,
   onAllow,
 }: {
   description: string;
   granted: boolean | null;
-  icon: LucideIcon;
   isPrimary: boolean;
   isSystemSettingsActive: boolean;
+  kind: PermissionKind;
   label: string;
   onAllow: (sourceRect?: PermissionAssistantSourceRect) => void;
 }) {
@@ -227,13 +227,54 @@ function PermissionGateRow({
       ref={rowRef}
       className="flex min-h-24 items-center gap-4 rounded-xl border border-white/10 bg-secondary/55 px-5 py-4"
     >
-      <Icon className="h-10 w-10 shrink-0 text-primary" />
+      <NativePermissionIcon kind={kind} />
       <div className="min-w-0 flex-1">
         <p className="text-lg font-semibold leading-6">{label}</p>
         <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
       </div>
       <PermissionGateAction granted={granted} isPrimary={isPrimary} onAllow={allow} />
     </div>
+  );
+}
+
+function NativePermissionIcon({ kind }: { kind: PermissionKind }) {
+  if (kind === "accessibility") {
+    return (
+      <svg aria-hidden="true" className="h-10 w-10 shrink-0 text-primary" viewBox="0 0 44 44">
+        <circle cx="22" cy="22" r="17.5" fill="none" stroke="currentColor" strokeWidth="3" />
+        <circle cx="22" cy="14.6" r="3.4" fill="currentColor" />
+        <path
+          d="M12.8 20.4c3.9-1.35 7-2.02 9.2-2.02s5.3.67 9.2 2.02"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="3"
+        />
+        <path
+          d="M22 18.7v8.15m0 0-6.3 8.45m6.3-8.45 6.3 8.45"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="3"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg aria-hidden="true" className="h-10 w-10 shrink-0 text-primary" viewBox="0 0 44 44">
+      <path
+        d="M12.8 15.9h4.35l2.1-3.1h5.5l2.1 3.1h4.35c3.1 0 5.3 2.15 5.3 5.2v8.2c0 3.05-2.2 5.2-5.3 5.2H12.8c-3.1 0-5.3-2.15-5.3-5.2v-8.2c0-3.05 2.2-5.2 5.3-5.2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="3"
+      />
+      <circle cx="22" cy="25.2" r="6.15" fill="none" stroke="currentColor" strokeWidth="3" />
+      <circle cx="31.3" cy="21.2" r="1.6" fill="currentColor" />
+    </svg>
   );
 }
 

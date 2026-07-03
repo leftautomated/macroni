@@ -43,6 +43,7 @@ rdev = { git = "https://github.com/Narsil/rdev" }
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
 tauri-plugin-log = { version = "2.8.0", features = ["tracing", "colored"] }
+png = "0.17"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 # Video capture: scap 0.1.0-beta.1 does not currently compile on Windows due to

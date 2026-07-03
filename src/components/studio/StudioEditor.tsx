@@ -10,7 +10,7 @@ import { usePlaybackSync } from "@/hooks/usePlaybackSync";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import { invoke, logEvent } from "@/lib/observability";
 import { recordingTitle } from "@/lib/recording-format";
-import type { ObservationResult, PerceptionTarget, Recording, Region } from "@/types";
+import type { Observation, ObservationResult, PerceptionTarget, Recording, Region } from "@/types";
 
 // Studio: pick a recording from the title-bar folder menu and play it. Effects
 // (background/framing/zoom) come later, one quality-checked feature at a time.
@@ -77,6 +77,59 @@ export function StudioEditor() {
     setLoop(null);
     setConfirmDeleteId(null);
   }, [selectedId]);
+
+  // Perception observations for the selected recording, reloaded on switch.
+  // The cancelled flag (same pattern as useVideoAssetUrl) keeps a slow response
+  // for a previously selected recording from overwriting the current one's state.
+  const [observations, setObservations] = useState<Observation[]>([]);
+  useEffect(() => {
+    setObservations([]);
+    if (!selectedId) return;
+    let cancelled = false;
+    invoke<Observation[]>("load_observations", { recordingId: selectedId })
+      .then((obs) => {
+        if (!cancelled) setObservations(obs);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          logEvent("warn", "studio.perception", "load_observations_failed", { error: e });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
+
+  // Ticks for the timeline's perception lane — one per observation.
+  const perceptionTicks = useMemo(
+    () =>
+      observations.map((o) => ({
+        ms: o.timestamp_ms,
+        label:
+          o.result.type === "Text" && o.result.spans.length > 0
+            ? o.result.spans[0].text.slice(0, 40)
+            : "observation",
+      })),
+    [observations],
+  );
+
+  // OCR spans to draw over the frame for the observation nearest the playhead
+  // (within 600ms), so pausing near a Text observation reveals its boxes.
+  const playheadSpans = useMemo(() => {
+    let best: Observation | null = null;
+    for (const o of observations) {
+      if (Math.abs(o.timestamp_ms - sync.videoTimeMs) <= 600) {
+        if (
+          !best ||
+          Math.abs(o.timestamp_ms - sync.videoTimeMs) <
+            Math.abs(best.timestamp_ms - sync.videoTimeMs)
+        ) {
+          best = o;
+        }
+      }
+    }
+    return best?.result.type === "Text" ? best.result.spans : [];
+  }, [observations, sync.videoTimeMs]);
 
   const handleDelete = useCallback(
     async (id: string) => {
@@ -286,6 +339,7 @@ export function StudioEditor() {
                 targets={selected.targets ?? []}
                 onSaveTarget={handleSaveTarget}
                 onSampleColor={handleSampleColor}
+                spans={playheadSpans}
               />
             </div>
             {/* Bottom: transport controls + all the events */}
@@ -316,6 +370,7 @@ export function StudioEditor() {
                 onSeekSeconds={(s) => playerRef.current?.seek(s)}
                 loop={loop}
                 onLoopChange={setLoop}
+                perceptionTicks={perceptionTicks}
               />
             </div>
           </>

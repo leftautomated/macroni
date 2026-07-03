@@ -18,6 +18,8 @@ interface StudioTimelineProps {
   onSeekSeconds: (seconds: number) => void;
   loop: LoopRegion | null;
   onLoopChange: (loop: LoopRegion | null) => void;
+  /** Perception observations to render as ticks in their own lane, video-relative ms. */
+  perceptionTicks?: Array<{ ms: number; label: string }>;
 }
 
 function fmt(ms: number): string {
@@ -70,6 +72,7 @@ export function StudioTimeline({
   onSeekSeconds,
   loop,
   onLoopChange,
+  perceptionTicks,
 }: StudioTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -294,6 +297,7 @@ export function StudioTimeline({
           { c: COLOR.scroll, l: "Scroll" },
           { c: COLOR.click, l: "Click" },
           { c: COLOR.key, l: "Key" },
+          ...(perceptionTicks && perceptionTicks.length > 0 ? [{ c: "#38bdf8", l: "Text" }] : []),
         ].map(({ c, l }) => (
           <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
             <span style={{ width: 10, height: 8, borderRadius: 2, background: c }} />
@@ -344,6 +348,24 @@ export function StudioTimeline({
 
           <div className="tl-lane">{mouseRows.map((r) => renderRow(r, "mouse"))}</div>
           <div className="tl-lane">{keyRows.map((r) => renderRow(r, "keys"))}</div>
+
+          {perceptionTicks && perceptionTicks.length > 0 && (
+            <div className="tl-lane">
+              {perceptionTicks.map((t, i) => (
+                <div
+                  key={`p${i}`}
+                  className="tl-tick"
+                  title={t.label}
+                  style={{ left: `${pctOf(t.ms)}%`, background: "#38bdf8", cursor: "pointer" }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSeekSeconds(t.ms / 1000);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                />
+              ))}
+            </div>
+          )}
 
           {loop && (
             <div

@@ -113,4 +113,26 @@ describe("StudioTimeline", () => {
     const calls = onLoopChange.mock.calls;
     expect(calls[calls.length - 1][0]).toMatchObject({ a: 400, b: 1600 });
   });
+
+  it("renders perception ticks and seeks on click", () => {
+    const onSeek = vi.fn();
+    render(
+      <StudioTimeline
+        {...base}
+        onSeekSeconds={onSeek}
+        onLoopChange={noop}
+        perceptionTicks={[{ ms: 500, label: "Submit" }]}
+      />,
+    );
+    const tick = screen.getByTitle("Submit");
+    // A real click is pointerdown → pointerup → click. The tick stops
+    // pointerdown, so the track's own click-seek never arms — otherwise the
+    // track would derive 1.0s from clientX 50 over the 100px/2000ms track and
+    // fire a second, wrong seek.
+    fireEvent.pointerDown(tick, { clientX: 50, pointerId: 1 });
+    fireEvent.pointerUp(tick, { clientX: 50, pointerId: 1 });
+    fireEvent.click(tick, { clientX: 50 });
+    expect(onSeek).toHaveBeenCalledTimes(1);
+    expect(onSeek).toHaveBeenCalledWith(0.5);
+  });
 });

@@ -16,6 +16,8 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "delete_recording":
         fake.recordings = fake.recordings.filter((r) => r.id !== args?.id);
         return undefined;
+      case "load_observations":
+        return [];
       default:
         return undefined;
     }

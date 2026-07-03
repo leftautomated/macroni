@@ -5,6 +5,7 @@
 pub mod convert;
 pub mod extractor;
 pub mod png_io;
+pub mod source;
 pub mod template;
 
 use serde::{Deserialize, Serialize};

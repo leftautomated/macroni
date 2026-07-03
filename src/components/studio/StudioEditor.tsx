@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Settings } from "lucide-react";
 import { SettingsTab } from "@/components/SettingsTab";
+import { PerceptionPanel } from "@/components/studio/PerceptionPanel";
 import { RecordingsMenu } from "@/components/studio/RecordingsMenu";
 import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
 import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
@@ -297,6 +298,16 @@ export function StudioEditor() {
               }}
             >
               <div ref={setControlsHost} style={{ marginBottom: 14 }} />
+              {selected.targets && selected.targets.length > 0 && (
+                <PerceptionPanel
+                  recordingId={selected.id}
+                  targets={selected.targets}
+                  playheadMs={sync.videoTimeMs}
+                  onRecordingUpdate={(rec) =>
+                    setRecordings((rs) => rs.map((r) => (r.id === rec.id ? rec : r)))
+                  }
+                />
+              )}
               <StudioTimeline
                 events={selected.events}
                 startMs={sync.startMs}

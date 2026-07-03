@@ -2,6 +2,9 @@
 //! template matches, color samples) from screen frames. Spec:
 //! docs/superpowers/specs/2026-06-28-perception-layer-design.md
 
+pub mod convert;
+pub mod extractor;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

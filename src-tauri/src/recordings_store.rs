@@ -220,6 +220,7 @@ mod tests {
             created_at: 1_700_000_000_000,
             playback_speed: 1.0,
             video: None,
+            targets: Vec::new(),
         }
     }
 

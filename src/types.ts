@@ -71,6 +71,44 @@ export interface DiagnosticsSnapshot {
   recentLogLines: string[];
 }
 
+export interface Region {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export type TargetKind =
+  | { type: "TextOcr"; expect?: string | null }
+  | { type: "TemplateMatch"; image: string; threshold: number; source_px: [number, number] }
+  | { type: "ColorSample"; rgb: [number, number, number]; tolerance: number };
+
+export interface PerceptionTarget {
+  id: string;
+  name: string;
+  modality: "visual";
+  region?: Region | null;
+  kind: TargetKind;
+  created_at: number;
+}
+
+export interface TextSpan {
+  text: string;
+  region: Region;
+  confidence: number;
+}
+
+export type ObservationResult =
+  | { type: "Text"; spans: TextSpan[] }
+  | { type: "Template"; matched: boolean; location?: Region | null; score: number }
+  | { type: "Color"; rgb: [number, number, number]; matched: boolean };
+
+export interface Observation {
+  target_id?: string | null;
+  timestamp_ms: number;
+  result: ObservationResult;
+}
+
 export interface Recording {
   id: string;
   name: string;
@@ -78,4 +116,5 @@ export interface Recording {
   created_at: number;
   playback_speed: number;
   video?: VideoMetadata;
+  targets?: PerceptionTarget[];
 }

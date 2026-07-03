@@ -75,6 +75,8 @@ pub struct Recording {
     pub playback_speed: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<VideoMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<crate::perception::Target>,
 }
 
 /// Shared application state. Two cohesive halves:

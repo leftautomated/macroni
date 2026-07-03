@@ -5,6 +5,7 @@ mod encoder;
 mod event_capture;
 mod key_mapping;
 mod observability;
+mod perception;
 mod permissions;
 mod playback;
 // Native studio preview surface (Phase 1, Task 11). macOS-only.
@@ -182,6 +183,7 @@ fn save_recording(
             created_at: chrono::Utc::now().timestamp_millis(),
             playback_speed: 1.0,
             video,
+            targets: Vec::new(),
         };
         recordings_store::RecordingsStore::open(&app_handle)
             .and_then(|s| s.add(recording))

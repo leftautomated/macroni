@@ -57,7 +57,6 @@ pub struct Target {
     pub created_at: i64,
 }
 
-#[allow(dead_code)] // consumed by Task 2 (store) and Task 3 (extractors)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextSpan {
     pub text: String,

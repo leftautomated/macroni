@@ -2,7 +2,6 @@
 
 use render_core::decode::RgbaFrame;
 
-#[allow(dead_code)] // consumed by Tasks 5, 6, 7, 12
 pub fn bgra_to_rgba(width: u32, height: u32, bgra: &[u8]) -> RgbaFrame {
     let mut data = vec![0u8; (width * height * 4) as usize];
     for (dst, src) in data.chunks_exact_mut(4).zip(bgra.chunks_exact(4)) {

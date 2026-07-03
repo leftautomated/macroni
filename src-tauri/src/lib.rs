@@ -170,9 +170,9 @@ fn stop_recording(
             }
         });
 
-        // Capture has stopped, so the acquisition thread has dropped the tee
-        // sender; the worker loop exits and finish() joins. Flush observations to
-        // the sidecar (orphaned if the recording is never saved — swept next launch).
+        // Flush observations after capture stop. finish() bounds the wait even if
+        // the detached acquisition thread hasn't dropped the tee sender yet — see
+        // the shutdown contract in perception/worker.rs.
         if let Some(worker) = stopped.perception {
             let observations = worker.finish();
             if !observations.is_empty() {

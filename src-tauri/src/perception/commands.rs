@@ -38,8 +38,8 @@ pub fn evaluate(
 }
 
 /// Build the extractor implied by a target's `kind`. `TemplateMatch` reads
-/// its reference PNG off disk (data-dir-relative path); `TextOcr` is not yet
-/// wired (Task 7 replaces this arm).
+/// its reference PNG off disk (data-dir-relative path); `TextOcr` uses the
+/// macOS Vision extractor and is unavailable on other platforms.
 fn build_extractor(app: &AppHandle, kind: &TargetKind) -> Result<Box<dyn Extractor>, String> {
     match kind {
         TargetKind::ColorSample { rgb, tolerance } => Ok(Box::new(ColorSampler {
@@ -59,7 +59,17 @@ fn build_extractor(app: &AppHandle, kind: &TargetKind) -> Result<Box<dyn Extract
                 source_px: *source_px,
             }))
         }
-        TargetKind::TextOcr { .. } => Err("ocr-not-yet-wired".to_string()),
+        TargetKind::TextOcr { .. } => {
+            #[cfg(target_os = "macos")]
+            {
+                // On-demand extraction favors accuracy over speed.
+                Ok(Box::new(super::extractor::VisionOcr { fast: false }))
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Err("ocr-unavailable-on-this-platform".to_string())
+            }
+        }
     }
 }
 

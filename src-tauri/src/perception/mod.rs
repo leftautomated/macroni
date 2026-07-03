@@ -5,6 +5,8 @@
 pub mod commands;
 pub mod convert;
 pub mod extractor;
+#[cfg(target_os = "macos")]
+pub mod ocr_macos;
 pub mod png_io;
 pub mod source;
 pub mod template;

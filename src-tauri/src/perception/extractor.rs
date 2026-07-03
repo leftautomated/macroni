@@ -37,7 +37,9 @@ pub fn crop_frame(frame: &RgbaFrame, region: &Region) -> RgbaFrame {
 
 /// Vision reports boxes normalized to the *crop*, origin bottom-left.
 /// Flip to top-left and compose into full-frame normalized coordinates.
-#[allow(dead_code)] // consumed by Task 7 (OCR: maps vision-reported boxes back to frame coords)
+/// Consumed by `VisionOcr` (macOS); off-macOS only the test exercises it, so the
+/// non-test lib build there has no caller.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn vision_box_to_region(bx: f32, by: f32, bw: f32, bh: f32, crop: &Region) -> Region {
     let top_left_y = 1.0 - by - bh;
     Region {
@@ -45,6 +47,41 @@ pub fn vision_box_to_region(bx: f32, by: f32, bw: f32, bh: f32, crop: &Region) -
         y: crop.y + top_left_y * crop.h,
         w: bw * crop.w,
         h: bh * crop.h,
+    }
+}
+
+/// Text OCR via macOS Vision. `fast` trades accuracy for speed (continuous
+/// capture); on-demand extraction uses the accurate level. macOS-only: the
+/// Vision binding lives in `ocr_macos`, and the commands layer returns an
+/// error for `TextOcr` on other platforms.
+#[cfg(target_os = "macos")]
+pub struct VisionOcr {
+    pub fast: bool,
+}
+
+#[cfg(target_os = "macos")]
+impl Extractor for VisionOcr {
+    fn extract(&self, frame: &RgbaFrame, region: &Region) -> ObservationResult {
+        let crop = crop_frame(frame, region);
+        let png = super::png_io::encode_png(&crop);
+        match super::ocr_macos::recognize(&png, self.fast) {
+            Ok(items) => ObservationResult::Text {
+                spans: items
+                    .into_iter()
+                    .map(|s| super::TextSpan {
+                        text: s.text,
+                        confidence: s.confidence,
+                        region: vision_box_to_region(
+                            s.bbox[0], s.bbox[1], s.bbox[2], s.bbox[3], region,
+                        ),
+                    })
+                    .collect(),
+            },
+            Err(e) => {
+                crate::observability::log_warn("perception", "ocr_failed", &e, None);
+                ObservationResult::Text { spans: Vec::new() }
+            }
+        }
     }
 }
 
@@ -87,6 +124,7 @@ impl Extractor for ColorSampler {
 
 #[cfg(test)]
 mod tests {
+    use super::super::TextSpan;
     use super::*;
     use render_core::decode::RgbaFrame;
 
@@ -169,6 +207,38 @@ mod tests {
             "bottom of crop = y 0.8 within crop"
         );
         assert!((r.w - 0.25).abs() < 1e-6 && (r.h - 0.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn extractor_trait_object_dispatch_works_for_ocr_shape() {
+        // Fake OCR extractor standing in for VisionOcr (mirrors how playback
+        // hides rdev behind a simulator trait): returns one span covering the crop.
+        struct FakeOcr;
+        impl Extractor for FakeOcr {
+            fn extract(&self, _f: &RgbaFrame, region: &Region) -> ObservationResult {
+                ObservationResult::Text {
+                    spans: vec![TextSpan {
+                        text: "hi".into(),
+                        region: *region,
+                        confidence: 1.0,
+                    }],
+                }
+            }
+        }
+        let f = solid(2, 2, [0, 0, 0, 255]);
+        let boxed: Box<dyn Extractor> = Box::new(FakeOcr);
+        match boxed.extract(
+            &f,
+            &Region {
+                x: 0.0,
+                y: 0.0,
+                w: 1.0,
+                h: 1.0,
+            },
+        ) {
+            ObservationResult::Text { spans } => assert_eq!(spans[0].text, "hi"),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

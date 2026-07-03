@@ -9,10 +9,13 @@ use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
+use crate::perception::{Observation, Target};
 use crate::types::Recording;
 
 const RECORDINGS_FILENAME: &str = "recordings.json";
 const VIDEOS_DIRNAME: &str = "videos";
+const OBSERVATIONS_DIRNAME: &str = "observations";
+const TARGETS_DIRNAME: &str = "targets";
 
 #[derive(Debug)]
 pub enum StoreError {
@@ -74,6 +77,18 @@ impl RecordingsStore {
     fn video_path(&self, id: &str) -> PathBuf {
         self.videos_dir().join(format!("{}.mp4", id))
     }
+    fn observations_path(&self, id: &str) -> PathBuf {
+        self.data_dir
+            .join(OBSERVATIONS_DIRNAME)
+            .join(format!("{}.json", id))
+    }
+    pub fn targets_dir(&self, id: &str) -> PathBuf {
+        self.data_dir.join(TARGETS_DIRNAME).join(id)
+    }
+    #[allow(dead_code)] // consumed by Task 6 (commands) and Task 4 (template capture)
+    pub fn template_path(&self, id: &str, target_id: &str) -> PathBuf {
+        self.targets_dir(id).join(format!("{}.png", target_id))
+    }
 
     pub fn load_all(&self) -> Result<Vec<Recording>, StoreError> {
         let path = self.recordings_path();
@@ -111,6 +126,8 @@ impl RecordingsStore {
         }
         self.write_all(&recordings)?;
         let _ = std::fs::remove_file(self.video_path(id));
+        let _ = std::fs::remove_file(self.observations_path(id));
+        let _ = std::fs::remove_dir_all(self.targets_dir(id));
         Ok(())
     }
 
@@ -144,6 +161,73 @@ impl RecordingsStore {
         Ok(updated)
     }
 
+    #[allow(dead_code)] // consumed by Task 6 (commands) and Task 3/5 (extractors/source)
+    pub fn write_observations(&self, id: &str, obs: &[Observation]) -> Result<(), StoreError> {
+        let path = self.observations_path(id);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let content = serde_json::to_string(obs)?;
+        atomic_write(&path, content.as_bytes())
+    }
+
+    #[allow(dead_code)] // consumed by Task 6 (commands) and Task 8/13 (review overlay/timeline)
+    pub fn load_observations(&self, id: &str) -> Result<Vec<Observation>, StoreError> {
+        let path = self.observations_path(id);
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let content = std::fs::read_to_string(&path)?;
+        match serde_json::from_str::<Vec<Observation>>(&content) {
+            Ok(list) => Ok(list),
+            Err(e) => {
+                crate::observability::log_warn(
+                    "recordings_store",
+                    "observations_json_unreadable",
+                    &format!("{} unreadable, treating as empty: {e}", path.display()),
+                    None,
+                );
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    /// Add `target` to the recording's target list, replacing any existing
+    /// target with the same id.
+    #[allow(dead_code)] // consumed by Task 6 (commands) and Task 9 (drag-to-select)
+    pub fn add_target(&self, id: &str, target: Target) -> Result<Recording, StoreError> {
+        let mut recordings = self.load_all()?;
+        let rec = recordings
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(StoreError::NotFound)?;
+        rec.targets.retain(|t| t.id != target.id);
+        rec.targets.push(target);
+        let updated = rec.clone();
+        self.write_all(&recordings)?;
+        Ok(updated)
+    }
+
+    /// Remove the target with `target_id` from the recording, and
+    /// best-effort delete its template PNG (if any).
+    #[allow(dead_code)] // consumed by Task 6 (commands) and Task 9 (drag-to-select)
+    pub fn remove_target(&self, id: &str, target_id: &str) -> Result<Recording, StoreError> {
+        let mut recordings = self.load_all()?;
+        let rec = recordings
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(StoreError::NotFound)?;
+        let before = rec.targets.len();
+        rec.targets.retain(|t| t.id != target_id);
+        if rec.targets.len() == before {
+            return Err(StoreError::NotFound);
+        }
+        let updated = rec.clone();
+        self.write_all(&recordings)?;
+        let _ = std::fs::remove_file(self.template_path(id, target_id));
+        Ok(updated)
+    }
+
     /// Remove `videos/*.mp4` files whose id doesn't match any saved recording.
     pub fn sweep_orphan_videos(&self) {
         let videos_dir = self.videos_dir();
@@ -167,6 +251,47 @@ impl RecordingsStore {
             };
             if !known_ids.contains(stem) {
                 let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+
+    /// Remove `observations/*.json` files and `targets/*` directories whose
+    /// id doesn't match any saved recording.
+    pub fn sweep_orphan_perception(&self) {
+        let known_ids: std::collections::HashSet<String> = match self.load_all() {
+            Ok(list) => list.into_iter().map(|r| r.id).collect(),
+            Err(_) => return,
+        };
+
+        let observations_dir = self.data_dir.join(OBSERVATIONS_DIRNAME);
+        if let Ok(entries) = std::fs::read_dir(&observations_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                    continue;
+                }
+                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if !known_ids.contains(stem) {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+
+        let targets_dir = self.data_dir.join(TARGETS_DIRNAME);
+        if let Ok(entries) = std::fs::read_dir(&targets_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if !known_ids.contains(name) {
+                    let _ = std::fs::remove_dir_all(&path);
+                }
             }
         }
     }
@@ -413,5 +538,84 @@ mod tests {
         std::fs::write(dir.path().join("recordings.json"), b"not-json{").unwrap();
         let store = RecordingsStore::open_at(dir.path().to_path_buf());
         assert_eq!(store.load_all().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn observations_sidecar_round_trips_and_missing_reads_empty() {
+        use crate::perception::{Observation, ObservationResult};
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        assert!(store.load_observations("none").unwrap().is_empty());
+        let obs = vec![Observation {
+            target_id: None,
+            timestamp_ms: 500,
+            result: ObservationResult::Color {
+                rgb: [1, 2, 3],
+                matched: true,
+            },
+        }];
+        store.write_observations("1", &obs).unwrap();
+        assert_eq!(store.load_observations("1").unwrap(), obs);
+    }
+
+    #[test]
+    fn add_and_remove_target_update_recording() {
+        use crate::perception::{Modality, Region, Target, TargetKind};
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        let t = Target {
+            id: "t1".into(),
+            name: "Submit".into(),
+            modality: Modality::Visual,
+            region: Some(Region {
+                x: 0.1,
+                y: 0.1,
+                w: 0.2,
+                h: 0.1,
+            }),
+            kind: TargetKind::TextOcr { expect: None },
+            created_at: 1,
+        };
+        let updated = store.add_target("1", t.clone()).unwrap();
+        assert_eq!(updated.targets.len(), 1);
+        // Same id replaces, not duplicates.
+        let updated = store.add_target("1", t.clone()).unwrap();
+        assert_eq!(updated.targets.len(), 1);
+        let updated = store.remove_target("1", "t1").unwrap();
+        assert!(updated.targets.is_empty());
+        assert!(matches!(
+            store.remove_target("1", "t1"),
+            Err(StoreError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn delete_removes_sidecar_and_targets_dir() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        store.write_observations("1", &[]).unwrap();
+        std::fs::create_dir_all(store.targets_dir("1")).unwrap();
+        std::fs::write(store.template_path("1", "t1"), b"png").unwrap();
+        store.delete("1").unwrap();
+        assert!(!dir.path().join("observations/1.json").exists());
+        assert!(!store.targets_dir("1").exists());
+    }
+
+    #[test]
+    fn sweep_orphan_perception_prunes_unknown_ids_only() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("keep", "x")).unwrap();
+        store.write_observations("keep", &[]).unwrap();
+        store.write_observations("orphan", &[]).unwrap();
+        std::fs::create_dir_all(store.targets_dir("keep")).unwrap();
+        std::fs::create_dir_all(store.targets_dir("orphan")).unwrap();
+        store.sweep_orphan_perception();
+        assert!(dir.path().join("observations/keep.json").exists());
+        assert!(!dir.path().join("observations/orphan.json").exists());
+        assert!(store.targets_dir("keep").exists());
+        assert!(!store.targets_dir("orphan").exists());
     }
 }

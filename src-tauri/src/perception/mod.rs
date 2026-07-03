@@ -54,7 +54,6 @@ pub struct TextSpan {
     pub confidence: f32,
 }
 
-#[allow(dead_code)] // consumed by Task 2 (store) and Task 3 (extractors)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "PascalCase")]
 pub enum ObservationResult {
@@ -72,7 +71,6 @@ pub enum ObservationResult {
     },
 }
 
-#[allow(dead_code)] // consumed by Task 2 (store) and Task 3 (extractors)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Observation {
     /// None = ad-hoc / continuous full-frame.

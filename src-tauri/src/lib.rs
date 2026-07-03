@@ -672,6 +672,7 @@ pub fn run() {
             // Clean up orphaned video files from prior crashes.
             if let Ok(store) = recordings_store::RecordingsStore::open(app.app_handle()) {
                 store.sweep_orphan_videos();
+                store.sweep_orphan_perception();
             }
 
             crash_log::log_line("setup: complete");

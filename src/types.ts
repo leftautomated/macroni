@@ -48,8 +48,13 @@ export interface CaptureSettings {
   audio: boolean;
 }
 
+export interface PerceptionSettings {
+  continuous_ocr: boolean;
+}
+
 export interface AppSettings {
   capture: CaptureSettings;
+  perception: PerceptionSettings;
 }
 
 export interface LogFileSummary {

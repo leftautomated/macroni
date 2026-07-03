@@ -155,7 +155,17 @@ impl Default for CaptureSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PerceptionSettings {
+    /// Continuous full-frame OCR during recording. Off by default: it
+    /// transcribes everything visible on screen into a plaintext sidecar.
+    #[serde(default)]
+    pub continuous_ocr: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppSettings {
     #[serde(default)]
     pub capture: CaptureSettings,
+    #[serde(default)]
+    pub perception: PerceptionSettings,
 }

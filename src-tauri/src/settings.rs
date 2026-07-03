@@ -47,6 +47,7 @@ pub fn save_settings(
         "fps": settings.capture.fps,
         "quality": settings.capture.quality,
         "audio": settings.capture.audio,
+        "continuousOcr": settings.perception.continuous_ocr,
     });
     observability::trace_command("save_settings", trace_id, Some(fields), || {
         save(&app, &settings)
@@ -79,5 +80,15 @@ mod tests {
         let json = "{}";
         let s: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(s.capture.fps, 30);
+    }
+
+    #[test]
+    fn perception_defaults_off_and_missing_field_deserializes_off() {
+        assert!(!AppSettings::default().perception.continuous_ocr);
+        let s: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(!s.perception.continuous_ocr);
+        let s: AppSettings =
+            serde_json::from_str(r#"{"perception":{"continuous_ocr":true}}"#).unwrap();
+        assert!(s.perception.continuous_ocr);
     }
 }

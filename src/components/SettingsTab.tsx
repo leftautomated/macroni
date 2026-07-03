@@ -1,5 +1,6 @@
 import {
   CheckCircle2,
+  Eye,
   ExternalLink,
   Keyboard,
   Monitor,
@@ -198,6 +199,43 @@ export const SettingsTab = () => {
                 </button>
               </div>
             </>
+          ) : (
+            <div className="st-row">
+              <span className="st-row-desc">Loading…</span>
+            </div>
+          )}
+        </div>
+      </Section>
+
+      {/* Perception */}
+      <Section icon={<Eye />} label="Perception">
+        <div className="st-panel">
+          {settings ? (
+            <div className="st-row">
+              <div className="st-row-main">
+                <span className="st-row-label">Continuous text scan while recording</span>
+                <span className="st-row-desc">
+                  OCRs the screen ~1×/sec during recording to build a searchable text timeline.
+                  Stored as plain text with the recording — leave off if you record sensitive
+                  content.
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={settings.perception.continuous_ocr}
+                aria-label="Continuous text scan while recording"
+                className={`st-switch${settings.perception.continuous_ocr ? " on" : ""}`}
+                onClick={() =>
+                  update({
+                    ...settings,
+                    perception: { continuous_ocr: !settings.perception.continuous_ocr },
+                  })
+                }
+              >
+                <span className="st-knob" />
+              </button>
+            </div>
           ) : (
             <div className="st-row">
               <span className="st-row-desc">Loading…</span>

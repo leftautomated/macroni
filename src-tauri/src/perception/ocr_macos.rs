@@ -17,7 +17,14 @@ pub struct RecognizedSpan {
 /// Run Vision text recognition over a PNG-encoded crop. `fast` picks the Fast
 /// recognition level (used by continuous capture); on-demand uses Accurate.
 pub fn recognize(png: &[u8], fast: bool) -> Result<Vec<RecognizedSpan>, String> {
-    unsafe {
+    // SAFETY (autorelease): the continuous perception worker calls recognize()
+    // repeatedly from a plain std::thread that has no ambient autorelease pool.
+    // Each Vision call spawns autoreleased Objective-C temporaries (NSData, the
+    // request's results, candidate strings, ...); with no pool scoping them they
+    // would accumulate for the whole thread lifetime and balloon memory. Wrapping
+    // the body in autoreleasepool drains those temporaries once per call. The
+    // returned spans own their data (String / f32), so nothing borrows the pool.
+    objc2::rc::autoreleasepool(|_| unsafe {
         let data = NSData::with_bytes(png);
         let handler = VNImageRequestHandler::initWithData_options(
             VNImageRequestHandler::alloc(),
@@ -59,5 +66,5 @@ pub fn recognize(png: &[u8], fast: bool) -> Result<Vec<RecognizedSpan>, String> 
             });
         }
         Ok(spans)
-    }
+    })
 }

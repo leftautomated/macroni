@@ -160,7 +160,6 @@ impl RecordingsStore {
         Ok(updated)
     }
 
-    #[allow(dead_code)] // consumed by Task 12 (capture tee + worker)
     pub fn write_observations(&self, id: &str, obs: &[Observation]) -> Result<(), StoreError> {
         let path = self.observations_path(id);
         if let Some(parent) = path.parent() {

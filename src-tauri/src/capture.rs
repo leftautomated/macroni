@@ -79,6 +79,11 @@ use std::time::Duration;
 pub struct CaptureConfig {
     pub output_path: PathBuf,
     pub settings: CaptureSettings,
+    /// Optional sampled-frame tee for the perception worker. The acquisition
+    /// loop rate-gates then `try_send`s clones here, dropping on backpressure —
+    /// this side channel must NEVER block or slow the encoder path. `None` when
+    /// continuous perception is off (the common case).
+    pub tee: Option<mpsc::SyncSender<Frame>>,
 }
 
 /// A raw frame handed from the acquisition thread to the encoder thread. Holds
@@ -96,7 +101,6 @@ struct CapturedFrame {
 pub struct ScreenCaptureSession {
     running: Arc<AtomicBool>,
     handle: Option<JoinHandle<Result<VideoMetadata, String>>>,
-    #[allow(dead_code)] // exposed via start_ms() accessor for future callers
     start_ms: i64,
 }
 
@@ -128,6 +132,9 @@ impl ScreenCaptureSession {
         let running = Arc::new(AtomicBool::new(true));
         let settings = config.settings;
         let output_path = config.output_path.clone();
+        // Perception tee (opt-in). Moved into the acquisition thread; `None` when
+        // continuous perception is off, in which case the hot path is unchanged.
+        let tee = config.tee;
 
         // Raw frames flow acquisition -> encoder over a small bounded channel.
         // We DROP frames on backpressure rather than block acquisition: blocking
@@ -168,15 +175,36 @@ impl ScreenCaptureSession {
                 };
                 capturer.start_capture();
 
+                // Rate limiter for the perception tee: keeps the worker at ~1–2
+                // fps regardless of capture fps. Only consulted when `tee` is Some.
+                let mut gate = crate::perception::gate::SampleGate::new(
+                    crate::perception::gate::SAMPLE_INTERVAL_MS,
+                );
+
                 while running.load(Ordering::Relaxed) {
                     match capturer.get_next_frame() {
                         // scap emits empty 0x0 BGRA frames for SCK `.idle` status; skip.
                         Ok(ScapFrame::BGRA(f)) if f.width > 0 && !f.data.is_empty() => {
+                            let ts = Utc::now().timestamp_millis();
+                            // Tee a sampled copy to the perception worker BEFORE the
+                            // encoder send. Gate first so we clone the 25–50 MB retina
+                            // buffer only when a sample is due; `try_send` + drop on a
+                            // full/absent channel so this never blocks the encoder path.
+                            if let Some(tee) = &tee {
+                                if gate.due(ts) {
+                                    let _ = tee.try_send(Frame {
+                                        width: f.width as u32,
+                                        height: f.height as u32,
+                                        data: f.data.clone(),
+                                        timestamp_ms: ts,
+                                    });
+                                }
+                            }
                             let frame = CapturedFrame {
                                 width: f.width as u32,
                                 height: f.height as u32,
                                 data: f.data,
-                                ts: Utc::now().timestamp_millis(),
+                                ts,
                             };
                             match frame_tx.try_send(frame) {
                                 Ok(()) => {}
@@ -311,7 +339,8 @@ impl ScreenCaptureSession {
             .map_err(|_| "capture thread panicked".to_string())?
     }
 
-    #[allow(dead_code)] // future callers / debugging — keep public
+    /// Wall-clock ms when capture started; the origin for video-relative
+    /// timestamps. Consumed by the perception worker (video-relative stamps).
     pub fn start_ms(&self) -> i64 {
         self.start_ms
     }

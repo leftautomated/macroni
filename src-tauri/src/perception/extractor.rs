@@ -85,6 +85,19 @@ impl Extractor for VisionOcr {
     }
 }
 
+/// Extractor for the continuous capture worker. macOS runs Vision OCR at the
+/// Fast level (accuracy traded for speed on the ~1–2 fps continuous pass); other
+/// platforms have no continuous extractor yet, so no worker is spawned there.
+#[cfg(target_os = "macos")]
+pub fn continuous_extractor() -> Option<Box<dyn Extractor + Send>> {
+    Some(Box::new(VisionOcr { fast: true }))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn continuous_extractor() -> Option<Box<dyn Extractor + Send>> {
+    None
+}
+
 pub struct ColorSampler {
     pub rgb: [u8; 3],
     pub tolerance: f32,

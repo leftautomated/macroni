@@ -69,11 +69,25 @@ fn start_recording(
         std::fs::create_dir_all(&videos_dir).map_err(|e| e.to_string())?;
         let output_path = videos_dir.join(format!("{}.mp4", id));
 
+        // Perception tee: opt-in continuous OCR (macOS-only extractor for now).
+        // Build the channel BEFORE CaptureConfig so `tee` can move into capture
+        // and `perception_rx` stays here to feed the worker once capture starts.
+        let mut tee = None;
+        let mut perception_rx = None;
+        if settings.perception.continuous_ocr
+            && crate::perception::extractor::continuous_extractor().is_some()
+        {
+            let (tx, rx) = std::sync::mpsc::sync_channel::<crate::capture::Frame>(1);
+            tee = Some(tx);
+            perception_rx = Some(rx);
+        }
+
         // Start capture (may fail on permission denied — surface the error).
         let capture =
             match crate::capture::ScreenCaptureSession::start(crate::capture::CaptureConfig {
                 output_path,
                 settings: settings.capture.clone(),
+                tee,
             }) {
                 Ok(session) => Some(session),
                 Err(e) if e == "permission-denied" => {
@@ -93,9 +107,20 @@ fn start_recording(
                 }
             };
 
+        // Spawn the perception worker only when capture actually started and a
+        // tee channel was created; timestamps are video-relative via start_ms().
+        let perception = match (&capture, perception_rx) {
+            (Some(cap), Some(rx)) => {
+                crate::perception::extractor::continuous_extractor().map(|ex| {
+                    crate::perception::worker::PerceptionWorker::spawn(rx, cap.start_ms(), ex)
+                })
+            }
+            _ => None,
+        };
+
         state
             .session
-            .start(id.clone(), capture)
+            .start(id.clone(), capture, perception)
             .map_err(|e| e.to_string())?;
         observability::log_info(
             "recording",
@@ -144,6 +169,26 @@ fn stop_recording(
                 None
             }
         });
+
+        // Capture has stopped, so the acquisition thread has dropped the tee
+        // sender; the worker loop exits and finish() joins. Flush observations to
+        // the sidecar (orphaned if the recording is never saved — swept next launch).
+        if let Some(worker) = stopped.perception {
+            let observations = worker.finish();
+            if !observations.is_empty() {
+                if let Ok(store) = recordings_store::RecordingsStore::open(&app) {
+                    if let Err(e) = store.write_observations(&stopped.id, &observations) {
+                        observability::log_warn(
+                            "perception",
+                            "observations_flush_failed",
+                            &e.to_string(),
+                            None,
+                        );
+                    }
+                }
+            }
+        }
+
         observability::log_info(
             "recording",
             "stopped",

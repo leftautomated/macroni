@@ -1,10 +1,12 @@
+import type React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pause, Play, Repeat, SkipBack, SkipForward } from "lucide-react";
+import { CreateTargetPopover } from "@/components/studio/CreateTargetPopover";
 import { PerceptionOverlay } from "@/components/studio/PerceptionOverlay";
 import { logEvent } from "@/lib/observability";
 import { videoDisplayRect } from "@/lib/video-rect";
-import type { PerceptionTarget, TextSpan } from "@/types";
+import type { PerceptionTarget, Region, TargetKind, TextSpan } from "@/types";
 
 export interface StudioPlayerHandle {
   seek: (seconds: number) => void;
@@ -23,7 +25,42 @@ interface StudioPlayerProps {
   targets?: PerceptionTarget[];
   /** OCR text spans to draw as thin boxes over the video. */
   spans?: TextSpan[];
+  /** Persist a newly authored target at the given playhead. */
+  onSaveTarget?: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
+  /** Sample the average color of a region at the given playhead. */
+  onSampleColor?: (region: Region, timestampMs: number) => Promise<[number, number, number]>;
 }
+
+/** Clamped fractional (0..1) position of a client point within a rect. */
+function fractionalPoint(clientX: number, clientY: number, r: DOMRect) {
+  return {
+    x: Math.min(1, Math.max(0, (clientX - r.left) / r.width)),
+    y: Math.min(1, Math.max(0, (clientY - r.top) / r.height)),
+  };
+}
+
+/** Min/abs bounding region (fractional) between two client points against `el`. */
+function regionFromPoints(
+  startX: number,
+  startY: number,
+  curX: number,
+  curY: number,
+  el: HTMLElement,
+): Region {
+  const r = el.getBoundingClientRect();
+  const start = fractionalPoint(startX, startY, r);
+  const cur = fractionalPoint(curX, curY, r);
+  return {
+    x: Math.min(start.x, cur.x),
+    y: Math.min(start.y, cur.y),
+    w: Math.abs(cur.x - start.x),
+    h: Math.abs(cur.y - start.y),
+  };
+}
+
+// Pointer movement below this (px) is a click, not a drag — matches the
+// threshold StudioTimeline uses for its own drag-to-select.
+const DRAG_THRESHOLD_PX = 4;
 
 // Playback-speed slider bounds. 0.25× lets you crawl through dense mouse-move
 // runs (~125Hz capture) — at 1× there are more moves per second than the screen
@@ -52,7 +89,18 @@ function fmtTime(s: number): string {
  * video, and reports `currentTime` so the timeline's playhead stays in sync.
  */
 export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(function StudioPlayer(
-  { src, fps, onTimeUpdate, onReplay, loopRegion, controlsHost, targets, spans },
+  {
+    src,
+    fps,
+    onTimeUpdate,
+    onReplay,
+    loopRegion,
+    controlsHost,
+    targets,
+    spans,
+    onSaveTarget,
+    onSampleColor,
+  },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -70,6 +118,17 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   // not intrinsic ones.
   const [intrinsic, setIntrinsic] = useState({ width: 0, height: 0 });
   const [box, setBox] = useState({ width: 0, height: 0 });
+  // Drag-to-select target authoring: `dragRef` tracks the in-progress pointer
+  // gesture (not state — we don't want the 4px threshold check re-rendering),
+  // `selection` is the live dashed-box preview while dragging, and `popover`
+  // holds the finished region + where to anchor the CreateTargetPopover card.
+  // `wasPlaying` snapshots the pre-gesture play state BEFORE pointerdown
+  // pauses the video, so a plain click can still toggle in both directions.
+  const dragRef = useRef<{ x: number; y: number; moved: boolean; wasPlaying: boolean } | null>(
+    null,
+  );
+  const [selection, setSelection] = useState<Region | null>(null);
+  const [popover, setPopover] = useState<{ region: Region; x: number; y: number } | null>(null);
 
   useImperativeHandle(
     ref,
@@ -150,6 +209,89 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     if (v.paused) void v.play();
     else v.pause();
   }, []);
+
+  // Drag-to-select over the video: down snapshots the play state, then always
+  // pauses (so a drag doesn't fight playback) and arms the gesture; move past
+  // a 4px threshold starts showing a live selection box; up either resolves a
+  // plain click (toggling relative to the PRE-pause state, preserving the old
+  // click-to-toggle behavior) or opens the CreateTargetPopover at the release
+  // point. `wasPlaying` must be captured before pause() — pointerup's toggle
+  // reads it, since by then the video is always paused.
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      moved: false,
+      wasPlaying: !(videoRef.current?.paused ?? true),
+    };
+    videoRef.current?.pause();
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    if (!drag.moved) {
+      const dist = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
+      if (dist < DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+    }
+    setSelection(regionFromPoints(drag.x, drag.y, e.clientX, e.clientY, e.currentTarget));
+  }, []);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    setSelection(null);
+    if (!drag) return;
+    if (!drag.moved) {
+      // Plain click: toggle against the pre-gesture state. Pointer-down
+      // already paused, so a click while playing just stays paused; a click
+      // while paused resumes.
+      if (!drag.wasPlaying) void videoRef.current?.play();
+      return;
+    }
+    // Drag: stay paused for region selection, open the authoring popover.
+    const region = regionFromPoints(drag.x, drag.y, e.clientX, e.clientY, e.currentTarget);
+    setPopover({ region, x: e.clientX, y: e.clientY });
+  }, []);
+
+  const closePopover = useCallback(() => {
+    setPopover(null);
+    setSelection(null);
+  }, []);
+
+  const handlePopoverSave = useCallback(
+    async (name: string, kind: TargetKind) => {
+      const pending = popover;
+      if (!pending) return;
+      const tsMs = Math.round(current * 1000);
+      try {
+        // Sample the color BEFORE building the target — never mutate the
+        // popover's own kind object, build the final kind fresh here.
+        let finalKind = kind;
+        if (kind.type === "ColorSample" && onSampleColor) {
+          const rgb = await onSampleColor(pending.region, tsMs);
+          finalKind = { type: "ColorSample", rgb, tolerance: 10 };
+        }
+        const target: PerceptionTarget = {
+          id: crypto.randomUUID(),
+          name,
+          modality: "visual",
+          region: pending.region,
+          kind: finalKind,
+          created_at: Date.now(),
+        };
+        await onSaveTarget?.(target, tsMs);
+      } catch (err) {
+        logEvent("error", "studio.perception", "save_target_failed", { error: err });
+      } finally {
+        closePopover();
+      }
+    },
+    [popover, current, onSampleColor, onSaveTarget, closePopover],
+  );
 
   const jumpToStart = useCallback(() => {
     const v = videoRef.current;
@@ -340,6 +482,40 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           }}
         />
         <PerceptionOverlay rect={rect} targets={targets ?? []} spans={spans ?? []} />
+        {/* Interaction layer: sits on top of the video at the same displayed
+            rect, so plain clicks (no movement) still toggle play, while a
+            drag past the 4px threshold selects a region for a new target. */}
+        <div
+          className="sp-interact"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          style={{
+            position: "absolute",
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+            cursor: "crosshair",
+            pointerEvents: "auto",
+          }}
+        >
+          {selection && (
+            <div
+              style={{
+                position: "absolute",
+                left: `${selection.x * 100}%`,
+                top: `${selection.y * 100}%`,
+                width: `${selection.w * 100}%`,
+                height: `${selection.h * 100}%`,
+                boxSizing: "border-box",
+                border: "1.5px dashed #38bdf8",
+                background: "rgba(56,189,248,0.15)",
+                pointerEvents: "none",
+              }}
+            />
+          )}
+        </div>
         {(!ready || loadError) && (
           <div
             style={{
@@ -359,6 +535,16 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           </div>
         )}
       </div>
+
+      {popover && (
+        <CreateTargetPopover
+          region={popover.region}
+          anchor={{ x: popover.x, y: popover.y }}
+          defaultName={`Target ${(targets?.length ?? 0) + 1}`}
+          onSave={handlePopoverSave}
+          onCancel={closePopover}
+        />
+      )}
 
       {controlsHost ? createPortal(controls, controlsHost) : controls}
     </div>

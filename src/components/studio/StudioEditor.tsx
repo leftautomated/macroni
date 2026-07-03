@@ -9,7 +9,7 @@ import { usePlaybackSync } from "@/hooks/usePlaybackSync";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import { invoke, logEvent } from "@/lib/observability";
 import { recordingTitle } from "@/lib/recording-format";
-import type { Recording } from "@/types";
+import type { ObservationResult, PerceptionTarget, Recording, Region } from "@/types";
 
 // Studio: pick a recording from the title-bar folder menu and play it. Effects
 // (background/framing/zoom) come later, one quality-checked feature at a time.
@@ -131,6 +131,50 @@ export function StudioEditor() {
     [selectedId],
   );
 
+  // Persist a target the user authored via drag-to-select in the player.
+  const handleSaveTarget = useCallback(
+    async (target: PerceptionTarget, timestampMs: number) => {
+      if (!selectedId) return;
+      try {
+        const updated = await invoke<Recording>("save_target", {
+          recordingId: selectedId,
+          target,
+          timestampMs,
+        });
+        setRecordings((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
+      } catch (e) {
+        logEvent("error", "studio.perception", "save_target_failed", {
+          error: e,
+          fields: { recordingId: selectedId, targetId: target.id },
+        });
+      }
+    },
+    [selectedId],
+  );
+
+  // Sample the average color of a region at a given playhead, for the Color
+  // target kind — used to fill in `rgb` before the target is saved.
+  const handleSampleColor = useCallback(
+    async (region: Region, timestampMs: number): Promise<[number, number, number]> => {
+      if (!selectedId) return [0, 0, 0];
+      try {
+        const res = await invoke<ObservationResult>("extract_region", {
+          source: { type: "Recording", recording_id: selectedId, timestamp_ms: timestampMs },
+          region,
+          kind: { type: "ColorSample", rgb: [0, 0, 0], tolerance: 255 },
+        });
+        return res.type === "Color" ? res.rgb : [0, 0, 0];
+      } catch (e) {
+        logEvent("error", "studio.perception", "sample_color_failed", {
+          error: e,
+          fields: { recordingId: selectedId, timestampMs },
+        });
+        return [0, 0, 0];
+      }
+    },
+    [selectedId],
+  );
+
   return (
     <div
       style={{
@@ -239,6 +283,8 @@ export function StudioEditor() {
                 loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
                 controlsHost={controlsHost}
                 targets={selected.targets ?? []}
+                onSaveTarget={handleSaveTarget}
+                onSampleColor={handleSampleColor}
               />
             </div>
             {/* Bottom: transport controls + all the events */}

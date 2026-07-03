@@ -283,4 +283,72 @@ mod tests {
             other => panic!("boundary must be inclusive: {other:?}"),
         }
     }
+
+    /// Local-only Vision smoke test (not run in CI — Vision needs macOS and a
+    /// window server). Exercises the exact continuous-worker pipeline
+    /// (decoded RGBA frame → crop → PNG encode → Vision OCR → Y-flip mapping)
+    /// against a rendered fixture with known text and geometry, and times the
+    /// fast pass for the perf gate (SAMPLE_INTERVAL_MS budget).
+    ///
+    /// Run: VISION_SMOKE_PNG=/path/to/fixture.png cargo test vision_smoke -- --ignored --nocapture
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn vision_smoke_recognizes_known_text_with_top_left_coords() {
+        let path = std::env::var("VISION_SMOKE_PNG").expect("set VISION_SMOKE_PNG");
+        let frame = crate::perception::png_io::read_png(std::path::Path::new(&path)).unwrap();
+        let full = Region {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+        };
+
+        // First pass pays Vision's one-time model load; the second is the
+        // steady-state cost the continuous worker actually sees per sample.
+        let started = std::time::Instant::now();
+        let _warmup = VisionOcr { fast: true }.extract(&frame, &full);
+        let first_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let started = std::time::Instant::now();
+        let fast = VisionOcr { fast: true }.extract(&frame, &full);
+        let steady_ms = started.elapsed().as_secs_f64() * 1000.0;
+
+        let ObservationResult::Text { spans } = fast else {
+            panic!("expected Text result");
+        };
+        println!(
+            "fast pass: first={first_ms:.0}ms steady={steady_ms:.0}ms on {}x{}; {} spans:",
+            frame.width,
+            frame.height,
+            spans.len()
+        );
+        for s in &spans {
+            println!(
+                "  {:?} conf={:.2} region={:?}",
+                s.text, s.confidence, s.region
+            );
+        }
+        // The fixture draws "HELLO MACRONI PERCEPTION" near the TOP of the
+        // image — a correct bottom-left→top-left Y-flip puts its region in the
+        // upper half. A missing flip would report y near the bottom.
+        let hello = spans
+            .iter()
+            .find(|s| s.text.to_uppercase().contains("MACRONI"))
+            .expect("fixture headline not recognized");
+        assert!(
+            hello.region.y < 0.5,
+            "Y-flip broken: headline reported at y={}",
+            hello.region.y
+        );
+        // The second line sits near the bottom.
+        let fox = spans
+            .iter()
+            .find(|s| s.text.to_lowercase().contains("quick brown fox"))
+            .expect("fixture body line not recognized");
+        assert!(
+            fox.region.y > 0.5,
+            "body line reported at y={}",
+            fox.region.y
+        );
+    }
 }

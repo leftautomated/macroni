@@ -5,12 +5,10 @@ use render_core::decode::RgbaFrame;
 
 use super::{ObservationResult, Region};
 
-#[allow(dead_code)] // consumed by Tasks 5, 6, 7, 12
 pub trait Extractor {
     fn extract(&self, frame: &RgbaFrame, region: &Region) -> ObservationResult;
 }
 
-#[allow(dead_code)] // consumed by Tasks 5, 6, 7, 12
 pub fn region_to_pixels(region: &Region, w: u32, h: u32) -> (u32, u32, u32, u32) {
     if w == 0 || h == 0 {
         return (0, 0, 0, 0);
@@ -23,7 +21,6 @@ pub fn region_to_pixels(region: &Region, w: u32, h: u32) -> (u32, u32, u32, u32)
     (x0, y0, x1 - x0, y1 - y0)
 }
 
-#[allow(dead_code)] // consumed by Tasks 5, 6, 7, 12
 pub fn crop_frame(frame: &RgbaFrame, region: &Region) -> RgbaFrame {
     let (x0, y0, cw, ch) = region_to_pixels(region, frame.width, frame.height);
     let mut data = Vec::with_capacity((cw * ch * 4) as usize);
@@ -40,7 +37,7 @@ pub fn crop_frame(frame: &RgbaFrame, region: &Region) -> RgbaFrame {
 
 /// Vision reports boxes normalized to the *crop*, origin bottom-left.
 /// Flip to top-left and compose into full-frame normalized coordinates.
-#[allow(dead_code)] // consumed by Tasks 5, 6, 7, 12
+#[allow(dead_code)] // consumed by Task 7 (OCR: maps vision-reported boxes back to frame coords)
 pub fn vision_box_to_region(bx: f32, by: f32, bw: f32, bh: f32, crop: &Region) -> Region {
     let top_left_y = 1.0 - by - bh;
     Region {
@@ -51,7 +48,6 @@ pub fn vision_box_to_region(bx: f32, by: f32, bw: f32, bh: f32, crop: &Region) -
     }
 }
 
-#[allow(dead_code)] // consumed by Task 3 (tests), Tasks 5, 6, 7, 12
 pub struct ColorSampler {
     pub rgb: [u8; 3],
     pub tolerance: f32,

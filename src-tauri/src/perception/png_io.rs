@@ -4,7 +4,6 @@ use std::path::Path;
 use png::{BitDepth, ColorType, Encoder};
 use render_core::decode::RgbaFrame;
 
-#[allow(dead_code)] // consumed by Task 6 (commands)
 pub fn encode_png(frame: &RgbaFrame) -> Vec<u8> {
     let mut buf = vec![];
     {
@@ -17,13 +16,11 @@ pub fn encode_png(frame: &RgbaFrame) -> Vec<u8> {
     buf
 }
 
-#[allow(dead_code)] // consumed by Task 6 (commands)
 pub fn write_png(path: &Path, frame: &RgbaFrame) -> Result<(), String> {
     let buf = encode_png(frame);
     std::fs::write(path, buf).map_err(|e| e.to_string())
 }
 
-#[allow(dead_code)] // consumed by Task 6 (commands)
 pub fn read_png(path: &Path) -> Result<RgbaFrame, String> {
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
     let decoder = png::Decoder::new(Cursor::new(data));

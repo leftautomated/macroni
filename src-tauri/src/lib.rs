@@ -774,6 +774,10 @@ pub fn run() {
             project_store::studio_load_project,
             project_store::studio_save_project,
             studio_export::studio_export,
+            perception::commands::extract_region,
+            perception::commands::save_target,
+            perception::commands::delete_target,
+            perception::commands::load_observations,
             // Native studio preview surface (Phase 1, Task 11) — macOS-only.
             #[cfg(target_os = "macos")]
             preview_surface::studio_attach_surface,

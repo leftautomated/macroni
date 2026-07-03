@@ -85,7 +85,6 @@ impl RecordingsStore {
     pub fn targets_dir(&self, id: &str) -> PathBuf {
         self.data_dir.join(TARGETS_DIRNAME).join(id)
     }
-    #[allow(dead_code)] // consumed by Task 6 (commands) and Task 4 (template capture)
     pub fn template_path(&self, id: &str, target_id: &str) -> PathBuf {
         self.targets_dir(id).join(format!("{}.png", target_id))
     }
@@ -161,7 +160,7 @@ impl RecordingsStore {
         Ok(updated)
     }
 
-    #[allow(dead_code)] // consumed by Task 6 (commands) and Task 3/5 (extractors/source)
+    #[allow(dead_code)] // consumed by Task 12 (capture tee + worker)
     pub fn write_observations(&self, id: &str, obs: &[Observation]) -> Result<(), StoreError> {
         let path = self.observations_path(id);
         if let Some(parent) = path.parent() {
@@ -171,7 +170,6 @@ impl RecordingsStore {
         atomic_write(&path, content.as_bytes())
     }
 
-    #[allow(dead_code)] // consumed by Task 6 (commands) and Task 8/13 (review overlay/timeline)
     pub fn load_observations(&self, id: &str) -> Result<Vec<Observation>, StoreError> {
         let path = self.observations_path(id);
         if !path.exists() {
@@ -194,7 +192,6 @@ impl RecordingsStore {
 
     /// Add `target` to the recording's target list, replacing any existing
     /// target with the same id.
-    #[allow(dead_code)] // consumed by Task 6 (commands) and Task 9 (drag-to-select)
     pub fn add_target(&self, id: &str, target: Target) -> Result<Recording, StoreError> {
         let mut recordings = self.load_all()?;
         let rec = recordings
@@ -210,7 +207,6 @@ impl RecordingsStore {
 
     /// Remove the target with `target_id` from the recording, and
     /// best-effort delete its template PNG (if any).
-    #[allow(dead_code)] // consumed by Task 6 (commands) and Task 9 (drag-to-select)
     pub fn remove_target(&self, id: &str, target_id: &str) -> Result<Recording, StoreError> {
         let mut recordings = self.load_all()?;
         let rec = recordings

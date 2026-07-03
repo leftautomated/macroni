@@ -5,10 +5,13 @@ use std::path::Path;
 
 use render_core::decode::{Mp4FrameSource, RgbaFrame};
 
-#[allow(dead_code)] // consumed by Task 6 (commands)
 pub trait PerceptionSource {
     /// One frame as RGBA8. Live sources ignore `timestamp_ms` (grab "now").
     fn frame_at(&mut self, timestamp_ms: i64) -> Result<RgbaFrame, String>;
+    /// Not yet called by any command — Task 6 gets frame size from the
+    /// decoded `RgbaFrame` instead; kept for a future frame-size-without-
+    /// decoding query.
+    #[allow(dead_code)]
     fn dimensions(&self) -> (u32, u32);
 }
 
@@ -23,14 +26,12 @@ pub fn frame_index_for_ms(timestamp_ms: i64, fps: u32, frame_count: usize) -> us
     idx.min(frame_count - 1)
 }
 
-#[allow(dead_code)] // consumed by Task 6 (commands)
 pub struct RecordingSource {
     src: Mp4FrameSource,
     fps: u32,
 }
 
 impl RecordingSource {
-    #[allow(dead_code)] // consumed by Task 6 (commands)
     pub fn open(path: &Path, fps: u32) -> Result<Self, String> {
         Ok(Self {
             src: Mp4FrameSource::open(path).map_err(|e| e.to_string())?,
@@ -49,13 +50,11 @@ impl PerceptionSource for RecordingSource {
     }
 }
 
-#[allow(dead_code)] // consumed by Task 6 (commands)
 pub struct LiveSource {
     dims: (u32, u32),
 }
 
 impl LiveSource {
-    #[allow(dead_code)] // consumed by Task 6 (commands)
     pub fn new() -> Self {
         Self { dims: (0, 0) }
     }

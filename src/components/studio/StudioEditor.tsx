@@ -238,6 +238,7 @@ export function StudioEditor() {
                 onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
                 loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
                 controlsHost={controlsHost}
+                targets={selected.targets ?? []}
               />
             </div>
             {/* Bottom: transport controls + all the events */}

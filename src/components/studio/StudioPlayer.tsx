@@ -1,7 +1,10 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pause, Play, Repeat, SkipBack, SkipForward } from "lucide-react";
+import { PerceptionOverlay } from "@/components/studio/PerceptionOverlay";
 import { logEvent } from "@/lib/observability";
+import { videoDisplayRect } from "@/lib/video-rect";
+import type { PerceptionTarget, TextSpan } from "@/types";
 
 export interface StudioPlayerHandle {
   seek: (seconds: number) => void;
@@ -16,6 +19,10 @@ interface StudioPlayerProps {
   loopRegion?: { a: number; b: number } | null;
   /** Where to render the transport controls. Defaults to inline below the video. */
   controlsHost?: HTMLElement | null;
+  /** Perception targets to draw as labeled boxes over the video. */
+  targets?: PerceptionTarget[];
+  /** OCR text spans to draw as thin boxes over the video. */
+  spans?: TextSpan[];
 }
 
 // Playback-speed slider bounds. 0.25× lets you crawl through dense mouse-move
@@ -45,10 +52,11 @@ function fmtTime(s: number): string {
  * video, and reports `currentTime` so the timeline's playhead stays in sync.
  */
 export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(function StudioPlayer(
-  { src, fps, onTimeUpdate, onReplay, loopRegion, controlsHost },
+  { src, fps, onTimeUpdate, onReplay, loopRegion, controlsHost, targets, spans },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -56,6 +64,12 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   const [loop, setLoop] = useState(true);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Intrinsic video pixel dims (from `onLoadedMetadata`) and the container's
+  // displayed box (from `ResizeObserver`) — together they map the video's
+  // contain-fit rect so the perception overlay can align to displayed pixels,
+  // not intrinsic ones.
+  const [intrinsic, setIntrinsic] = useState({ width: 0, height: 0 });
+  const [box, setBox] = useState({ width: 0, height: 0 });
 
   useImperativeHandle(
     ref,
@@ -67,6 +81,26 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     }),
     [],
   );
+
+  // Track the container's displayed size so the overlay can compute the
+  // video's contain-fit rect. jsdom has no ResizeObserver — guard so existing
+  // tests (which don't stub it) keep passing; the overlay just renders a
+  // zero-size rect until a real observer is available.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setBox({ width: r.width, height: r.height });
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const rect = videoDisplayRect(box, intrinsic);
 
   // The <video> `timeupdate` event only fires ~4x/sec — too coarse to highlight
   // fast event bursts (mouse-move drags get skipped). While playing, poll
@@ -239,6 +273,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
         `}</style>
 
       <div
+        ref={containerRef}
         style={{
           flex: 1,
           minHeight: 0,
@@ -262,6 +297,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
               setDuration(v.duration);
               setReady(true);
               setLoadError(null);
+              setIntrinsic({ width: v.videoWidth, height: v.videoHeight });
               logEvent("info", "studio.video", "metadata_loaded", {
                 fields: {
                   durationSeconds: Math.round(v.duration * 100) / 100,
@@ -303,6 +339,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
             cursor: "pointer",
           }}
         />
+        <PerceptionOverlay rect={rect} targets={targets ?? []} spans={spans ?? []} />
         {(!ready || loadError) && (
           <div
             style={{

@@ -135,4 +135,22 @@ describe("StudioTimeline", () => {
     expect(onSeek).toHaveBeenCalledTimes(1);
     expect(onSeek).toHaveBeenCalledWith(0.5);
   });
+
+  it("renders a space-switch tick on the keys lane with direction tooltip", () => {
+    const evs: InputEvent[] = [
+      { type: InputEventType.SpaceSwitch, direction: "right", count: 2, timestamp: 1500 },
+    ];
+    const { container } = render(
+      <StudioTimeline {...base} events={evs} onSeekSeconds={noop} onLoopChange={noop} />,
+    );
+    const lanes = container.querySelectorAll(".tl-lane");
+    // Lane order in the DOM: mouse lane first, keys lane second.
+    const keysLane = lanes[1] as HTMLElement;
+    const tick = keysLane.querySelector('[title*="⇄ →"][title*="×2"]') as HTMLElement;
+    expect(tick).toBeTruthy();
+    expect(tick.style.background).toBe("rgb(244, 114, 182)"); // #f472b6
+    // Mouse lane must NOT contain it.
+    expect((lanes[0] as HTMLElement).querySelector('[title*="⇄"]')).toBeNull();
+    expect(screen.getByText("Space")).toBeInTheDocument(); // legend
+  });
 });

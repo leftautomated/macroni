@@ -33,12 +33,14 @@ const COLOR = {
   move: "rgba(255,255,255,0.28)",
   click: "#f59e0b",
   key: "#34d399",
+  space: "#f472b6",
 };
 
 const KEY_TYPES = new Set<InputEventType>([
   InputEventType.KeyPress,
   InputEventType.KeyRelease,
   InputEventType.KeyCombo,
+  InputEventType.SpaceSwitch,
 ]);
 
 const isKeyRow = (row: EventRow) =>
@@ -176,7 +178,12 @@ export function StudioTimeline({
     if (row.kind === "event") {
       const start = rel(row.event.timestamp);
       const d = getEventDetails(row.event);
-      const color = lane === "keys" ? COLOR.key : COLOR.click;
+      const color =
+        row.event.type === InputEventType.SpaceSwitch
+          ? COLOR.space
+          : lane === "keys"
+            ? COLOR.key
+            : COLOR.click;
       return (
         <div
           key={`e${row.index}`}
@@ -297,6 +304,7 @@ export function StudioTimeline({
           { c: COLOR.scroll, l: "Scroll" },
           { c: COLOR.click, l: "Click" },
           { c: COLOR.key, l: "Key" },
+          { c: COLOR.space, l: "Space" },
           ...(perceptionTicks && perceptionTicks.length > 0 ? [{ c: "#38bdf8", l: "Text" }] : []),
         ].map(({ c, l }) => (
           <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>

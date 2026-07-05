@@ -1,6 +1,12 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import { type EventRow, getEventDetails, groupEvents, scrollSummary } from "@/lib/event-utils";
+import {
+  type EventRow,
+  getEventDetails,
+  groupEvents,
+  scrollSummary,
+  swipeLabel,
+} from "@/lib/event-utils";
 import { type InputEvent, InputEventType } from "@/types";
 
 /** A loop region, in video-relative milliseconds. */
@@ -216,13 +222,21 @@ export function StudioTimeline({
     }
     const end = rel(events[row.endIndex].timestamp);
     const width = `max(3px, ${pctOf(end - start)}%)`;
-    const info =
-      row.kind === "drag"
-        ? `Drag ${row.button} → (${Math.round(row.x2)}, ${Math.round(row.y2)})`
-        : row.kind === "scroll"
-          ? `Scroll ${scrollSummary(row.deltaX, row.deltaY)}`
-          : "Mouse move";
-    const label = row.kind === "drag" ? "Drag" : row.kind === "scroll" ? "Scroll" : "Move";
+    let info: string;
+    let label: string;
+    if (row.kind === "drag") {
+      info = `Drag ${row.button} → (${Math.round(row.x2)}, ${Math.round(row.y2)})`;
+      label = "Drag";
+    } else if (row.kind === "scroll") {
+      const sw = swipeLabel(row);
+      label = sw ?? "Scroll";
+      info = sw
+        ? `${sw} (${scrollSummary(row.deltaX, row.deltaY)})`
+        : `Scroll ${scrollSummary(row.deltaX, row.deltaY)}`;
+    } else {
+      info = "Mouse move";
+      label = "Move";
+    }
     return (
       <div
         key={`g${row.startIndex}`}

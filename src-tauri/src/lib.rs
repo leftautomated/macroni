@@ -236,6 +236,7 @@ fn save_recording(
             events,
             created_at: chrono::Utc::now().timestamp_millis(),
             playback_speed: 1.0,
+            scroll_unit: types::ScrollUnit::Pixels,
             video,
             targets: Vec::new(),
         };

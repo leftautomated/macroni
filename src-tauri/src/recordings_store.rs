@@ -96,7 +96,14 @@ impl RecordingsStore {
         }
         let content = std::fs::read_to_string(&path)?;
         match serde_json::from_str::<Vec<Recording>>(&content) {
-            Ok(list) => Ok(list),
+            Ok(mut list) => {
+                // Upgrade legacy line-unit scroll deltas to pixels so replay
+                // (which emits pixel-unit wheel events) matches magnitude.
+                for recording in &mut list {
+                    recording.normalize_scroll_units();
+                }
+                Ok(list)
+            }
             Err(e) => {
                 crate::observability::log_warn(
                     "recordings_store",
@@ -129,6 +136,7 @@ impl RecordingsStore {
             events,
             created_at: chrono::Utc::now().timestamp_millis(),
             playback_speed: 1.0,
+            scroll_unit: crate::types::ScrollUnit::Pixels,
             video,
             targets: Vec::new(),
         })
@@ -352,7 +360,7 @@ fn atomic_write(final_path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::InputEvent;
+    use crate::types::{InputEvent, ScrollUnit};
     use tempfile::tempdir;
 
     fn rec(id: &str, name: &str) -> Recording {
@@ -365,6 +373,7 @@ mod tests {
             }],
             created_at: 1_700_000_000_000,
             playback_speed: 1.0,
+            scroll_unit: ScrollUnit::Pixels,
             video: None,
             targets: Vec::new(),
         }
@@ -581,6 +590,84 @@ mod tests {
             assert!(!name.ends_with(".tmp"), "stray temp file: {}", name);
         }
         assert!(entries.iter().any(|n| n == "recordings.json"));
+    }
+
+    #[test]
+    fn legacy_recording_without_scroll_unit_loads_with_pixel_scaled_deltas() {
+        // Files written before the pixel-delta capture fix have no
+        // scroll_unit field and store coarse line deltas. Loading must scale
+        // them to pixels (x10) so replay magnitude matches.
+        let dir = tempdir().unwrap();
+        let legacy = r#"[{
+            "id": "old",
+            "name": "legacy",
+            "events": [
+                {"type": "Scroll", "delta_x": 2, "delta_y": -3, "timestamp": 1},
+                {"type": "KeyPress", "key": "A", "timestamp": 2}
+            ],
+            "created_at": 1700000000000
+        }]"#;
+        std::fs::write(dir.path().join("recordings.json"), legacy).unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        let all = store.load_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].scroll_unit, ScrollUnit::Pixels);
+        match &all[0].events[0] {
+            InputEvent::Scroll {
+                delta_x, delta_y, ..
+            } => {
+                assert_eq!(*delta_x, 20);
+                assert_eq!(*delta_y, -30);
+            }
+            other => panic!("expected Scroll, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn pixel_unit_recording_round_trips_without_rescaling() {
+        // A recording saved after the fix must not be scaled again on load —
+        // normalization is idempotent via the scroll_unit marker.
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        let mut r = rec("1", "pixels");
+        r.events = vec![InputEvent::Scroll {
+            delta_x: 7,
+            delta_y: -40,
+            timestamp: 1,
+        }];
+        store.add(r).unwrap();
+        // Load twice to prove repeated loads don't compound.
+        for _ in 0..2 {
+            let all = store.load_all().unwrap();
+            match &all[0].events[0] {
+                InputEvent::Scroll {
+                    delta_x, delta_y, ..
+                } => {
+                    assert_eq!(*delta_x, 7);
+                    assert_eq!(*delta_y, -40);
+                }
+                other => panic!("expected Scroll, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn save_stopped_tags_recordings_as_pixel_units() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        let saved = store
+            .save_stopped(
+                "1".into(),
+                vec![InputEvent::Scroll {
+                    delta_x: 5,
+                    delta_y: 5,
+                    timestamp: 1,
+                }],
+                None,
+            )
+            .unwrap()
+            .expect("session with events must be saved");
+        assert_eq!(saved.scroll_unit, ScrollUnit::Pixels);
     }
 
     #[test]

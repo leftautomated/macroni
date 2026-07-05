@@ -120,6 +120,8 @@ export interface Recording {
   events: InputEvent[];
   created_at: number;
   playback_speed: number;
+  /** Units of Scroll event deltas. The store normalizes to "pixels" on load. */
+  scroll_unit?: "lines" | "pixels";
   video?: VideoMetadata;
   targets?: PerceptionTarget[];
 }

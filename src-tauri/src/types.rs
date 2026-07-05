@@ -52,6 +52,44 @@ fn default_playback_speed() -> f64 {
     1.0
 }
 
+/// Units of `InputEvent::Scroll` deltas in a saved recording.
+///
+/// Recordings made before the rdev fork switched capture to pixel-precision
+/// deltas stored coarse line units; replay emits pixels, so those recordings
+/// scrolled ~10x weaker. The field is absent in old files, so it defaults to
+/// `Lines`; the store normalizes those to pixels on load.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ScrollUnit {
+    #[default]
+    Lines,
+    Pixels,
+}
+
+/// Approximate pixels per scroll line on macOS, used to upgrade legacy
+/// line-unit recordings to pixel units.
+pub const SCROLL_LINE_TO_PIXELS: i64 = 10;
+
+impl Recording {
+    /// Upgrade legacy line-unit scroll deltas to pixel units in place.
+    /// Idempotent: pixel-unit recordings are left untouched.
+    pub fn normalize_scroll_units(&mut self) {
+        if self.scroll_unit == ScrollUnit::Pixels {
+            return;
+        }
+        for event in &mut self.events {
+            if let InputEvent::Scroll {
+                delta_x, delta_y, ..
+            } = event
+            {
+                *delta_x *= SCROLL_LINE_TO_PIXELS;
+                *delta_y *= SCROLL_LINE_TO_PIXELS;
+            }
+        }
+        self.scroll_unit = ScrollUnit::Pixels;
+    }
+}
+
 /// Metadata describing a screen recording video file associated with a Recording.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoMetadata {
@@ -73,6 +111,10 @@ pub struct Recording {
     pub created_at: i64,
     #[serde(default = "default_playback_speed")]
     pub playback_speed: f64,
+    /// Units of scroll deltas in `events`. Old files lack the field and
+    /// default to `Lines`; see `normalize_scroll_units`.
+    #[serde(default)]
+    pub scroll_unit: ScrollUnit,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<VideoMetadata>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

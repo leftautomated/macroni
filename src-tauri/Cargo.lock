@@ -4469,7 +4469,7 @@ dependencies = [
 [[package]]
 name = "rdev"
 version = "0.6.0"
-source = "git+https://github.com/Narsil/rdev#c14f2dc5c8100a96c5d7e3013de59d6aa0b9eae2"
+source = "git+https://github.com/leftautomated/rdev?branch=pixel-scroll-deltas#b54ac18a5ce50dd88642a01578c4fe50619bde1f"
 dependencies = [
  "core-foundation 0.10.1",
  "core-foundation-sys",

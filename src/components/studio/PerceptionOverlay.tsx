@@ -67,6 +67,7 @@ export function PerceptionOverlay({ rect, targets, spans }: PerceptionOverlayPro
       {spans.map((span, i) => (
         <div
           key={i}
+          title={span.text}
           style={{
             position: "absolute",
             left: span.region.x * rect.width,

@@ -167,4 +167,53 @@ describe("StudioPlayer", () => {
     // Popover cleans itself up after a successful save.
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
+
+  it("toggles perception overlay layers independently via the chip cluster", async () => {
+    const target = {
+      id: "t1",
+      name: "Submit",
+      modality: "visual" as const,
+      region: { x: 0.1, y: 0.1, w: 0.2, h: 0.1 },
+      kind: { type: "TextOcr" as const, expect: null },
+      created_at: 1,
+    };
+    const span = {
+      text: "hello world",
+      region: { x: 0.3, y: 0.3, w: 0.2, h: 0.05 },
+      confidence: 0.9,
+    };
+    render(
+      <StudioPlayer
+        src="asset://clip.mp4"
+        fps={30}
+        onTimeUpdate={noop}
+        onReplay={noop}
+        targets={[target]}
+        spans={[span]}
+        hasObservations
+      />,
+    );
+
+    // Both layers render by default.
+    expect(screen.getByText("Submit")).toBeInTheDocument();
+    expect(screen.getByTitle("hello world")).toBeInTheDocument();
+
+    // Hiding one layer leaves the other untouched.
+    await userEvent.click(screen.getByRole("button", { name: /hide targets overlay/i }));
+    expect(screen.queryByText("Submit")).not.toBeInTheDocument();
+    expect(screen.getByTitle("hello world")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /hide text overlay/i }));
+    expect(screen.queryByTitle("hello world")).not.toBeInTheDocument();
+
+    // Toggling back restores the layer.
+    await userEvent.click(screen.getByRole("button", { name: /show targets overlay/i }));
+    expect(screen.getByText("Submit")).toBeInTheDocument();
+  });
+
+  it("shows no layer chips when the recording has no perception content", () => {
+    render(<StudioPlayer src="asset://clip.mp4" fps={30} onTimeUpdate={noop} onReplay={noop} />);
+    expect(screen.queryByRole("button", { name: /targets overlay/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /text overlay/i })).not.toBeInTheDocument();
+  });
 });

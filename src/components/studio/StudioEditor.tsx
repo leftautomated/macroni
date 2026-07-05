@@ -340,6 +340,7 @@ export function StudioEditor() {
                 onSaveTarget={handleSaveTarget}
                 onSampleColor={handleSampleColor}
                 spans={playheadSpans}
+                hasObservations={observations.length > 0}
               />
             </div>
             {/* Bottom: transport controls + all the events */}

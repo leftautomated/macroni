@@ -25,11 +25,29 @@ interface StudioPlayerProps {
   targets?: PerceptionTarget[];
   /** OCR text spans to draw as thin boxes over the video. */
   spans?: TextSpan[];
+  /**
+   * Whether this recording has a continuous-OCR timeline at all — the Text
+   * layer chip shows based on this, not on `spans` (which come and go with
+   * the playhead).
+   */
+  hasObservations?: boolean;
   /** Persist a newly authored target at the given playhead. */
   onSaveTarget?: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
   /** Sample the average color of a region at the given playhead. */
   onSampleColor?: (region: Region, timestampMs: number) => Promise<[number, number, number]>;
 }
+
+/**
+ * Perception overlay layers the player can draw. Visual-only toggles — hiding
+ * a layer never disables drag-to-select authoring. Extend this list as new
+ * overlay kinds arrive (template matches, color samples, audio lanes).
+ */
+type PerceptionLayerKey = "targets" | "text";
+
+const OVERLAY_LAYERS: Array<{ key: PerceptionLayerKey; label: string; color: string }> = [
+  { key: "targets", label: "Targets", color: "#6366f1" },
+  { key: "text", label: "Text", color: "#38bdf8" },
+];
 
 /** Clamped fractional (0..1) position of a client point within a rect. */
 function fractionalPoint(clientX: number, clientY: number, r: DOMRect) {
@@ -98,6 +116,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     controlsHost,
     targets,
     spans,
+    hasObservations,
     onSaveTarget,
     onSampleColor,
   },
@@ -112,6 +131,10 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   const [loop, setLoop] = useState(true);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [visibleLayers, setVisibleLayers] = useState<Record<PerceptionLayerKey, boolean>>({
+    targets: true,
+    text: true,
+  });
   // Intrinsic video pixel dims (from `onLoadedMetadata`) and the container's
   // displayed box (from `ResizeObserver`) — together they map the video's
   // contain-fit rect so the perception overlay can align to displayed pixels,
@@ -412,6 +435,9 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           .sp-slider::-webkit-slider-thumb:hover { background:#c7d2fe; }
           .sp-replay { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(99,102,241,0.5); background:rgba(99,102,241,0.18); color:#e5e7eb; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; transition: background 120ms ease, border-color 120ms ease; }
           .sp-replay:hover { background:rgba(99,102,241,0.28); border-color:#6366f1; }
+          .sp-layer { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(255,255,255,0.14); background:rgba(15,15,20,0.72); color:rgba(255,255,255,0.45); border-radius:999px; padding:3px 10px; font-size:11px; font-weight:600; cursor:pointer; transition: color 120ms ease, border-color 120ms ease; }
+          .sp-layer:hover { border-color: rgba(255,255,255,0.3); }
+          .sp-layer.on { color:#e5e7eb; }
         `}</style>
 
       <div
@@ -481,7 +507,11 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
             cursor: "pointer",
           }}
         />
-        <PerceptionOverlay rect={rect} targets={targets ?? []} spans={spans ?? []} />
+        <PerceptionOverlay
+          rect={rect}
+          targets={visibleLayers.targets ? (targets ?? []) : []}
+          spans={visibleLayers.text ? (spans ?? []) : []}
+        />
         {/* Interaction layer: sits on top of the video at the same displayed
             rect, so plain clicks (no movement) still toggle play, while a
             drag past the 4px threshold selects a region for a new target. */}
@@ -516,6 +546,45 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
             />
           )}
         </div>
+        {/* Overlay layer chips — one per perception layer with content. Sits
+            above the interaction layer (later sibling) so clicks land here. */}
+        {(() => {
+          const available: Record<PerceptionLayerKey, boolean> = {
+            targets: (targets?.length ?? 0) > 0,
+            text: hasObservations ?? false,
+          };
+          const chips = OVERLAY_LAYERS.filter((l) => available[l.key]);
+          if (chips.length === 0) return null;
+          return (
+            <div style={{ position: "absolute", top: 10, right: 10, display: "flex", gap: 6 }}>
+              {chips.map((layer) => {
+                const on = visibleLayers[layer.key];
+                return (
+                  <button
+                    key={layer.key}
+                    type="button"
+                    className={`sp-layer${on ? " on" : ""}`}
+                    aria-pressed={on}
+                    aria-label={`${on ? "Hide" : "Show"} ${layer.label} overlay`}
+                    title={`${on ? "Hide" : "Show"} the ${layer.label.toLowerCase()} overlay`}
+                    onClick={() => setVisibleLayers((v) => ({ ...v, [layer.key]: !on }))}
+                  >
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 2,
+                        background: layer.color,
+                        opacity: on ? 1 : 0.35,
+                      }}
+                    />
+                    {layer.label}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
         {(!ready || loadError) && (
           <div
             style={{

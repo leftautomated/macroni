@@ -723,16 +723,17 @@ pub fn run() {
             crash_log::log_line("setup: complete");
             observability::log_info("app", "setup.complete", None);
 
-            let app_handle = app.handle().clone();
-
             // Create a channel for sending events from listener thread
             let (tx, rx) = channel::<InputEvent>();
 
-            // Spawn thread to handle received events
+            // Spawn thread to handle received events. Events accumulate only
+            // on the Rust side (stop_recording returns them) — they are NOT
+            // forwarded to the webview: per-event IPC + React work froze the
+            // webview on long recordings, which also blocked the old
+            // frontend-routed stop path.
             std::thread::spawn(move || {
                 while let Ok(event) = rx.recv() {
-                    collector_session.push_event(event.clone());
-                    let _ = app_handle.emit("input-event", &event);
+                    collector_session.push_event(event);
                 }
             });
 

@@ -2,7 +2,6 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useRecorder } from "@/hooks/useRecorder";
 import { useRecordings } from "@/hooks/useRecordings";
-import { useInputEventListener } from "@/hooks/useInputEventListener";
 import { useAutoResize } from "@/hooks/useAutoResize";
 import { usePermissionStatus } from "@/hooks/usePermissionStatus";
 import { RecordingControls } from "@/components/RecordingControls";
@@ -40,8 +39,6 @@ const App = () => {
   // Last recording the Studio asked us to replay — re-played on Cmd+R.
   const replayRecRef = useRef<Recording | null>(null);
   const replayLoopForeverRef = useRef(true);
-
-  useInputEventListener(recorder.addEvent);
 
   const permissionsComplete =
     !isMac ||

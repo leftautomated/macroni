@@ -92,6 +92,16 @@ describe("App (integration root)", () => {
     });
   });
 
+  it("does not subscribe to per-event input traffic (long-recording freeze regression)", async () => {
+    render(<App />);
+    await screen.findByRole("button", { name: /start/i });
+    // A long recording delivers tens of thousands of input events; any
+    // per-event listener doing React work wedges the webview main thread —
+    // and with it the (former) frontend stop path. The bar has no live event
+    // view, so the webview must not subscribe at all.
+    expect(tauri.state.listeners.has("input-event")).toBe(false);
+  });
+
   it("starts Studio replay with the requested loop setting", async () => {
     const recording = makeRecording("rec-1");
     tauri.state.recordings = [recording];

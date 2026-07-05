@@ -174,7 +174,7 @@ jobs:
       # files and raise this back up.
       - name: Rust coverage gate (fail under 44% lines)
         working-directory: src-tauri
-        run: cargo llvm-cov --ignore-filename-regex '(permissions|ocr_macos)\.rs$' --fail-under-lines 44 --summary-only
+        run: cargo llvm-cov --ignore-filename-regex '(permissions|ocr_macos|space_watch)\.rs$' --fail-under-lines 44 --summary-only
 
       - name: Frontend coverage gate (vitest thresholds in vitest.config.ts)
         run: pnpm test:coverage

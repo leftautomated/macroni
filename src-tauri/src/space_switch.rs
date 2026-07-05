@@ -10,7 +10,6 @@ pub enum Direction {
 }
 
 impl Direction {
-    #[allow(dead_code)] // consumed by Task 4 (watcher + collector)
     pub fn as_str(&self) -> &'static str {
         match self {
             Direction::Left => "left",
@@ -35,7 +34,6 @@ pub struct SpaceSnapshot {
 /// Both indices are located in the NEW ordered list (spaces can be created or
 /// destroyed between snapshots). Any ambiguity → None: accuracy rule — never
 /// emit a guessed direction.
-#[allow(dead_code)] // consumed by Task 4 (watcher + collector)
 pub fn diff_snapshots(old: &SpaceSnapshot, new: &SpaceSnapshot) -> Option<(Direction, u32)> {
     for nd in &new.displays {
         let Some(od) = old.displays.iter().find(|d| d.display == nd.display) else {
@@ -57,7 +55,6 @@ pub fn diff_snapshots(old: &SpaceSnapshot, new: &SpaceSnapshot) -> Option<(Direc
 
 /// Drops SpaceSwitch events that a captured keyboard trigger already explains.
 /// Triggers: "←"/"→" KeyPress while Ctrl is held, or "F3" (Mission Control).
-#[allow(dead_code)] // consumed by Task 4 (watcher + collector)
 pub struct SwitchDedup {
     window_ms: i64,
     ctrl_down: bool,
@@ -65,7 +62,6 @@ pub struct SwitchDedup {
 }
 
 impl SwitchDedup {
-    #[allow(dead_code)] // consumed by Task 4 (watcher + collector)
     pub fn new(window_ms: i64) -> Self {
         Self {
             window_ms,
@@ -74,7 +70,6 @@ impl SwitchDedup {
         }
     }
 
-    #[allow(dead_code)] // consumed by Task 4 (watcher + collector)
     pub fn note_key_press(&mut self, key: &str, ts: i64) {
         match key {
             "Ctrl" => self.ctrl_down = true,
@@ -84,7 +79,6 @@ impl SwitchDedup {
         }
     }
 
-    #[allow(dead_code)] // consumed by Task 4 (watcher + collector)
     pub fn note_key_release(&mut self, key: &str) {
         if key == "Ctrl" {
             self.ctrl_down = false;
@@ -92,7 +86,6 @@ impl SwitchDedup {
     }
 
     /// True when a SpaceSwitch stamped `ts` should be recorded.
-    #[allow(dead_code)] // consumed by Task 4 (watcher + collector)
     pub fn admit(&mut self, ts: i64) -> bool {
         match self.last_trigger {
             Some(t) => ts.saturating_sub(t) >= self.window_ms,
@@ -202,5 +195,28 @@ mod tests {
         // F3 (Mission Control) triggers regardless of ctrl.
         d.note_key_press("F3", 5_000);
         assert!(!d.admit(5_400));
+    }
+
+    #[test]
+    fn direction_as_str_is_the_wire_form() {
+        // as_str feeds SpaceSwitch.direction, which the TS mirror and replay
+        // (Task 3) match on as "left"/"right" — pin the exact strings.
+        assert_eq!(Direction::Left.as_str(), "left");
+        assert_eq!(Direction::Right.as_str(), "right");
+    }
+
+    #[test]
+    fn dedup_protocol_matches_collector_usage() {
+        // The lib.rs collector feeds every KeyPress/KeyRelease into the dedup
+        // and gates SpaceSwitch on admit(). A ⌃→ press then a notification
+        // 80ms later must record exactly the key events, not the switch.
+        let mut d = SwitchDedup::new(500);
+        d.note_key_press("Ctrl", 1_000);
+        d.note_key_press("→", 1_020);
+        assert!(!d.admit(1_100), "notification explained by the keys");
+        d.note_key_release("→");
+        d.note_key_release("Ctrl");
+        // A gesture switch 2s later (no keys) records.
+        assert!(d.admit(3_100));
     }
 }

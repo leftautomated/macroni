@@ -68,13 +68,16 @@ tempfile = "3"
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 core-graphics = "0.24"
+# Space-switch watcher (Task 4): Objective-C block for the NSWorkspace
+# active-space observer. Version matches Cargo.lock's resolved block2 0.6.2.
+block2 = "0.6"
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
 # Phase 0 spike (Task 5): native wgpu/Metal preview surface under the webview.
 # Versions pinned to the family already resolved in Cargo.lock (objc2 0.6.x /
 # objc2-* 0.3.x) — the same set wgpu-hal 29 + wry/tauri pull, so no extra copies.
 wgpu = "29.0.3"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSString", "objc2-core-foundation"] }
+objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSNotification", "NSOperation", "NSString", "block2", "objc2-core-foundation"] }
 objc2-app-kit = { version = "0.3", features = ["NSView", "NSWindow", "NSGraphics", "NSResponder", "NSAnimationContext", "NSCell", "NSColor", "NSControl", "NSFont", "NSImage", "NSImageView", "NSScreen", "NSText", "NSTextField", "NSVisualEffectView", "NSWorkspace", "objc2-core-graphics", "objc2-quartz-core"] }
 objc2-quartz-core = { version = "0.3", features = ["CALayer", "CAMediaTimingFunction", "CAMetalLayer", "objc2-metal"] }
 # Perception (Task 7): macOS Vision framework for on-device text recognition (OCR).

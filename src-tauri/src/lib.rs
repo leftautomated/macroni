@@ -16,6 +16,9 @@ mod recording_session;
 mod recordings_store;
 mod settings;
 mod space_switch;
+// Native macOS Space-switch watcher (gesture-capture Task 4). macOS-only.
+#[cfg(target_os = "macos")]
+mod space_watch;
 mod studio_export;
 mod types;
 
@@ -553,6 +556,9 @@ pub fn run() {
     let state = RecordingState::default();
     let listener_session = Arc::clone(&state.session);
     let collector_session = Arc::clone(&state.session);
+    // Space-switch watcher shares the session so it only emits while recording.
+    #[cfg(target_os = "macos")]
+    let watcher_session = Arc::clone(&state.session);
     let shortcut_engine = Arc::clone(&state.engine);
 
     let log_level = if cfg!(debug_assertions) {
@@ -795,13 +801,38 @@ pub fn run() {
             // Create a channel for sending events from listener thread
             let (tx, rx) = channel::<InputEvent>();
 
+            // Clone the sender for the Space-switch watcher BEFORE the listener
+            // thread moves `tx`. The watcher feeds SpaceSwitch events into the
+            // same collector channel so they interleave with key/mouse events.
+            #[cfg(target_os = "macos")]
+            let space_tx = tx.clone();
+
             // Spawn thread to handle received events. Events accumulate only
             // on the Rust side (stop_recording returns them) — they are NOT
             // forwarded to the webview: per-event IPC + React work froze the
             // webview on long recordings, which also blocked the old
             // frontend-routed stop path.
+            //
+            // The collector also runs the keyboard-trigger dedup: a ⌃arrow /
+            // F3 switch already replays via its captured key events, so the
+            // NSWorkspace notification that fires alongside it would double the
+            // Space change. Every KeyPress/KeyRelease updates the dedup state;
+            // a SpaceSwitch within the window of such a trigger is dropped.
+            let mut dedup = space_switch::SwitchDedup::new(500);
             std::thread::spawn(move || {
                 while let Ok(event) = rx.recv() {
+                    match &event {
+                        InputEvent::KeyPress { key, timestamp } => {
+                            dedup.note_key_press(key, *timestamp)
+                        }
+                        InputEvent::KeyRelease { key, .. } => dedup.note_key_release(key),
+                        InputEvent::SpaceSwitch { timestamp, .. } => {
+                            if !dedup.admit(*timestamp) {
+                                continue; // ⌃arrow already recorded this switch
+                            }
+                        }
+                        _ => {}
+                    }
                     collector_session.push_event(event);
                 }
             });
@@ -843,6 +874,12 @@ pub fn run() {
                     observability::log_error("input", "listener_failed", &format!("{e:?}"), None);
                 }
             });
+
+            // Register the NSWorkspace active-space observer on the main thread.
+            // It runs for the app's lifetime and only emits while a session is
+            // active; the collector dedup drops keyboard-driven duplicates.
+            #[cfg(target_os = "macos")]
+            space_watch::install(space_tx, watcher_session);
 
             Ok(())
         })

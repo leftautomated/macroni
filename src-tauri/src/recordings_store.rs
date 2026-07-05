@@ -593,10 +593,13 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn legacy_recording_without_scroll_unit_loads_with_pixel_scaled_deltas() {
         // Files written before the pixel-delta capture fix have no
-        // scroll_unit field and store coarse line deltas. Loading must scale
-        // them to pixels (x10) so replay magnitude matches.
+        // scroll_unit field and store coarse line deltas. On macOS, loading
+        // must scale them to pixels (x10) so replay magnitude matches — the
+        // rdev fork that switched capture to pixel-precision deltas only
+        // changed macOS `listen`.
         let dir = tempdir().unwrap();
         let legacy = r#"[{
             "id": "old",
@@ -618,6 +621,39 @@ mod tests {
             } => {
                 assert_eq!(*delta_x, 20);
                 assert_eq!(*delta_y, -30);
+            }
+            other => panic!("expected Scroll, got {:?}", other),
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn legacy_recording_without_scroll_unit_loads_with_deltas_unchanged() {
+        // On non-macOS platforms the line->pixel mismatch never existed —
+        // legacy recordings already replayed at the correct magnitude. Loading
+        // must still mark the recording as Pixels (so the migration only ever
+        // runs once) but must NOT rescale the deltas.
+        let dir = tempdir().unwrap();
+        let legacy = r#"[{
+            "id": "old",
+            "name": "legacy",
+            "events": [
+                {"type": "Scroll", "delta_x": 2, "delta_y": -3, "timestamp": 1},
+                {"type": "KeyPress", "key": "A", "timestamp": 2}
+            ],
+            "created_at": 1700000000000
+        }]"#;
+        std::fs::write(dir.path().join("recordings.json"), legacy).unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        let all = store.load_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].scroll_unit, ScrollUnit::Pixels);
+        match &all[0].events[0] {
+            InputEvent::Scroll {
+                delta_x, delta_y, ..
+            } => {
+                assert_eq!(*delta_x, 2);
+                assert_eq!(*delta_y, -3);
             }
             other => panic!("expected Scroll, got {:?}", other),
         }

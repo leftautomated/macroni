@@ -112,7 +112,9 @@ pub fn install(tx: Sender<InputEvent>, session: Arc<RecordingSession>) {
         // Update the baseline on EVERY successful read — even when we send
         // nothing (inactive session, no directional change) — so the next diff
         // compares against reality, not a stale snapshot.
-        let mut prev = prev.lock().unwrap();
+        // A poisoned lock (panic while held) must not turn every future space
+        // switch into a panic too — recover the guard and keep going.
+        let mut prev = prev.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(old) = prev.as_ref() {
             if let Some((dir, count)) = diff_snapshots(old, &new) {
                 if session.is_active() {

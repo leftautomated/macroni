@@ -162,61 +162,59 @@ fn stop_recording(
 /// by the `stop_recording` command and the Rust-side global-shortcut stop —
 /// a recording must always be stoppable even when the webview is unresponsive.
 fn finish_recording(app: &AppHandle, state: &RecordingState) -> Result<StopResult, String> {
-    {
-        let stopped = state.session.stop().map_err(|e| e.to_string())?;
-        let video = stopped.capture.and_then(|s| match s.stop() {
-            Ok(meta) => Some(meta),
-            Err(e) => {
-                // The capture session started (permission appeared granted) but
-                // finalize produced no usable video — e.g. zero frames reached the
-                // encoder. This used to be swallowed (eprintln only), so the user
-                // got a recording with no video and NO feedback. Surface it to the
-                // UI via the same `capture-failed` event the start path uses.
-                observability::log_error(
-                    "capture",
-                    "finalize_failed",
-                    &e,
-                    Some(json!({ "recordingId": stopped.id })),
-                );
-                let _ = app.emit("capture-failed", e.clone());
-                None
-            }
-        });
+    let stopped = state.session.stop().map_err(|e| e.to_string())?;
+    let video = stopped.capture.and_then(|s| match s.stop() {
+        Ok(meta) => Some(meta),
+        Err(e) => {
+            // The capture session started (permission appeared granted) but
+            // finalize produced no usable video — e.g. zero frames reached the
+            // encoder. This used to be swallowed (eprintln only), so the user
+            // got a recording with no video and NO feedback. Surface it to the
+            // UI via the same `capture-failed` event the start path uses.
+            observability::log_error(
+                "capture",
+                "finalize_failed",
+                &e,
+                Some(json!({ "recordingId": stopped.id })),
+            );
+            let _ = app.emit("capture-failed", e.clone());
+            None
+        }
+    });
 
-        // Flush observations after capture stop. finish() bounds the wait even if
-        // the detached acquisition thread hasn't dropped the tee sender yet — see
-        // the shutdown contract in perception/worker.rs.
-        if let Some(worker) = stopped.perception {
-            let observations = worker.finish();
-            if !observations.is_empty() {
-                if let Ok(store) = recordings_store::RecordingsStore::open(app) {
-                    if let Err(e) = store.write_observations(&stopped.id, &observations) {
-                        observability::log_warn(
-                            "perception",
-                            "observations_flush_failed",
-                            &e.to_string(),
-                            None,
-                        );
-                    }
+    // Flush observations after capture stop. finish() bounds the wait even if
+    // the detached acquisition thread hasn't dropped the tee sender yet — see
+    // the shutdown contract in perception/worker.rs.
+    if let Some(worker) = stopped.perception {
+        let observations = worker.finish();
+        if !observations.is_empty() {
+            if let Ok(store) = recordings_store::RecordingsStore::open(app) {
+                if let Err(e) = store.write_observations(&stopped.id, &observations) {
+                    observability::log_warn(
+                        "perception",
+                        "observations_flush_failed",
+                        &e.to_string(),
+                        None,
+                    );
                 }
             }
         }
-
-        observability::log_info(
-            "recording",
-            "stopped",
-            Some(json!({
-                "recordingId": stopped.id,
-                "eventCount": stopped.events.len(),
-                "hasVideo": video.is_some(),
-            })),
-        );
-        Ok(StopResult {
-            id: stopped.id,
-            events: stopped.events,
-            video,
-        })
     }
+
+    observability::log_info(
+        "recording",
+        "stopped",
+        Some(json!({
+            "recordingId": stopped.id,
+            "eventCount": stopped.events.len(),
+            "hasVideo": video.is_some(),
+        })),
+    );
+    Ok(StopResult {
+        id: stopped.id,
+        events: stopped.events,
+        video,
+    })
 }
 
 #[tauri::command]
@@ -708,49 +706,61 @@ pub fn run() {
                                                 "stop_recording",
                                                 None,
                                             );
-                                            match finish_recording(app, &state) {
-                                                Ok(result) => {
-                                                    let saved =
-                                                        recordings_store::RecordingsStore::open(
-                                                            app,
-                                                        )
-                                                        .and_then(|s| {
-                                                            s.save_stopped(
-                                                                result.id.clone(),
-                                                                result.events,
-                                                                result.video,
+                                            // finish_recording joins the capture thread, whose
+                                            // finalize muxes the whole MP4 — seconds for long
+                                            // recordings. The shortcut handler fires on the main
+                                            // run loop, so doing this inline would freeze the UI.
+                                            // Run the whole stop+save+emit sequence off-thread;
+                                            // is_active() above is a cheap atomic check that stays
+                                            // synchronous, and the session state machine safely
+                                            // rejects a concurrent double-stop.
+                                            let app = app.clone();
+                                            std::thread::spawn(move || {
+                                                let state = app.state::<RecordingState>();
+                                                match finish_recording(&app, &state) {
+                                                    Ok(result) => {
+                                                        let saved =
+                                                            recordings_store::RecordingsStore::open(
+                                                                &app,
                                                             )
-                                                        });
-                                                    match saved {
-                                                        Ok(recording) => {
-                                                            let _ = app.emit(
-                                                                "recording-stopped",
-                                                                recording,
-                                                            );
-                                                        }
-                                                        Err(e) => {
-                                                            observability::log_error(
-                                                                "recording",
-                                                                "shortcut_save_failed",
-                                                                &e.to_string(),
-                                                                Some(json!({
-                                                                    "recordingId": result.id
-                                                                })),
-                                                            );
-                                                            let _ = app.emit(
-                                                                "recording-stopped",
-                                                                Option::<Recording>::None,
-                                                            );
+                                                            .and_then(|s| {
+                                                                s.save_stopped(
+                                                                    result.id.clone(),
+                                                                    result.events,
+                                                                    result.video,
+                                                                )
+                                                            });
+                                                        match saved {
+                                                            Ok(recording) => {
+                                                                let _ = app.emit(
+                                                                    "recording-stopped",
+                                                                    recording.map(|r| r.id),
+                                                                );
+                                                            }
+                                                            Err(e) => {
+                                                                observability::log_error(
+                                                                    "recording",
+                                                                    "shortcut_save_failed",
+                                                                    &e.to_string(),
+                                                                    Some(json!({
+                                                                        "recordingId": result.id
+                                                                    })),
+                                                                );
+                                                                let _ = app.emit(
+                                                                    "recording-stopped",
+                                                                    Option::<String>::None,
+                                                                );
+                                                            }
                                                         }
                                                     }
+                                                    Err(e) => observability::log_error(
+                                                        "recording",
+                                                        "shortcut_stop_failed",
+                                                        &e,
+                                                        None,
+                                                    ),
                                                 }
-                                                Err(e) => observability::log_error(
-                                                    "recording",
-                                                    "shortcut_stop_failed",
-                                                    &e,
-                                                    None,
-                                                ),
-                                            }
+                                            });
                                         } else {
                                             observability::log_info(
                                                 "shortcut",

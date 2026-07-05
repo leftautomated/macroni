@@ -80,17 +80,27 @@ pub const SCROLL_LINE_TO_PIXELS: i64 = 10;
 impl Recording {
     /// Upgrade legacy line-unit scroll deltas to pixel units in place.
     /// Idempotent: pixel-unit recordings are left untouched.
+    ///
+    /// The line→pixel mismatch only exists on macOS — the rdev fork that
+    /// switched capture to pixel-precision deltas only changed macOS
+    /// `listen`. On other platforms legacy recordings already replay at the
+    /// correct magnitude, so multiplying deltas there would corrupt them.
+    /// The `scroll_unit` marker is still normalized to `Pixels` everywhere so
+    /// the migration only ever runs once, regardless of platform.
     pub fn normalize_scroll_units(&mut self) {
         if self.scroll_unit == ScrollUnit::Pixels {
             return;
         }
-        for event in &mut self.events {
-            if let InputEvent::Scroll {
-                delta_x, delta_y, ..
-            } = event
-            {
-                *delta_x *= SCROLL_LINE_TO_PIXELS;
-                *delta_y *= SCROLL_LINE_TO_PIXELS;
+        #[cfg(target_os = "macos")]
+        {
+            for event in &mut self.events {
+                if let InputEvent::Scroll {
+                    delta_x, delta_y, ..
+                } = event
+                {
+                    *delta_x *= SCROLL_LINE_TO_PIXELS;
+                    *delta_y *= SCROLL_LINE_TO_PIXELS;
+                }
             }
         }
         self.scroll_unit = ScrollUnit::Pixels;

@@ -15,6 +15,12 @@ import type { Observation, ObservationResult, PerceptionTarget, Recording, Regio
 // Studio: pick a recording from the title-bar folder menu and play it. Effects
 // (background/framing/zoom) come later, one quality-checked feature at a time.
 
+// Perception UI (overlay chips, drag-to-author targets, the observations
+// panel) is paused pending the annotation-UX redesign — backend collection,
+// the Settings toggle, and the perception components themselves are untouched
+// and keep their own tests; this just stops the Studio from wiring them up.
+const PERCEPTION_STUDIO_UI = false;
+
 export function StudioEditor() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -84,7 +90,7 @@ export function StudioEditor() {
   const [observations, setObservations] = useState<Observation[]>([]);
   useEffect(() => {
     setObservations([]);
-    if (!selectedId) return;
+    if (!PERCEPTION_STUDIO_UI || !selectedId) return;
     let cancelled = false;
     invoke<Observation[]>("load_observations", { recordingId: selectedId })
       .then((obs) => {
@@ -101,21 +107,21 @@ export function StudioEditor() {
   }, [selectedId]);
 
   // Ticks for the timeline's perception lane — one per observation.
-  const perceptionTicks = useMemo(
-    () =>
-      observations.map((o) => ({
-        ms: o.timestamp_ms,
-        label:
-          o.result.type === "Text" && o.result.spans.length > 0
-            ? o.result.spans[0].text.slice(0, 40)
-            : "observation",
-      })),
-    [observations],
-  );
+  const perceptionTicks = useMemo(() => {
+    if (!PERCEPTION_STUDIO_UI) return [];
+    return observations.map((o) => ({
+      ms: o.timestamp_ms,
+      label:
+        o.result.type === "Text" && o.result.spans.length > 0
+          ? o.result.spans[0].text.slice(0, 40)
+          : "observation",
+    }));
+  }, [observations]);
 
   // OCR spans to draw over the frame for the observation nearest the playhead
   // (within 600ms), so pausing near a Text observation reveals its boxes.
   const playheadSpans = useMemo(() => {
+    if (!PERCEPTION_STUDIO_UI) return [];
     let best: Observation | null = null;
     for (const o of observations) {
       if (Math.abs(o.timestamp_ms - sync.videoTimeMs) <= 600) {
@@ -336,11 +342,15 @@ export function StudioEditor() {
                 onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
                 loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
                 controlsHost={controlsHost}
-                targets={selected.targets ?? []}
-                onSaveTarget={handleSaveTarget}
-                onSampleColor={handleSampleColor}
-                spans={playheadSpans}
-                hasObservations={observations.length > 0}
+                {...(PERCEPTION_STUDIO_UI
+                  ? {
+                      targets: selected.targets ?? [],
+                      spans: playheadSpans,
+                      hasObservations: observations.length > 0,
+                      onSaveTarget: handleSaveTarget,
+                      onSampleColor: handleSampleColor,
+                    }
+                  : {})}
               />
             </div>
             {/* Bottom: transport controls + all the events */}
@@ -353,7 +363,7 @@ export function StudioEditor() {
               }}
             >
               <div ref={setControlsHost} style={{ marginBottom: 14 }} />
-              {selected.targets && selected.targets.length > 0 && (
+              {PERCEPTION_STUDIO_UI && selected.targets && selected.targets.length > 0 && (
                 <PerceptionPanel
                   recordingId={selected.id}
                   targets={selected.targets}
@@ -371,7 +381,7 @@ export function StudioEditor() {
                 onSeekSeconds={(s) => playerRef.current?.seek(s)}
                 loop={loop}
                 onLoopChange={setLoop}
-                perceptionTicks={perceptionTicks}
+                perceptionTicks={PERCEPTION_STUDIO_UI ? perceptionTicks : undefined}
               />
             </div>
           </>

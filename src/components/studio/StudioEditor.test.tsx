@@ -114,6 +114,31 @@ describe("StudioEditor (recordings browser)", () => {
     });
   });
 
+  it("keeps the perception UI paused: no load_observations invoke, no panel", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const recording = makeRecording("2000", "Beta");
+    recording.targets = [
+      {
+        id: "t1",
+        name: "Submit",
+        modality: "visual",
+        region: { x: 0.1, y: 0.1, w: 0.2, h: 0.1 },
+        kind: { type: "TextOcr", expect: null },
+        created_at: 1,
+      },
+    ];
+    fake.recordings = [recording];
+
+    render(<StudioEditor />);
+    await screen.findByRole("button", { name: /replay macro/i });
+
+    expect(screen.queryByRole("button", { name: "Test frame" })).not.toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalledWith(
+      "load_observations",
+      expect.objectContaining({ recordingId: "2000" }),
+    );
+  });
+
   it("deletes a recording via its row delete button (two-click confirm)", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     fake.recordings = [makeRecording("1000", "Alpha"), makeRecording("2000", "Beta")];

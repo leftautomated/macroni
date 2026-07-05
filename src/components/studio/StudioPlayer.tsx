@@ -262,23 +262,29 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     setSelection(regionFromPoints(drag.x, drag.y, e.clientX, e.clientY, e.currentTarget));
   }, []);
 
-  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    dragRef.current = null;
-    e.currentTarget.releasePointerCapture(e.pointerId);
-    setSelection(null);
-    if (!drag) return;
-    if (!drag.moved) {
-      // Plain click: toggle against the pre-gesture state. Pointer-down
-      // already paused, so a click while playing just stays paused; a click
-      // while paused resumes.
-      if (!drag.wasPlaying) void videoRef.current?.play();
-      return;
-    }
-    // Drag: stay paused for region selection, open the authoring popover.
-    const region = regionFromPoints(drag.x, drag.y, e.clientX, e.clientY, e.currentTarget);
-    setPopover({ region, x: e.clientX, y: e.clientY });
-  }, []);
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current;
+      dragRef.current = null;
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      setSelection(null);
+      if (!drag) return;
+      if (!drag.moved) {
+        // Plain click: toggle against the pre-gesture state. Pointer-down
+        // already paused, so a click while playing just stays paused; a click
+        // while paused resumes.
+        if (!drag.wasPlaying) void videoRef.current?.play();
+        return;
+      }
+      // Drag: stay paused for region selection, open the authoring popover —
+      // unless target authoring is unavailable (perception UI paused), in which
+      // case the drag is inert and just clears the selection.
+      if (!onSaveTarget) return;
+      const region = regionFromPoints(drag.x, drag.y, e.clientX, e.clientY, e.currentTarget);
+      setPopover({ region, x: e.clientX, y: e.clientY });
+    },
+    [onSaveTarget],
+  );
 
   const closePopover = useCallback(() => {
     setPopover(null);

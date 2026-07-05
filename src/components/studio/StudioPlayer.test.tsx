@@ -216,4 +216,16 @@ describe("StudioPlayer", () => {
     expect(screen.queryByRole("button", { name: /targets overlay/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /text overlay/i })).not.toBeInTheDocument();
   });
+
+  it("drag without onSaveTarget is inert (perception UI paused)", () => {
+    const { container } = render(
+      <StudioPlayer src="asset://clip.mp4" fps={30} onTimeUpdate={noop} onReplay={noop} />,
+    );
+    const layer = container.querySelector(".sp-interact") as HTMLElement;
+    fireEvent.pointerDown(layer, { clientX: 30, clientY: 20, pointerId: 1 });
+    fireEvent.pointerMove(layer, { clientX: 60, clientY: 45, pointerId: 1 });
+    fireEvent.pointerUp(layer, { clientX: 60, clientY: 45, pointerId: 1 });
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(container.querySelector('[style*="dashed"]')).toBeNull();
+  });
 });

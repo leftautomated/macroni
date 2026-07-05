@@ -202,8 +202,34 @@ fn push_simulate(steps: &mut Vec<PlannedStep>, event: &InputEvent) {
             }));
         }
         InputEvent::KeyCombo { .. } => {}
-        InputEvent::SpaceSwitch { .. } => {
-            // consumed by Task 3 (replay as ctrl-arrows)
+        InputEvent::SpaceSwitch {
+            direction, count, ..
+        } => {
+            // Replayed as the stock Mission Control shortcut ⌃←/⌃→ (the
+            // gesture itself cannot be synthesized). Requires the default
+            // "Move left/right a space" shortcuts to be enabled.
+            let arrow = if direction == "left" {
+                rdev::Key::LeftArrow
+            } else {
+                rdev::Key::RightArrow
+            };
+            for hop in 0..(*count).max(1) {
+                if hop > 0 {
+                    // Let the previous Space transition animation finish.
+                    steps.push(PlannedStep::Sleep { ms: 150 });
+                }
+                steps.push(PlannedStep::Simulate(EventType::KeyPress(
+                    rdev::Key::ControlLeft,
+                )));
+                steps.push(PlannedStep::Sleep { ms: 10 });
+                steps.push(PlannedStep::Simulate(EventType::KeyPress(arrow)));
+                steps.push(PlannedStep::Sleep { ms: 10 });
+                steps.push(PlannedStep::Simulate(EventType::KeyRelease(arrow)));
+                steps.push(PlannedStep::Sleep { ms: 10 });
+                steps.push(PlannedStep::Simulate(EventType::KeyRelease(
+                    rdev::Key::ControlLeft,
+                )));
+            }
         }
     }
 }
@@ -607,6 +633,55 @@ mod tests {
             "delta of 51ms must trigger position emit: {:?}",
             positions_gt
         );
+    }
+
+    #[test]
+    fn compile_space_switch_emits_ctrl_arrow_sequence_per_hop() {
+        use rdev::Key;
+        let events = vec![InputEvent::SpaceSwitch {
+            direction: "right".into(),
+            count: 2,
+            timestamp: 0,
+        }];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        let sims: Vec<&EventType> = plan
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlannedStep::Simulate(e) => Some(e),
+                _ => None,
+            })
+            .collect();
+        let hop = [
+            EventType::KeyPress(Key::ControlLeft),
+            EventType::KeyPress(Key::RightArrow),
+            EventType::KeyRelease(Key::RightArrow),
+            EventType::KeyRelease(Key::ControlLeft),
+        ];
+        assert_eq!(sims.len(), 8, "two hops of 4 key events");
+        for (i, sim) in sims.iter().enumerate() {
+            assert_eq!(format!("{:?}", *sim), format!("{:?}", hop[i % 4]));
+        }
+        // An inter-hop pause exists so the Space animation completes.
+        assert!(plan
+            .steps
+            .iter()
+            .any(|s| matches!(s, PlannedStep::Sleep { ms: 150 })));
+    }
+
+    #[test]
+    fn compile_space_switch_left_uses_left_arrow() {
+        use rdev::Key;
+        let events = vec![InputEvent::SpaceSwitch {
+            direction: "left".into(),
+            count: 1,
+            timestamp: 0,
+        }];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        assert!(plan.steps.iter().any(|s| matches!(
+            s,
+            PlannedStep::Simulate(EventType::KeyPress(Key::LeftArrow))
+        )));
     }
 
     #[test]

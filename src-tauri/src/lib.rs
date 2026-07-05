@@ -15,6 +15,7 @@ mod project_store;
 mod recording_session;
 mod recordings_store;
 mod settings;
+mod space_switch;
 mod studio_export;
 mod types;
 

@@ -150,6 +150,15 @@ fn stop_recording(
     trace_id: Option<String>,
 ) -> Result<StopResult, String> {
     observability::trace_command("stop_recording", trace_id, None, || {
+        finish_recording(&app, &state)
+    })
+}
+
+/// Stop the active session, finalize capture, and flush observations. Shared
+/// by the `stop_recording` command and the Rust-side global-shortcut stop —
+/// a recording must always be stoppable even when the webview is unresponsive.
+fn finish_recording(app: &AppHandle, state: &RecordingState) -> Result<StopResult, String> {
+    {
         let stopped = state.session.stop().map_err(|e| e.to_string())?;
         let video = stopped.capture.and_then(|s| match s.stop() {
             Ok(meta) => Some(meta),
@@ -176,7 +185,7 @@ fn stop_recording(
         if let Some(worker) = stopped.perception {
             let observations = worker.finish();
             if !observations.is_empty() {
-                if let Ok(store) = recordings_store::RecordingsStore::open(&app) {
+                if let Ok(store) = recordings_store::RecordingsStore::open(app) {
                     if let Err(e) = store.write_observations(&stopped.id, &observations) {
                         observability::log_warn(
                             "perception",
@@ -203,7 +212,7 @@ fn stop_recording(
             events: stopped.events,
             video,
         })
-    })
+    }
 }
 
 #[tauri::command]
@@ -675,15 +684,73 @@ pub fn run() {
                                         }
                                     }
                                     // Cmd+Shift+R / Ctrl+Shift+R — toggle recording.
+                                    // Stop is handled directly in Rust (stop +
+                                    // auto-save + notify), NOT via a frontend
+                                    // round-trip: the webview can be busy or
+                                    // wedged, and a recording must always be
+                                    // stoppable. Start still goes through the
+                                    // frontend so its status stays in sync.
                                     else if shortcut
                                         .matches(primary_modifier | Modifiers::SHIFT, Code::KeyR)
                                     {
-                                        observability::log_info(
-                                            "shortcut",
-                                            "toggle_recording",
-                                            None,
-                                        );
-                                        let _ = app.emit("toggle-recording", ());
+                                        let state = app.state::<RecordingState>();
+                                        if state.session.is_active() {
+                                            observability::log_info(
+                                                "shortcut",
+                                                "stop_recording",
+                                                None,
+                                            );
+                                            match finish_recording(app, &state) {
+                                                Ok(result) => {
+                                                    let saved =
+                                                        recordings_store::RecordingsStore::open(
+                                                            app,
+                                                        )
+                                                        .and_then(|s| {
+                                                            s.save_stopped(
+                                                                result.id.clone(),
+                                                                result.events,
+                                                                result.video,
+                                                            )
+                                                        });
+                                                    match saved {
+                                                        Ok(recording) => {
+                                                            let _ = app.emit(
+                                                                "recording-stopped",
+                                                                recording,
+                                                            );
+                                                        }
+                                                        Err(e) => {
+                                                            observability::log_error(
+                                                                "recording",
+                                                                "shortcut_save_failed",
+                                                                &e.to_string(),
+                                                                Some(json!({
+                                                                    "recordingId": result.id
+                                                                })),
+                                                            );
+                                                            let _ = app.emit(
+                                                                "recording-stopped",
+                                                                Option::<Recording>::None,
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => observability::log_error(
+                                                    "recording",
+                                                    "shortcut_stop_failed",
+                                                    &e,
+                                                    None,
+                                                ),
+                                            }
+                                        } else {
+                                            observability::log_info(
+                                                "shortcut",
+                                                "toggle_recording",
+                                                None,
+                                            );
+                                            let _ = app.emit("toggle-recording", ());
+                                        }
                                     }
                                 }
                             })

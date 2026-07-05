@@ -162,6 +162,21 @@ const App = () => {
     };
   }, [handleStartRecording, handleStopRecording]);
 
+  // Recording stopped from the backend (global shortcut). Rust already
+  // stopped, finalized, and auto-saved it — the frontend only refreshes its
+  // list and resets local status. Do NOT save here.
+  const { clearEvents } = recorder;
+  const { loadRecordings } = recordingsManager;
+  useEffect(() => {
+    const unlisten = listen("recording-stopped", () => {
+      clearEvents();
+      void loadRecordings();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [clearEvents, loadRecordings]);
+
   // Cmd+R — replay the last target (the backend emits this only when idle).
   useEffect(() => {
     const unlisten = listen("toggle-playback", () => {

@@ -102,6 +102,31 @@ describe("App (integration root)", () => {
     expect(tauri.state.listeners.has("input-event")).toBe(false);
   });
 
+  it("refreshes recordings when the backend stops a recording (shortcut path)", async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(tauri.state.listeners.get("recording-stopped")).toBeDefined();
+    });
+    tauri.invoke.mockClear();
+
+    // Rust stopped + saved the recording itself (webview may have been busy);
+    // the frontend only refreshes its list and resets local state.
+    await act(async () => {
+      await tauri.state.listeners.get("recording-stopped")?.({
+        payload: makeRecording("rec-stopped"),
+      });
+    });
+
+    await waitFor(() => {
+      expect(tauri.invoke).toHaveBeenCalledWith(
+        "load_recordings",
+        expect.objectContaining({ traceId: expect.any(String) }),
+      );
+    });
+    // It must NOT save again — Rust already persisted it.
+    expect(tauri.invoke).not.toHaveBeenCalledWith("save_recording", expect.anything());
+  });
+
   it("starts Studio replay with the requested loop setting", async () => {
     const recording = makeRecording("rec-1");
     tauri.state.recordings = [recording];

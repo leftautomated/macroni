@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use crate::perception::{Observation, Target};
-use crate::types::Recording;
+use crate::types::{InputEvent, Recording, VideoMetadata};
 
 const RECORDINGS_FILENAME: &str = "recordings.json";
 const VIDEOS_DIRNAME: &str = "videos";
@@ -107,6 +107,32 @@ impl RecordingsStore {
                 Ok(Vec::new())
             }
         }
+    }
+
+    /// Persist a just-stopped recording under the default name — the same
+    /// auto-save the frontend performs after `stop_recording`. Used by the
+    /// Rust-side shortcut stop path, which cannot rely on the webview being
+    /// responsive. Returns `None` (writing nothing) when the session captured
+    /// neither events nor video.
+    pub fn save_stopped(
+        &self,
+        id: String,
+        events: Vec<InputEvent>,
+        video: Option<VideoMetadata>,
+    ) -> Result<Option<Recording>, StoreError> {
+        if events.is_empty() && video.is_none() {
+            return Ok(None);
+        }
+        self.add(Recording {
+            id,
+            name: "Untitled".to_string(),
+            events,
+            created_at: chrono::Utc::now().timestamp_millis(),
+            playback_speed: 1.0,
+            video,
+            targets: Vec::new(),
+        })
+        .map(Some)
     }
 
     pub fn add(&self, recording: Recording) -> Result<Recording, StoreError> {
@@ -509,6 +535,36 @@ mod tests {
         assert!(kept.exists(), "known recording's video should remain");
         assert!(!orphan.exists(), "orphan mp4 should be removed");
         assert!(unrelated.exists(), "non-mp4 should be left alone");
+    }
+
+    #[test]
+    fn save_stopped_persists_untitled_and_skips_empty_sessions() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        // Nothing captured -> nothing saved, nothing written.
+        assert!(store
+            .save_stopped("empty".into(), Vec::new(), None)
+            .unwrap()
+            .is_none());
+        assert_eq!(store.load_all().unwrap().len(), 0);
+        // Events captured -> saved under the default name with defaults.
+        let saved = store
+            .save_stopped(
+                "1".into(),
+                vec![InputEvent::KeyPress {
+                    key: "A".into(),
+                    timestamp: 1,
+                }],
+                None,
+            )
+            .unwrap()
+            .expect("session with events must be saved");
+        assert_eq!(saved.name, "Untitled");
+        assert_eq!(saved.playback_speed, 1.0);
+        assert!(saved.targets.is_empty());
+        let all = store.load_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].id, "1");
     }
 
     #[test]

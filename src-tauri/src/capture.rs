@@ -275,24 +275,36 @@ impl ScreenCaptureSession {
                     timestamp_ms: first.ts,
                 })?;
 
-                // Re-emit the last frame to cover any gap, keeping a steady rate.
-                let backfill = |sink: &mut Box<dyn CaptureSink>, from: i64, to: i64| {
-                    let mut t = from + interval_ms;
-                    let mut filled = 0u32;
-                    while t < to && filled < 36_000 {
-                        if sink.repeat_last(t).is_err() {
-                            break;
+                // One sample per wall-clock slot: the muxer writes fixed 1/fps
+                // durations, so the pacer's bookkeeping IS the video timeline.
+                // Repeats fill fully-elapsed empty slots (static screen); a
+                // frame landing in an already-filled slot is dropped rather
+                // than double-emitted (the old double-emit stretched videos
+                // ~1.5× and desynced events/observations from the picture).
+                let mut pacer = FramePacer::new(first.ts, interval_ms);
+                let fill_elapsed = |sink: &mut Box<dyn CaptureSink>,
+                                    pacer: &mut FramePacer,
+                                    now: i64,
+                                    cap: i64| {
+                    let repeats = pacer.pending_repeats(now).min(cap);
+                    for _ in 0..repeats {
+                        if sink.repeat_last(pacer.next_slot_ts()).is_err() {
+                            return false;
                         }
-                        t += interval_ms;
-                        filled += 1;
+                        pacer.mark_emitted();
                     }
+                    true
                 };
 
-                let mut prev_ts = first.ts;
                 loop {
                     match frame_rx.recv_timeout(interval) {
                         Ok(f) => {
-                            backfill(&mut sink, prev_ts, f.ts);
+                            if !fill_elapsed(&mut sink, &mut pacer, f.ts, 36_000) {
+                                break;
+                            }
+                            if !pacer.admit_frame(f.ts) {
+                                continue; // slot already filled — drop, keep cadence
+                            }
                             if let Err(e) = sink.on_frame(&Frame {
                                 width: f.width,
                                 height: f.height,
@@ -302,24 +314,26 @@ impl ScreenCaptureSession {
                                 crate::observability::log_error("capture", "sink_error", &e, None);
                                 break;
                             }
-                            prev_ts = f.ts;
                         }
                         // No new frame this interval: if still recording, hold the
-                        // last frame (screen was static); else finish.
+                        // last frame for any fully-elapsed slot; else finish.
                         Err(mpsc::RecvTimeoutError::Timeout) => {
                             if !running.load(Ordering::Relaxed) {
                                 break;
                             }
-                            let t = prev_ts + interval_ms;
-                            if sink.repeat_last(t).is_err() {
+                            if !fill_elapsed(
+                                &mut sink,
+                                &mut pacer,
+                                Utc::now().timestamp_millis(),
+                                36_000,
+                            ) {
                                 break;
                             }
-                            prev_ts = t;
                         }
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
                 }
-                backfill(&mut sink, prev_ts, Utc::now().timestamp_millis());
+                fill_elapsed(&mut sink, &mut pacer, Utc::now().timestamp_millis(), 36_000);
                 sink.finalize()
             })
         };
@@ -346,6 +360,73 @@ impl ScreenCaptureSession {
     }
 }
 
+/// Locks the encoder's emitted-sample count to the wall clock: exactly one
+/// sample per `interval_ms` slot since the first frame. The muxer assigns
+/// every sample a fixed 1/fps duration, so the sample count IS the video
+/// timeline — emitting more than one sample per slot stretches the video
+/// (a 10.7s session once became a 16.4s file) and desyncs the wall-stamped
+/// input events and perception observations from the picture.
+///
+/// Slot k covers `[base + k·interval, base + (k+1)·interval)`. Slot 0 is the
+/// first real frame, written by the caller before constructing the pacer.
+#[cfg_attr(target_os = "windows", allow(dead_code))] // encoder loop is not built on Windows
+struct FramePacer {
+    base_ts: i64,
+    interval_ms: i64,
+    /// Samples emitted so far — slots `0..emitted` are filled.
+    emitted: i64,
+}
+
+#[cfg_attr(target_os = "windows", allow(dead_code))] // encoder loop is not built on Windows
+impl FramePacer {
+    fn new(first_frame_ts: i64, interval_ms: i64) -> Self {
+        Self {
+            base_ts: first_frame_ts,
+            interval_ms: interval_ms.max(1),
+            emitted: 1,
+        }
+    }
+
+    fn slot(&self, t: i64) -> i64 {
+        (t - self.base_ts).max(0) / self.interval_ms
+    }
+
+    /// How many fully-elapsed slots are still empty at wall time `now`. A slot
+    /// still in progress is never repeated — a real frame for it may yet
+    /// arrive (this grace is what prevents the old double-emit).
+    fn pending_repeats(&self, now: i64) -> i64 {
+        (self.slot(now) - self.emitted).max(0)
+    }
+
+    /// Timestamp the next repeat should carry (start of the first empty slot).
+    fn next_slot_ts(&self) -> i64 {
+        self.base_ts + self.emitted * self.interval_ms
+    }
+
+    /// Record one emitted sample (caller just wrote a repeat).
+    fn mark_emitted(&mut self) {
+        self.emitted += 1;
+    }
+
+    /// Whether a real frame at `ts` may be written: true when its slot is
+    /// still empty (and claims it); false when the slot already has a sample —
+    /// the frame is dropped to preserve cadence (the next slot's frame
+    /// refreshes the content within one interval).
+    fn admit_frame(&mut self, ts: i64) -> bool {
+        if self.slot(ts) >= self.emitted {
+            self.emitted += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    #[cfg(test)] // assertion seam — production reads go through the methods above
+    fn emitted(&self) -> i64 {
+        self.emitted
+    }
+}
+
 /// Pick the encode resolution: fit `(w, h)` into a 1080p box (longer side <=
 /// 1920, shorter <= 1080), preserving aspect, never upscaling, rounded to even
 /// dimensions (I420 requirement). This is well within openh264's 4K hard limit
@@ -368,6 +449,81 @@ fn encode_target(w: u32, h: u32) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pacer_emits_one_sample_per_slot_at_slightly_slow_delivery() {
+        // SCK delivering just under the target rate (~28fps vs 30) used to
+        // double-emit: a timeout repeat AND the late real frame for the same
+        // slot. With fixed-duration muxing that stretched a 10s session into
+        // a ~15s video, desyncing wall-stamped events/observations.
+        let mut p = FramePacer::new(0, 33);
+        for ts in [36, 71, 107, 143] {
+            assert_eq!(p.pending_repeats(ts), 0, "no repeat before frame at {ts}");
+            assert!(p.admit_frame(ts), "frame at {ts} claims its own slot");
+        }
+        assert_eq!(p.emitted(), 5); // first frame + 4 admitted
+    }
+
+    #[test]
+    fn pacer_fills_static_gaps_only_after_a_slot_fully_elapses() {
+        let mut p = FramePacer::new(0, 33);
+        assert_eq!(p.pending_repeats(34), 0, "slot 1 still in progress");
+        assert_eq!(p.pending_repeats(67), 1, "slot 1 fully elapsed, unfilled");
+        assert_eq!(p.next_slot_ts(), 33);
+        p.mark_emitted();
+        assert_eq!(p.pending_repeats(80), 0);
+        assert_eq!(p.pending_repeats(101), 1);
+    }
+
+    #[test]
+    fn pacer_backfills_a_long_gap_then_admits_the_frame() {
+        let mut p = FramePacer::new(0, 33);
+        let ts = 200; // slot 6; slots 1..=5 elapsed empty
+        assert_eq!(p.pending_repeats(ts), 5);
+        for _ in 0..5 {
+            p.mark_emitted();
+        }
+        assert!(p.admit_frame(ts));
+        assert_eq!(p.emitted(), 7);
+    }
+
+    #[test]
+    fn pacer_drops_burst_frames_landing_in_filled_slots() {
+        let mut p = FramePacer::new(0, 33);
+        assert!(p.admit_frame(36)); // slot 1
+        assert!(!p.admit_frame(46), "second frame in slot 1 is dropped");
+        assert!(!p.admit_frame(56), "third frame in slot 1 is dropped");
+        assert!(p.admit_frame(70)); // slot 2
+        assert_eq!(p.emitted(), 3);
+    }
+
+    #[test]
+    fn pacer_keeps_sample_count_locked_to_wall_clock_over_a_long_run() {
+        // 10 wall seconds of 25fps delivery against a 30fps (33ms) grid must
+        // yield ~wall/interval samples — NOT ~1.5×. Regression pin for the
+        // stretched-video bug (16.4s video from a 10.7s session).
+        let mut p = FramePacer::new(0, 33);
+        let mut samples: i64 = 1; // the first frame
+        let mut ts = 0;
+        while ts < 10_000 {
+            ts += 40; // 25fps delivery
+                      // The encoder loop's recv_timeout also ticks between frames; the
+                      // pacer must not let tick-repeats and admissions double-count.
+            samples += p.pending_repeats(ts - 1);
+            for _ in 0..p.pending_repeats(ts - 1) {
+                p.mark_emitted();
+            }
+            if p.admit_frame(ts) {
+                samples += 1;
+            }
+        }
+        let expected = 10_000 / 33 + 1;
+        assert!(
+            (samples - expected).abs() <= 2,
+            "samples {samples} should track wall slots {expected}"
+        );
+        assert_eq!(samples, p.emitted());
+    }
 
     #[test]
     fn fake_sink_collects_frames_and_reports_duration() {

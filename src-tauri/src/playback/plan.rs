@@ -202,6 +202,9 @@ fn push_simulate(steps: &mut Vec<PlannedStep>, event: &InputEvent) {
             }));
         }
         InputEvent::KeyCombo { .. } => {}
+        InputEvent::SpaceSwitch { .. } => {
+            // consumed by Task 3 (replay as ctrl-arrows)
+        }
     }
 }
 

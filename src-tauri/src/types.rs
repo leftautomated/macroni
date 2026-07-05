@@ -46,6 +46,13 @@ pub enum InputEvent {
         delta_y: i64,
         timestamp: i64,
     },
+    /// A macOS Space / fullscreen-app switch (3-finger swipe, ⌃arrows, …),
+    /// captured semantically — the gesture itself is not observable.
+    SpaceSwitch {
+        direction: String, // "left" | "right"
+        count: u32,        // hops — a fast multi-Space swipe records 2+
+        timestamp: i64,
+    },
 }
 
 fn default_playback_speed() -> f64 {
@@ -156,6 +163,7 @@ impl InputEventTimestamp for InputEvent {
             InputEvent::ButtonRelease { timestamp, .. } => *timestamp,
             InputEvent::MouseMove { timestamp, .. } => *timestamp,
             InputEvent::Scroll { timestamp, .. } => *timestamp,
+            InputEvent::SpaceSwitch { timestamp, .. } => *timestamp,
         }
     }
 }
@@ -210,4 +218,30 @@ pub struct AppSettings {
     pub capture: CaptureSettings,
     #[serde(default)]
     pub perception: PerceptionSettings,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn space_switch_serde_round_trips_with_house_tagging() {
+        let ev = InputEvent::SpaceSwitch {
+            direction: "right".into(),
+            count: 2,
+            timestamp: 1500,
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        assert!(json.contains("\"type\":\"SpaceSwitch\""), "{json}");
+        let back: InputEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.timestamp(), 1500);
+        assert!(matches!(back, InputEvent::SpaceSwitch { count: 2, .. }));
+    }
+
+    #[test]
+    fn legacy_event_json_still_loads() {
+        let json = r#"{"type":"KeyPress","key":"A","timestamp":1}"#;
+        let ev: InputEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(ev.timestamp(), 1);
+    }
 }

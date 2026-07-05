@@ -13,6 +13,7 @@ export enum InputEventType {
   ButtonRelease = "ButtonRelease",
   MouseMove = "MouseMove",
   Scroll = "Scroll",
+  SpaceSwitch = "SpaceSwitch",
 }
 
 export type InputEvent =
@@ -28,7 +29,13 @@ export type InputEvent =
   | { type: InputEventType.ButtonPress; button: string; x: number; y: number; timestamp: number }
   | { type: InputEventType.ButtonRelease; button: string; x: number; y: number; timestamp: number }
   | { type: InputEventType.MouseMove; x: number; y: number; timestamp: number }
-  | { type: InputEventType.Scroll; delta_x: number; delta_y: number; timestamp: number };
+  | { type: InputEventType.Scroll; delta_x: number; delta_y: number; timestamp: number }
+  | {
+      type: InputEventType.SpaceSwitch;
+      direction: "left" | "right";
+      count: number;
+      timestamp: number;
+    };
 
 export interface VideoMetadata {
   path: string;

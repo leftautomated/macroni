@@ -71,6 +71,13 @@ export function getEventDetails(event: InputEvent): EventDetails {
         value: scrollSummary(event.delta_x, event.delta_y),
         detail: "",
       };
+    case InputEventType.SpaceSwitch:
+      return {
+        icon: <Keyboard className="h-3 w-3" />,
+        action: "Space Switch",
+        value: `⇄ ${event.direction === "left" ? "←" : "→"}${event.count > 1 ? ` ×${event.count}` : ""}`,
+        detail: "",
+      };
   }
 }
 

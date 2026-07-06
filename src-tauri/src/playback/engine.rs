@@ -51,6 +51,18 @@ impl PlaybackEngine {
         self.loop_count.store(0, Ordering::Relaxed);
     }
 
+    /// Claim the playback slot for a macro run (mutually exclusive with
+    /// `start`). Errors if playback or another macro already holds it.
+    /// Release by storing `false` into the returned flag (or via `stop()`,
+    /// which the macro runner observes to cancel).
+    #[allow(dead_code)] // consumed by Task 4 (macro runner)
+    pub(crate) fn claim_for_macro(&self) -> Result<Arc<AtomicBool>, String> {
+        if self.is_playing.swap(true, Ordering::Relaxed) {
+            return Err("Already playing".to_string());
+        }
+        Ok(Arc::clone(&self.is_playing))
+    }
+
     /// Begin playback. Spawns a worker thread; returns immediately.
     /// Errors if already playing.
     pub fn start(
@@ -126,46 +138,12 @@ fn run_plan(
         }
         is_first_iteration = false;
 
-        let mut completed = true;
-        for step in &plan.steps {
-            if !is_playing.load(Ordering::Relaxed) {
-                completed = false;
-                break;
+        let completed = execute_steps(&plan.steps, is_playing, &simulator, |i| {
+            if let Ok(mut p) = position.lock() {
+                *p = Some(i);
             }
-            match step {
-                PlannedStep::EmitPosition { index } => {
-                    if let Ok(mut p) = position.lock() {
-                        *p = Some(*index);
-                    }
-                    emitter.emit_position(*index);
-                }
-                PlannedStep::Sleep { ms } => {
-                    if !sleep_cancellable(*ms, is_playing) {
-                        completed = false;
-                        break;
-                    }
-                }
-                PlannedStep::Simulate(event_type) => {
-                    // Re-check cancellation right before firing the OS-level
-                    // input event. Without this, a stop() that lands while the
-                    // worker is between the for-loop guard and the simulate
-                    // call can still inject a final event into the OS after
-                    // the frontend has been told playback-stopped.
-                    if !is_playing.load(Ordering::Relaxed) {
-                        completed = false;
-                        break;
-                    }
-                    if let Err(e) = simulator.simulate(*event_type) {
-                        crate::observability::log_error(
-                            "playback",
-                            "simulate_event_failed",
-                            &e,
-                            None,
-                        );
-                    }
-                }
-            }
-        }
+            emitter.emit_position(i);
+        });
 
         if !completed || !loop_forever {
             break;
@@ -173,6 +151,53 @@ fn run_plan(
     }
 
     finalize(emitter, is_playing, position, loop_count);
+}
+
+/// Execute a single iteration's worth of steps against `simulator`,
+/// reporting each `EmitPosition` step's index via `on_position` and
+/// bailing as soon as `cancel` flips false. Returns whether every step
+/// ran to completion (`true`) or the run was cut short by cancellation
+/// (`false`).
+#[allow(dead_code)] // consumed by Task 4 (macro runner)
+pub(crate) fn execute_steps(
+    steps: &[PlannedStep],
+    cancel: &AtomicBool,
+    simulator: &impl Simulator,
+    mut on_position: impl FnMut(usize),
+) -> bool {
+    let mut completed = true;
+    for step in steps {
+        if !cancel.load(Ordering::Relaxed) {
+            completed = false;
+            break;
+        }
+        match step {
+            PlannedStep::EmitPosition { index } => {
+                on_position(*index);
+            }
+            PlannedStep::Sleep { ms } => {
+                if !sleep_cancellable(*ms, cancel) {
+                    completed = false;
+                    break;
+                }
+            }
+            PlannedStep::Simulate(event_type) => {
+                // Re-check cancellation right before firing the OS-level
+                // input event. Without this, a stop() that lands while the
+                // worker is between the for-loop guard and the simulate
+                // call can still inject a final event into the OS after
+                // the frontend has been told playback-stopped.
+                if !cancel.load(Ordering::Relaxed) {
+                    completed = false;
+                    break;
+                }
+                if let Err(e) = simulator.simulate(*event_type) {
+                    crate::observability::log_error("playback", "simulate_event_failed", &e, None);
+                }
+            }
+        }
+    }
+    completed
 }
 
 fn finalize(
@@ -191,7 +216,7 @@ fn finalize(
 
 /// Sleep `ms` in small chunks, bailing if `is_playing` flips to false. Returns
 /// `true` if we slept the full duration, `false` if cancelled.
-fn sleep_cancellable(ms: u64, is_playing: &AtomicBool) -> bool {
+pub(crate) fn sleep_cancellable(ms: u64, is_playing: &AtomicBool) -> bool {
     if ms == 0 {
         return is_playing.load(Ordering::Relaxed);
     }
@@ -516,6 +541,53 @@ mod tests {
         assert!(
             observed > 0,
             "loop_count never reported a value above 0 during a looping run"
+        );
+    }
+
+    #[test]
+    fn claim_for_macro_excludes_playback_and_stop_releases() {
+        let engine = PlaybackEngine::new();
+        let flag = engine.claim_for_macro().unwrap();
+        assert!(engine.is_playing());
+        // Playback cannot start while a macro holds the slot.
+        assert!(engine
+            .start(
+                trivial_plan(),
+                false,
+                FakeSimulator::default(),
+                FakeEmitter::default()
+            )
+            .is_err());
+        // A second macro cannot claim either.
+        assert!(engine.claim_for_macro().is_err());
+        // engine.stop() flips the shared flag — the macro runner sees it.
+        engine.stop();
+        assert!(!flag.load(Ordering::Relaxed));
+        // Slot reusable after release.
+        assert!(engine.claim_for_macro().is_ok());
+        engine.stop();
+    }
+
+    #[test]
+    fn execute_steps_runs_and_respects_cancellation() {
+        let sim = FakeSimulator::default();
+        let calls = Arc::clone(&sim.calls);
+        let cancel = AtomicBool::new(true);
+        let mut positions = Vec::new();
+        let steps = vec![
+            PlannedStep::EmitPosition { index: 7 },
+            PlannedStep::Simulate(EventType::KeyPress(Key::KeyA)),
+        ];
+        assert!(execute_steps(&steps, &cancel, &sim, |i| positions.push(i)));
+        assert_eq!(calls.lock().unwrap().len(), 1);
+        assert_eq!(positions, vec![7]);
+        // Cancelled flag short-circuits before simulating.
+        cancel.store(false, Ordering::Relaxed);
+        assert!(!execute_steps(&steps, &cancel, &sim, |_| {}));
+        assert_eq!(
+            calls.lock().unwrap().len(),
+            1,
+            "no new simulate after cancel"
         );
     }
 }

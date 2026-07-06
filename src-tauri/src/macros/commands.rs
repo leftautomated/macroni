@@ -8,6 +8,8 @@
 //! can never run concurrently, and `stop_macro`/`stop_playback` both just
 //! flip the same shared flag.
 
+use std::path::Path;
+
 use serde::Serialize;
 use serde_json::json;
 #[cfg(target_os = "macos")]
@@ -20,8 +22,9 @@ use crate::macros::probe::LiveWaitProbe;
 use crate::macros::runner::WaitProbe;
 use crate::macros::runner::{MacroEmitter, MacroRunner, RealClock};
 use crate::macros::store::MacroStore;
-use crate::macros::MacroDoc;
+use crate::macros::{MacroDoc, MacroNodeKind};
 use crate::observability;
+use crate::perception::TargetKind;
 use crate::playback::RdevSimulator;
 use crate::types::RecordingState;
 
@@ -124,6 +127,28 @@ impl WaitProbe for NoWaitProbe {
     }
 }
 
+/// Returns the first `WaitFor` node's template image that doesn't resolve to
+/// an existing file under `macro_dir`, or `None` if every template asset a
+/// run would need is present. Segment nodes and non-`TemplateMatch` wait
+/// targets are skipped. Pure and Tauri-free so a missing-asset run failure —
+/// the spec requires this fail before any input is simulated — is checked
+/// synchronously in `run_macro`, ahead of `MacroRunner::start`, and is
+/// unit-testable without an `AppHandle`.
+fn missing_assets(doc: &MacroDoc, macro_dir: &Path) -> Option<String> {
+    for node in &doc.nodes {
+        let MacroNodeKind::WaitFor { target, .. } = &node.kind else {
+            continue;
+        };
+        let TargetKind::TemplateMatch { image, .. } = &target.kind else {
+            continue;
+        };
+        if !macro_dir.join(image).exists() {
+            return Some(image.clone());
+        }
+    }
+    None
+}
+
 #[tauri::command]
 pub fn save_macro(
     app: AppHandle,
@@ -172,6 +197,9 @@ pub fn run_macro(
         {
             let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
             let macro_dir = data_dir.join("macros").join(&id);
+            if let Some(image) = missing_assets(&doc, &macro_dir) {
+                return Err(format!("macro asset missing: {image}"));
+            }
             MacroRunner::start(
                 doc,
                 &state.engine,
@@ -206,6 +234,105 @@ pub fn stop_macro(state: State<RecordingState>, trace_id: Option<String>) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::macros::{MacroEdge, MacroNode};
+    use crate::perception::{Modality, Region, Target, TargetKind};
+    use crate::types::InputEvent;
+
+    fn seg_node(id: &str) -> MacroNode {
+        MacroNode {
+            id: id.into(),
+            kind: MacroNodeKind::Segment {
+                events: vec![InputEvent::KeyPress {
+                    key: "A".into(),
+                    timestamp: 0,
+                }],
+                speed: 1.0,
+                provenance: None,
+            },
+            x: 0.0,
+            y: 0.0,
+        }
+    }
+
+    fn wait_template_node(id: &str, image: &str) -> MacroNode {
+        MacroNode {
+            id: id.into(),
+            kind: MacroNodeKind::WaitFor {
+                target: Target {
+                    id: "t1".into(),
+                    name: "t".into(),
+                    modality: Modality::Visual,
+                    region: Some(Region {
+                        x: 0.0,
+                        y: 0.0,
+                        w: 0.5,
+                        h: 0.5,
+                    }),
+                    kind: TargetKind::TemplateMatch {
+                        image: image.into(),
+                        threshold: 0.8,
+                        source_px: [100, 100],
+                    },
+                    created_at: 1,
+                },
+                timeout_ms: 10_000,
+                poll_interval_ms: 500,
+            },
+            x: 0.0,
+            y: 0.0,
+        }
+    }
+
+    fn doc(nodes: Vec<MacroNode>) -> MacroDoc {
+        MacroDoc {
+            id: "m1".into(),
+            name: "test".into(),
+            nodes,
+            edges: vec![MacroEdge {
+                from: "n1".into(),
+                to: "n2".into(),
+            }],
+            created_at: 1,
+        }
+    }
+
+    #[test]
+    fn missing_assets_reports_a_template_image_absent_from_macro_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = doc(vec![
+            seg_node("n1"),
+            wait_template_node("n2", "assets/x.png"),
+        ]);
+        assert_eq!(
+            missing_assets(&d, dir.path()),
+            Some("assets/x.png".to_string())
+        );
+    }
+
+    #[test]
+    fn missing_assets_is_none_when_the_template_file_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("assets")).unwrap();
+        std::fs::write(dir.path().join("assets/x.png"), b"png-bytes").unwrap();
+        let d = doc(vec![
+            seg_node("n1"),
+            wait_template_node("n2", "assets/x.png"),
+        ]);
+        assert_eq!(missing_assets(&d, dir.path()), None);
+    }
+
+    #[test]
+    fn missing_assets_is_none_for_a_segment_only_doc() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = MacroDoc {
+            id: "m1".into(),
+            name: "test".into(),
+            nodes: vec![seg_node("n1")],
+            edges: vec![],
+            created_at: 1,
+        };
+        assert_eq!(missing_assets(&d, dir.path()), None);
+    }
 
     #[test]
     fn event_payloads_serialize_camel_case() {

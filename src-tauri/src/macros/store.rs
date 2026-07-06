@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 use crate::macros::{chain_order, MacroDoc, MacroNodeKind};
+use crate::perception::commands::is_safe_relative_path;
 use crate::perception::TargetKind;
 use crate::recordings_store::{atomic_write, validate_storage_id};
 
@@ -105,6 +106,12 @@ impl MacroStore {
             };
             if image.starts_with(ASSETS_PREFIX) {
                 continue; // already macro-relative: idempotent re-save.
+            }
+            // Not yet macro-relative, so `image` is still webview-supplied
+            // data about to be joined onto `data_dir` — reject any traversal
+            // or absolute path before that join, let alone the copy below.
+            if !is_safe_relative_path(image) {
+                return Err("invalid template path".to_string());
             }
             let source = self.data_dir.join(image);
             if !source.exists() {
@@ -340,6 +347,38 @@ mod tests {
         assert!(store.save(d).is_err());
         assert!(!dir.path().join("macros/m9").exists());
         assert!(!dir.path().join("macros/m9.json").exists());
+    }
+
+    #[test]
+    fn save_rejects_dot_dot_escape_in_image_and_writes_nothing() {
+        let dir = tempdir().unwrap();
+        let store = MacroStore::open_at(dir.path().to_path_buf());
+        let mut d = seg_doc("m10");
+        d.nodes.push(wait_node("n2", "t9", "../../etc/passwd"));
+        d.edges.push(MacroEdge {
+            from: "n1".into(),
+            to: "n2".into(),
+        });
+        let err = store.save(d).unwrap_err();
+        assert!(err.contains("invalid template path"), "{err}");
+        assert!(!dir.path().join("macros/m10").exists());
+        assert!(!dir.path().join("macros/m10.json").exists());
+    }
+
+    #[test]
+    fn save_rejects_absolute_image_path_and_writes_nothing() {
+        let dir = tempdir().unwrap();
+        let store = MacroStore::open_at(dir.path().to_path_buf());
+        let mut d = seg_doc("m11");
+        d.nodes.push(wait_node("n2", "t9", "/abs/path"));
+        d.edges.push(MacroEdge {
+            from: "n1".into(),
+            to: "n2".into(),
+        });
+        let err = store.save(d).unwrap_err();
+        assert!(err.contains("invalid template path"), "{err}");
+        assert!(!dir.path().join("macros/m11").exists());
+        assert!(!dir.path().join("macros/m11.json").exists());
     }
 
     #[test]

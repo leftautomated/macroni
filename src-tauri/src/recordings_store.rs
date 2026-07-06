@@ -165,6 +165,7 @@ impl RecordingsStore {
     }
 
     pub fn add(&self, recording: Recording) -> Result<Recording, StoreError> {
+        id_guard(&recording.id)?;
         let mut recordings = self.load_all()?;
         recordings.push(recording.clone());
         self.write_all(&recordings)?;
@@ -422,6 +423,15 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].id, "1");
         assert_eq!(all[1].name, "second");
+    }
+
+    #[test]
+    fn add_rejects_traversal_id_and_writes_nothing() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        let err = store.add(rec("../evil", "x")).unwrap_err();
+        assert!(err.to_string().contains("invalid id"), "{err}");
+        assert!(!dir.path().join(RECORDINGS_FILENAME).exists());
     }
 
     #[test]

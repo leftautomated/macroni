@@ -55,7 +55,6 @@ impl PlaybackEngine {
     /// `start`). Errors if playback or another macro already holds it.
     /// Release by storing `false` into the returned flag (or via `stop()`,
     /// which the macro runner observes to cancel).
-    #[allow(dead_code)] // consumed by Task 4 (macro runner)
     pub(crate) fn claim_for_macro(&self) -> Result<Arc<AtomicBool>, String> {
         if self.is_playing.swap(true, Ordering::Relaxed) {
             return Err("Already playing".to_string());
@@ -158,7 +157,6 @@ fn run_plan(
 /// bailing as soon as `cancel` flips false. Returns whether every step
 /// ran to completion (`true`) or the run was cut short by cancellation
 /// (`false`).
-#[allow(dead_code)] // consumed by Task 4 (macro runner)
 pub(crate) fn execute_steps(
     steps: &[PlannedStep],
     cancel: &AtomicBool,

@@ -13,7 +13,7 @@ use super::source::{LiveSource, PerceptionSource, RecordingSource};
 use super::template::TemplateMatcher;
 use super::{png_io, Observation, ObservationResult, Region, Target, TargetKind};
 use crate::observability;
-use crate::recordings_store::RecordingsStore;
+use crate::recordings_store::{validate_storage_id, RecordingsStore};
 use crate::types::Recording;
 
 /// Where to pull the frame from for `extract_region`.
@@ -47,7 +47,7 @@ pub fn evaluate(
 /// `image` is webview-supplied data (a macro/target's `TemplateMatch.image`)
 /// that gets joined onto a base dir and read off disk — a path escape here
 /// is a read-side exfil vector (e.g. `../../../../etc/passwd`).
-fn is_safe_relative_path(image: &str) -> bool {
+pub(crate) fn is_safe_relative_path(image: &str) -> bool {
     let path = Path::new(image);
     path.is_relative()
         && !image.contains('\\')
@@ -167,6 +167,12 @@ pub fn save_target(
 ) -> Result<Recording, String> {
     let fields = json!({ "recordingId": recording_id, "targetId": target.id });
     observability::trace_command("save_target", trace_id, Some(fields), || {
+        // Both ids become path components below (template_path / add_target) —
+        // reject any traversal attempt before a single path is built or a
+        // single byte is written, not just once `add_target`'s own guard runs.
+        validate_storage_id(&recording_id)?;
+        validate_storage_id(&target.id)?;
+
         let store = RecordingsStore::open(&app).map_err(|e| e.to_string())?;
 
         if let TargetKind::TemplateMatch { threshold, .. } = target.kind {

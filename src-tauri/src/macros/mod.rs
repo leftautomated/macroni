@@ -34,7 +34,6 @@ fn default_poll_interval_ms() -> u64 {
 /// Links a `Segment` node back to the recording it was carved from, so the
 /// editor can re-derive or re-slice the source clip later.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[allow(dead_code)] // consumed by Task 2 (store)
 pub struct Provenance {
     pub recording_id: String,
     pub start_ms: i64,
@@ -43,7 +42,6 @@ pub struct Provenance {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "PascalCase")]
-#[allow(dead_code)] // consumed by Task 4 (runner)
 pub enum MacroNodeKind {
     Segment {
         events: Vec<InputEvent>,
@@ -61,7 +59,6 @@ pub enum MacroNodeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[allow(dead_code)] // consumed by Task 4 (runner)
 pub struct MacroNode {
     pub id: String,
     pub kind: MacroNodeKind,
@@ -76,7 +73,6 @@ pub struct MacroEdge {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[allow(dead_code)] // consumed by Task 2 (store)
 pub struct MacroDoc {
     pub id: String,
     pub name: String,
@@ -86,7 +82,10 @@ pub struct MacroDoc {
 }
 
 #[derive(Debug, PartialEq)]
-#[allow(dead_code)] // consumed by Task 2 (store) / Task 4 (runner)
+// `WaitUnsupportedPlatform` is only ever constructed under
+// `#[cfg(not(target_os = "macos"))]` below — on a macOS build (where CI runs
+// `-D warnings`) that makes the variant look dead without this allow.
+#[allow(dead_code)]
 pub enum MacroError {
     EmptyMacro,
     NotAChain,
@@ -115,7 +114,6 @@ impl std::fmt::Display for MacroError {
 /// edge — including a self-edge — (`DuplicateEdge`), and anything that
 /// isn't exactly one linear path covering every node — forks, cycles,
 /// disconnected/orphan nodes (`NotAChain`).
-#[allow(dead_code)] // consumed by Task 2 (store) / Task 4 (runner)
 pub fn chain_order(doc: &MacroDoc) -> Result<Vec<&MacroNode>, MacroError> {
     if doc.nodes.is_empty() {
         return Err(MacroError::EmptyMacro);
@@ -200,7 +198,6 @@ pub fn chain_order(doc: &MacroDoc) -> Result<Vec<&MacroNode>, MacroError> {
 
 /// `chain_order` plus a platform check: `WaitFor` nodes are only runnable
 /// on macOS (the only platform with a live perception probe).
-#[allow(dead_code)] // consumed by Task 2 (store) / Task 4 (runner)
 pub fn validate_runnable(doc: &MacroDoc) -> Result<(), MacroError> {
     let order = chain_order(doc)?;
 

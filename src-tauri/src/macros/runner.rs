@@ -203,6 +203,11 @@ impl MacroRunner {
         let flag = engine.claim_for_macro()?;
 
         thread::spawn(move || {
+            // Hold a macOS "no App Nap" activity assertion for the whole macro
+            // run so background-thread sleeps in the replayed segments (via
+            // execute_steps) and wait polls aren't throttled while macroni is
+            // unfocused. Dropped when the closure ends. No-op off macOS.
+            let _no_nap = crate::power::NoNapGuard::new("Running macro");
             // Guard releases the engine slot on every exit path, including a
             // panic while walking the chain.
             let _release = ReleaseGuard(Arc::clone(&flag));

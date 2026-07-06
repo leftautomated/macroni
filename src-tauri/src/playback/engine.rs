@@ -114,6 +114,23 @@ fn run_plan(
     simulator: impl Simulator,
     emitter: impl Emitter,
 ) {
+    // Hold a macOS "no App Nap" activity assertion for the WHOLE run. When the
+    // user focuses their target app, macroni drops to the background; without
+    // this, App Nap + timer coalescing stretch every `thread::sleep` in the
+    // loop and inflate the replay. Dropped on return. No-op off macOS.
+    let _no_nap = crate::power::NoNapGuard::new("Replaying macro");
+    // For the post-run timing confirmation log: total planned sleep time vs.
+    // wall-clock elapsed. Ratio should sit near 1.0 with the guard held.
+    let started = std::time::Instant::now();
+    let planned_ms: u64 = plan
+        .steps
+        .iter()
+        .filter_map(|s| match s {
+            PlannedStep::Sleep { ms } => Some(*ms),
+            _ => None,
+        })
+        .sum();
+
     // Warmup so UI subscribers have a chance to attach.
     if !sleep_cancellable(WARMUP_MS, is_playing) {
         return finalize(emitter, is_playing, position, loop_count);
@@ -148,6 +165,20 @@ fn run_plan(
             break;
         }
     }
+
+    // Confirmation log: with the no-nap guard held, actualMs should track
+    // plannedMs (ratio ~= 1.0). Before the fix, an unfocused run napped and
+    // ratio ran well above 1. `.max(1)` guards a zero-sleep plan.
+    let actual_ms = started.elapsed().as_millis() as u64;
+    crate::observability::log_info(
+        "playback",
+        "replay_timing",
+        Some(serde_json::json!({
+            "plannedMs": planned_ms,
+            "actualMs": actual_ms,
+            "ratio": actual_ms as f64 / planned_ms.max(1) as f64,
+        })),
+    );
 
     finalize(emitter, is_playing, position, loop_count);
 }

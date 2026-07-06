@@ -9,6 +9,9 @@ mod observability;
 mod perception;
 mod permissions;
 mod playback;
+// No App Nap / timer-coalescing guard held for the duration of a replay or
+// macro run (playback throttle fix). Real assertion on macOS, no-op elsewhere.
+mod power;
 // Native studio preview surface (Phase 1, Task 11). macOS-only.
 #[cfg(target_os = "macos")]
 mod preview_surface;

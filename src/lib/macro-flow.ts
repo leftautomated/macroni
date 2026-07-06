@@ -17,20 +17,24 @@ export function docToFlow(doc: MacroDoc): { nodes: Node[]; edges: Edge[] } {
   return { nodes, edges };
 }
 
-/** Write react-flow node positions and edges back into a MacroDoc, preserving node kinds/order. */
+/**
+ * Write react-flow node positions and edges back into a MacroDoc. Builds from the
+ * INCOMING flow nodes so canvas deletions actually drop nodes; each kept node's
+ * kind/data is looked up from `base` by id, with only its position updated. A flow
+ * node with no base counterpart (shouldn't happen) is ignored.
+ */
 export function flowToDoc(base: MacroDoc, nodes: Node[], edges: Edge[]): MacroDoc {
-  const positionById = new Map(nodes.map((n) => [n.id, n.position]));
-  const updatedNodes: MacroNode[] = base.nodes.map((node) => {
-    const position = positionById.get(node.id);
-    return position ? { ...node, x: position.x, y: position.y } : node;
-  });
-  const updatedEdges = edges.map((e) => ({ from: e.source, to: e.target }));
+  const baseById = new Map(base.nodes.map((n) => [n.id, n]));
+  const updatedNodes: MacroNode[] = nodes
+    .map((fn) => {
+      const original = baseById.get(fn.id);
+      return original ? { ...original, x: fn.position.x, y: fn.position.y } : null;
+    })
+    .filter((n): n is MacroNode => n !== null);
   return {
-    id: base.id,
-    name: base.name,
-    created_at: base.created_at,
+    ...base,
     nodes: updatedNodes,
-    edges: updatedEdges,
+    edges: edges.map((e) => ({ from: e.source, to: e.target })),
   };
 }
 

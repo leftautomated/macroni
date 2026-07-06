@@ -89,6 +89,22 @@ describe("flowToDoc", () => {
     // base node order preserved
     expect(result.nodes.map((n) => n.id)).toEqual(["a", "b"]);
   });
+
+  it("drops a node deleted on the canvas (absent from incoming flow nodes)", () => {
+    const doc = makeDoc(); // base has [a, b]
+    // Canvas deleted b — only a remains in the incoming flow nodes.
+    const nodes: Node[] = [
+      { id: "a", type: "segment", position: { x: 10, y: 20 }, data: { node: doc.nodes[0] } },
+    ];
+    const edges: Edge[] = [];
+
+    const result = flowToDoc(doc, nodes, edges);
+
+    expect(result.nodes.map((n) => n.id)).toEqual(["a"]);
+    expect(result.nodes.find((n) => n.id === "b")).toBeUndefined();
+    expect(result.nodes[0].kind).toEqual(doc.nodes[0].kind);
+    expect(result.edges).toEqual([]);
+  });
 });
 
 describe("canConnect", () => {

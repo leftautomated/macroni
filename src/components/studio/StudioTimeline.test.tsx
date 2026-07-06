@@ -136,6 +136,30 @@ describe("StudioTimeline", () => {
     expect(onSeek).toHaveBeenCalledWith(0.5);
   });
 
+  it("shows a custom scrollbar thumb when the track overflows, and drags to scroll", () => {
+    const { container } = render(
+      <StudioTimeline {...base} durationMs={60000} onSeekSeconds={noop} onLoopChange={noop} />,
+    );
+    const scroller = container.querySelector(".tl-scroll") as HTMLElement;
+    // jsdom has no layout: give the scroller geometry (100px viewport, 200px
+    // content) and fire a scroll so the thumb re-measures.
+    Object.defineProperty(scroller, "clientWidth", { value: 100, configurable: true });
+    Object.defineProperty(scroller, "scrollWidth", { value: 200, configurable: true });
+    fireEvent.scroll(scroller);
+
+    const thumb = container.querySelector(".tl-hthumb") as HTMLElement;
+    expect(thumb.style.width).toBe("50px"); // viewport/content = half the strip
+    expect(thumb.style.left).toBe("0px");
+
+    // Dragging the thumb 25px across the 50px of free strip scrolls half of
+    // the 100px of hidden content.
+    const strip = container.querySelector(".tl-hscroll") as HTMLElement;
+    fireEvent.pointerDown(strip, { clientX: 10, pointerId: 1 });
+    fireEvent.pointerMove(strip, { clientX: 35, pointerId: 1 });
+    fireEvent.pointerUp(strip, { clientX: 35, pointerId: 1 });
+    expect(scroller.scrollLeft).toBe(50);
+  });
+
   it("renders a space-switch tick on the keys lane with direction tooltip", () => {
     const evs: InputEvent[] = [
       { type: InputEventType.SpaceSwitch, direction: "right", count: 2, timestamp: 1500 },

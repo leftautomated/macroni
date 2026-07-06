@@ -250,10 +250,11 @@ export function StudioEditor() {
       }}
     >
       <style>{`
-        /* Themed scrollbars for the whole studio window (universal selector,
-           like the main app's index.css — WKWebView honors ::-webkit-scrollbar
-           this way). Lives here in the always-mounted root component. */
-        * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+        /* Themed scrollbars for the whole studio window. ::-webkit-scrollbar
+           only — any non-auto scrollbar-width/scrollbar-color makes WebKit
+           ignore the pseudo-element styles entirely (CSS Scrollbars spec), so
+           setting both left the native bar showing. Lives here in the
+           always-mounted root component. */
         *::-webkit-scrollbar { width: 8px; height: 8px; }
         *::-webkit-scrollbar-track { background: transparent; }
         *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }

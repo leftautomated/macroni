@@ -15,9 +15,7 @@ use crate::perception::TargetKind;
 use crate::recordings_store::{atomic_write, validate_storage_id};
 
 const MACROS_DIRNAME: &str = "macros";
-#[allow(dead_code)] // consumed by Task 6 (commands) via `save`
 const ASSETS_DIRNAME: &str = "assets";
-#[allow(dead_code)] // consumed by Task 6 (commands) via `save`
 const ASSETS_PREFIX: &str = "assets/";
 
 pub struct MacroStore {
@@ -40,17 +38,14 @@ impl MacroStore {
         self.data_dir.join(MACROS_DIRNAME)
     }
 
-    #[allow(dead_code)] // consumed by Task 6 (commands) via `save`/`delete`
     fn doc_path(&self, id: &str) -> PathBuf {
         self.macros_dir().join(format!("{id}.json"))
     }
 
-    #[allow(dead_code)] // consumed by Task 6 (commands) via `delete`/`assets_dir`
     fn macro_dir(&self, id: &str) -> PathBuf {
         self.macros_dir().join(id)
     }
 
-    #[allow(dead_code)] // consumed by Task 6 (commands) via `save`
     fn assets_dir(&self, id: &str) -> PathBuf {
         self.macro_dir(id).join(ASSETS_DIRNAME)
     }
@@ -58,7 +53,6 @@ impl MacroStore {
     /// Read every `*.json` under `macros/`. A file that fails to parse is
     /// logged and skipped (forward-compat with future doc shapes) rather
     /// than failing the whole load.
-    #[allow(dead_code)] // consumed by Task 6 (commands)
     pub fn load_all(&self) -> Vec<MacroDoc> {
         let dir = self.macros_dir();
         let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -94,7 +88,6 @@ impl MacroStore {
     /// then atomically write the doc. All validation — ids (path-traversal
     /// guard), chain shape, and source-image existence — runs before any
     /// file is touched, so a rejected save leaves no trace on disk.
-    #[allow(dead_code)] // consumed by Task 6 (commands)
     pub fn save(&self, mut doc: MacroDoc) -> Result<MacroDoc, String> {
         validate_storage_id(&doc.id)?;
         chain_order(&doc).map_err(|e| e.to_string())?;
@@ -150,7 +143,6 @@ impl MacroStore {
 
     /// Remove the doc's json and its `macros/{id}/` directory (assets and
     /// all). Errors if the doc doesn't exist.
-    #[allow(dead_code)] // consumed by Task 6 (commands)
     pub fn delete(&self, id: &str) -> Result<(), String> {
         validate_storage_id(id)?;
         let path = self.doc_path(id);

@@ -22,14 +22,12 @@ const FULL_FRAME: Region = Region {
 /// `macro_dir` anchors `TemplateMatch` image paths (`assets/...`) so a
 /// macro's bundled template PNGs resolve regardless of which macro is
 /// running — mirrors how `MacroStore` lays out `macros/{id}/assets/`.
-#[allow(dead_code)] // consumed by Task 6 (commands)
 pub struct LiveWaitProbe {
     macro_dir: PathBuf,
     source: LiveSource,
 }
 
 impl LiveWaitProbe {
-    #[allow(dead_code)] // consumed by Task 6 (commands)
     pub fn new(macro_dir: PathBuf) -> Self {
         Self {
             macro_dir,

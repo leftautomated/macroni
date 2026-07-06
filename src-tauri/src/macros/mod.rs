@@ -6,6 +6,7 @@
 //! arbitrarily-ordered node/edge list, and `validate_runnable` layers a
 //! platform check (`WaitFor` nodes need macOS) on top.
 
+pub mod commands;
 #[cfg(target_os = "macos")]
 pub mod probe;
 pub mod runner;

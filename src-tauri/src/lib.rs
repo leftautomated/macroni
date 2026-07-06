@@ -944,6 +944,11 @@ pub fn run() {
             perception::commands::save_target,
             perception::commands::delete_target,
             perception::commands::load_observations,
+            macros::commands::save_macro,
+            macros::commands::load_macros,
+            macros::commands::delete_macro,
+            macros::commands::run_macro,
+            macros::commands::stop_macro,
             // Native studio preview surface (Phase 1, Task 11) — macOS-only.
             #[cfg(target_os = "macos")]
             preview_surface::studio_attach_surface,

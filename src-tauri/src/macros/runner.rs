@@ -64,7 +64,6 @@ pub trait MacroEmitter: Send + 'static {
 }
 
 /// Production clock: wall time + the playback engine's chunked cancellable sleep.
-#[allow(dead_code)] // consumed by Task 6 (commands)
 pub struct RealClock;
 
 impl MacroClock for RealClock {
@@ -80,7 +79,6 @@ impl MacroClock for RealClock {
 /// claimed engine flag (flips false on stop). Releases NOTHING itself — the
 /// caller owns the slot. Returns `Err(())` if the run did not complete; the
 /// failure detail is carried to the UI via `emitter.run_failed`.
-#[allow(dead_code)] // consumed by Task 6 (commands)
 pub fn run_chain(
     doc: &MacroDoc,
     cancel: &AtomicBool,
@@ -179,7 +177,6 @@ fn run_wait(
 
 /// Releases the engine slot (flips the shared flag false) on drop, so the
 /// slot is freed on every worker exit — including a panic in `run_chain`.
-#[allow(dead_code)] // consumed by Task 6 (commands)
 struct ReleaseGuard(Arc<AtomicBool>);
 
 impl Drop for ReleaseGuard {
@@ -194,7 +191,6 @@ impl Drop for ReleaseGuard {
 pub struct MacroRunner;
 
 impl MacroRunner {
-    #[allow(dead_code)] // consumed by Task 6 (commands)
     pub fn start(
         doc: MacroDoc,
         engine: &PlaybackEngine,

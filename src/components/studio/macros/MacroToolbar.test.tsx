@@ -91,4 +91,23 @@ describe("MacroToolbar", () => {
     renderToolbar({ error: "Run failed: timeout" });
     expect(screen.getByText(/run failed: timeout/i)).toBeInTheDocument();
   });
+
+  it("disables Run via runDisabledReason even when valid and idle, using it as the title", () => {
+    renderToolbar({ valid: true, runState: "idle", runDisabledReason: "Save before running." });
+    const runButton = screen.getByRole("button", { name: /run/i });
+    expect(runButton).toBeDisabled();
+    expect(runButton).toHaveAttribute("title", "Save before running.");
+  });
+
+  it("shows a neutral info banner (not the red error banner) when only info is given", () => {
+    renderToolbar({ info: "Run stopped." });
+    expect(screen.getByText(/run stopped/i)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("prefers the error banner over info when both are given", () => {
+    renderToolbar({ info: "Run stopped.", error: "Save failed." });
+    expect(screen.getByText(/save failed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/run stopped/i)).not.toBeInTheDocument();
+  });
 });

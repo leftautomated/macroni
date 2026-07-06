@@ -42,8 +42,11 @@ export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
   const handleAddSegment = () => {
     if (!segmentValid || !selected?.video) return;
     const basis = selected.video.start_ms ?? selected.created_at;
-    const startMs = start * 1000;
-    const endMs = end * 1000;
+    // Round to whole milliseconds — a fractional-second input (e.g. 1.001)
+    // would otherwise produce a non-integer ms value that fails to
+    // deserialize into Rust's i64/u64 fields on the backend.
+    const startMs = Math.round(start * 1000);
+    const endMs = Math.round(end * 1000);
     const events = selected.events.filter((e) => {
       const rel = e.timestamp - basis;
       return rel >= startMs && rel <= endMs;
@@ -68,7 +71,8 @@ export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
   const handleAddWait = () => {
     if (!expectValid) return;
     const expect = expectText.trim();
-    const timeoutMs = (timeoutValid ? timeout : DEFAULT_TIMEOUT_S) * 1000;
+    // Same rounding concern as the segment ms values above.
+    const timeoutMs = Math.round((timeoutValid ? timeout : DEFAULT_TIMEOUT_S) * 1000);
     onAdd({
       id: crypto.randomUUID(),
       kind: {

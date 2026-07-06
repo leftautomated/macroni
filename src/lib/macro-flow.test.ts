@@ -1,7 +1,14 @@
 import type { Edge, Node } from "@xyflow/react";
 import { describe, expect, it } from "vitest";
 import type { MacroDoc, MacroNode } from "@/types";
-import { canConnect, docToFlow, flowToDoc, nodeSummary, withRunState } from "./macro-flow";
+import {
+  canConnect,
+  docToFlow,
+  flowToDoc,
+  nodeSummary,
+  shouldReseed,
+  withRunState,
+} from "./macro-flow";
 
 const segmentNode = (
   id: string,
@@ -216,6 +223,24 @@ describe("nodeSummary", () => {
       y: 0,
     };
     expect(nodeSummary(node)).toBe("wait: color");
+  });
+});
+
+describe("shouldReseed", () => {
+  it("returns false when incoming is the exact object last emitted (the canvas's own round trip)", () => {
+    const doc = makeDoc();
+    expect(shouldReseed(doc, doc)).toBe(false);
+  });
+
+  it("returns true when incoming is a different reference from lastEmitted (external mutation)", () => {
+    const doc = makeDoc();
+    const externallyMutated = { ...doc, nodes: [...doc.nodes] };
+    expect(shouldReseed(externallyMutated, doc)).toBe(true);
+  });
+
+  it("returns true when lastEmitted is null (first mount / nothing emitted yet)", () => {
+    const doc = makeDoc();
+    expect(shouldReseed(doc, null)).toBe(true);
   });
 });
 

@@ -23,7 +23,7 @@ import {
 } from "@xyflow/react";
 import { SegmentNodeView } from "@/components/studio/macros/SegmentNodeView";
 import { WaitNodeView } from "@/components/studio/macros/WaitNodeView";
-import { canConnect, docToFlow, flowToDoc, withRunState } from "@/lib/macro-flow";
+import { canConnect, docToFlow, flowToDoc, shouldReseed, withRunState } from "@/lib/macro-flow";
 import type { MacroDoc } from "@/types";
 
 // Module-const: react-flow rebuilds its internal node-type map (and warns)
@@ -59,7 +59,7 @@ export function MacroCanvas({
   onSelectionChange,
 }: MacroCanvasProps) {
   // Seeded once from the initial doc; subsequent re-seeding happens explicitly
-  // in the doc.id effect below (which skips its mount re-fire).
+  // in the `lastEmittedRef` effect below (which skips its mount re-fire).
   const initialFlow = useMemo(() => docToFlow(doc), []);
   const [nodes, setNodes] = useNodesState<Node>(initialFlow.nodes);
   const [edges, setEdges] = useEdgesState<Edge>(initialFlow.edges);
@@ -72,14 +72,22 @@ export function MacroCanvas({
   // of which handler ran last.
   const nodesRef = useRef(initialFlow.nodes);
   const edgesRef = useRef(initialFlow.edges);
-  const seededDocIdRef = useRef(doc.id);
 
-  // Re-seed the canvas whenever a *different* macro doc is loaded. Guarded so the
-  // effect's mount run is a no-op (the initialFlow seed above already covers it)
-  // and content-only edits to the same doc don't reset the canvas.
+  // The exact MacroDoc object this canvas last emitted via onChange (or null
+  // before the first emission). Re-seeding compares the incoming `doc` prop
+  // against this BY REFERENCE — not by id — so an external change to the SAME
+  // macro (e.g. the add-node panel appending a node, which builds a new doc
+  // object without touching doc.id) still re-seeds and shows the new node,
+  // while the canvas's own round trip (the parent sets its state to this exact
+  // emitted object) is recognized and skipped.
+  const lastEmittedRef = useRef<MacroDoc | null>(null);
+
+  // Re-seed the canvas whenever `doc` isn't the object this canvas itself last
+  // emitted — a different macro was loaded, or something external mutated the
+  // doc out from under it. Content-only edits that round-trip through the
+  // parent unchanged (drag/connect/delete) are skipped via shouldReseed.
   useEffect(() => {
-    if (seededDocIdRef.current === doc.id) return;
-    seededDocIdRef.current = doc.id;
+    if (!shouldReseed(doc, lastEmittedRef.current)) return;
     const seeded = docToFlow(doc);
     nodesRef.current = seeded.nodes;
     edgesRef.current = seeded.edges;
@@ -93,7 +101,9 @@ export function MacroCanvas({
         const next = applyNodeChanges(changes, current);
         nodesRef.current = next;
         if (isStructuralNodeChange(changes)) {
-          onChange(flowToDoc(doc, next, edgesRef.current));
+          const emitted = flowToDoc(doc, next, edgesRef.current);
+          lastEmittedRef.current = emitted;
+          onChange(emitted);
         }
         return next;
       });
@@ -107,7 +117,9 @@ export function MacroCanvas({
         const next = applyEdgeChanges(changes, current);
         edgesRef.current = next;
         if (isStructuralEdgeChange(changes)) {
-          onChange(flowToDoc(doc, nodesRef.current, next));
+          const emitted = flowToDoc(doc, nodesRef.current, next);
+          lastEmittedRef.current = emitted;
+          onChange(emitted);
         }
         return next;
       });
@@ -121,7 +133,9 @@ export function MacroCanvas({
       setEdges((current) => {
         const next = addEdge(connection, current);
         edgesRef.current = next;
-        onChange(flowToDoc(doc, nodesRef.current, next));
+        const emitted = flowToDoc(doc, nodesRef.current, next);
+        lastEmittedRef.current = emitted;
+        onChange(emitted);
         return next;
       });
     },
@@ -129,7 +143,9 @@ export function MacroCanvas({
   );
 
   const handleNodeDragStop = useCallback<OnNodeDrag>(() => {
-    onChange(flowToDoc(doc, nodesRef.current, edgesRef.current));
+    const emitted = flowToDoc(doc, nodesRef.current, edgesRef.current);
+    lastEmittedRef.current = emitted;
+    onChange(emitted);
   }, [doc, onChange]);
 
   const handleSelectionChange = useCallback<OnSelectionChangeFunc>(
@@ -156,6 +172,7 @@ export function MacroCanvas({
           onConnect={handleConnect}
           onNodeDragStop={handleNodeDragStop}
           onSelectionChange={handleSelectionChange}
+          deleteKeyCode={["Backspace", "Delete"]}
           fitView
         >
           <Background />

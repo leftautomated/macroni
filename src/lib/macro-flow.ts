@@ -38,6 +38,19 @@ export function flowToDoc(base: MacroDoc, nodes: Node[], edges: Edge[]): MacroDo
   };
 }
 
+/**
+ * Whether the canvas should re-seed its internal nodes/edges from `incoming`.
+ * True whenever `incoming` isn't the exact object this canvas itself last
+ * emitted via onChange — i.e. a different reference, whether from a genuinely
+ * different macro (switch) or an external mutation of the SAME macro (e.g. the
+ * add-node panel appending a node and creating a new doc object). False only
+ * when `incoming` is that exact emitted object, recognizing the canvas's own
+ * onChange round-tripping back through the parent (drag/connect/delete).
+ */
+export function shouldReseed(incoming: MacroDoc, lastEmitted: MacroDoc | null): boolean {
+  return incoming !== lastEmitted;
+}
+
 /** Enforce a linear canvas: reject self-links and any second in/out edge. */
 export function canConnect(edges: Edge[], source: string, target: string): boolean {
   if (source === target) return false;

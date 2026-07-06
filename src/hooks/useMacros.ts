@@ -79,6 +79,11 @@ export const useMacros = () => {
     await invoke("stop_macro");
   }, []);
 
+  // Lets a caller (e.g. selecting/creating a different macro) drop a stale
+  // failure banner/highlight instead of it bleeding onto the newly selected
+  // macro.
+  const clearFailed = useCallback(() => setFailed(null), []);
+
   useEffect(() => {
     load().catch((err) => {
       logEvent("error", "macros", "load_failed", { error: err });
@@ -122,5 +127,6 @@ export const useMacros = () => {
     runState,
     liveNodeId,
     failed,
+    clearFailed,
   } as const;
 };

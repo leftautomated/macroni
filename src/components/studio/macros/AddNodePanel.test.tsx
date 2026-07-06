@@ -90,6 +90,22 @@ describe("AddNodePanel", () => {
     expect(node.id.length).toBeGreaterThan(0);
   });
 
+  it("rounds a fractional-second start/end to integer ms (Rust i64/u64 deserialization)", async () => {
+    const onAdd = vi.fn();
+    render(<AddNodePanel recordings={recordings} onAdd={onAdd} />);
+
+    await selectRecording("rec-1");
+    await setStartEnd("1.001", "3.0004");
+
+    await userEvent.click(screen.getByRole("button", { name: /add segment/i }));
+
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    const node = onAdd.mock.calls[0][0];
+    expect(node.kind.provenance.start_ms).toBe(1001);
+    expect(Number.isInteger(node.kind.provenance.start_ms)).toBe(true);
+    expect(Number.isInteger(node.kind.provenance.end_ms)).toBe(true);
+  });
+
   it("falls back to the recording's created_at as the relative basis when video.start_ms is missing", async () => {
     const noStartMs: Recording = {
       ...recordingWithVideo,
@@ -175,6 +191,23 @@ describe("AddNodePanel", () => {
     expect(onAdd).toHaveBeenCalledTimes(1);
     const node = onAdd.mock.calls[0][0];
     expect(node.kind.timeout_ms).toBe(10000);
+  });
+
+  it("rounds a fractional-second timeout to integer ms", async () => {
+    const onAdd = vi.fn();
+    render(<AddNodePanel recordings={recordings} onAdd={onAdd} />);
+
+    await userEvent.type(screen.getByLabelText(/expect/i), "Ready");
+    const timeoutInput = screen.getByRole("spinbutton", { name: /timeout/i });
+    await userEvent.clear(timeoutInput);
+    await userEvent.type(timeoutInput, "2.0016");
+
+    await userEvent.click(screen.getByRole("button", { name: /add text wait/i }));
+
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    const node = onAdd.mock.calls[0][0];
+    expect(node.kind.timeout_ms).toBe(2002);
+    expect(Number.isInteger(node.kind.timeout_ms)).toBe(true);
   });
 
   it("disables the Add Text Wait button when expect is empty", async () => {

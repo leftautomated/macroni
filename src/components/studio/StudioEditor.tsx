@@ -7,6 +7,7 @@ import { RecordingsMenu } from "@/components/studio/RecordingsMenu";
 import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
 import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
 import { StudioTitleBar } from "@/components/studio/StudioTitleBar";
+import { useMacros } from "@/hooks/useMacros";
 import { usePlaybackSync } from "@/hooks/usePlaybackSync";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import { invoke, logEvent } from "@/lib/observability";
@@ -38,6 +39,10 @@ export function StudioEditor() {
   // permissions, toggled by the gear), or the macro editor (toggled by the
   // Workflow button). Mutually exclusive, hence one union instead of two bools.
   const [view, setView] = useState<"player" | "settings" | "macros">("player");
+  // Lifted (rather than called inside MacroEditor) so a run in progress —
+  // its Stop button, live highlight, runState — survives toggling away from
+  // the macros view; MacroEditor unmounts on toggle but this doesn't.
+  const macrosState = useMacros();
 
   const load = useCallback(async () => {
     try {
@@ -339,7 +344,7 @@ export function StudioEditor() {
             </div>
           </div>
         ) : view === "macros" ? (
-          <MacroEditor recordings={recordings} />
+          <MacroEditor recordings={recordings} {...macrosState} />
         ) : selected && url ? (
           <>
             {/* Top: the clip */}

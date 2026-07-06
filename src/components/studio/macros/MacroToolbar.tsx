@@ -10,13 +10,26 @@ export interface MacroToolbarProps {
   onStop: () => void;
   /** Optional inline error (save/run failure) surfaced next to the buttons. */
   error?: string | null;
+  /**
+   * Optional neutral status message (e.g. after a deliberate Stop) — shares
+   * the banner slot with `error` but styled neutrally instead of red. Ignored
+   * whenever `error` is also set.
+   */
+  info?: string | null;
+  /**
+   * Extra reason Run is disabled beyond chain-validity/running — e.g. unsaved
+   * changes or a doc that hasn't been saved yet. Shown as the Run button's
+   * title/hint when set, and forces the button disabled.
+   */
+  runDisabledReason?: string | null;
 }
 
 /**
  * Save / Run / Stop strip for the macro editor. Save is always available
  * (explicit — nothing autosaves) and shows a small dot while there are
- * unsaved edits. Run only fires when the canvas is a single linear chain and
- * nothing is currently playing; Stop replaces it mid-run.
+ * unsaved edits. Run only fires when the canvas is a single linear chain,
+ * nothing is currently playing, and (via `runDisabledReason`) the working doc
+ * is saved and not dirty; Stop replaces it mid-run.
  */
 export function MacroToolbar({
   dirty,
@@ -26,8 +39,12 @@ export function MacroToolbar({
   onRun,
   onStop,
   error,
+  info,
+  runDisabledReason,
 }: MacroToolbarProps) {
   const running = runState === "running";
+  const runDisabled = !valid || running || !!runDisabledReason;
+  const runTitle = runDisabledReason ?? "Run";
 
   return (
     <div className="mt-root">
@@ -55,6 +72,7 @@ export function MacroToolbar({
         }
         .mt-banner.warn { color: #fbbf24; background: rgba(251,191,36,0.1); }
         .mt-banner.error { color: #f87171; background: rgba(248,113,113,0.1); }
+        .mt-banner.info { color: rgba(255,255,255,0.65); background: rgba(255,255,255,0.06); }
       `}</style>
 
       <div className="mt-row">
@@ -67,8 +85,8 @@ export function MacroToolbar({
           type="button"
           className="mt-btn mt-run"
           onClick={onRun}
-          disabled={!valid || running}
-          title="Run"
+          disabled={runDisabled}
+          title={runTitle}
         >
           <Play size={13} />
           Run
@@ -84,6 +102,11 @@ export function MacroToolbar({
       {!valid && (
         <div className="mt-banner warn" role="status">
           Connect the nodes into a single chain (no branches, no cycles) to run this macro.
+        </div>
+      )}
+      {info && !error && (
+        <div className="mt-banner info" role="status">
+          {info}
         </div>
       )}
       {error && (

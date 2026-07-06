@@ -237,6 +237,25 @@ describe("useMacros", () => {
     expect(result.current.runState).toBe("idle");
   });
 
+  it("clearFailed resets failed to null", async () => {
+    invokeMock.mockResolvedValueOnce([]);
+    const { result } = renderHook(() => useMacros());
+    await waitFor(() => expect(state.listeners.get("macro-run-failed")).toBeDefined());
+
+    await act(async () => {
+      await state.listeners.get("macro-run-failed")?.({
+        payload: { macroId: "m1", nodeId: "n1", reason: "boom" },
+      });
+    });
+    expect(result.current.failed).toEqual({ nodeId: "n1", reason: "boom" });
+
+    act(() => {
+      result.current.clearFailed();
+    });
+
+    expect(result.current.failed).toBeNull();
+  });
+
   it("stop calls stop_macro", async () => {
     invokeMock.mockResolvedValueOnce([]); // initial load
     invokeMock.mockResolvedValueOnce(undefined); // stop_macro

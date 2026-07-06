@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Settings } from "lucide-react";
+import { Settings, Workflow } from "lucide-react";
 import { SettingsTab } from "@/components/SettingsTab";
+import { MacroEditor } from "@/components/studio/macros/MacroEditor";
 import { PerceptionPanel } from "@/components/studio/PerceptionPanel";
 import { RecordingsMenu } from "@/components/studio/RecordingsMenu";
 import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
@@ -33,8 +34,10 @@ export function StudioEditor() {
   // The player portals its transport controls into this bottom-panel node, so
   // the top stays just the clip and the bottom holds the controls + events.
   const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
-  // Settings view (capture/theme/permissions), toggled by the title-bar gear.
-  const [showSettings, setShowSettings] = useState(false);
+  // Which body is showing: the player (default), settings (capture/theme/
+  // permissions, toggled by the gear), or the macro editor (toggled by the
+  // Workflow button). Mutually exclusive, hence one union instead of two bools.
+  const [view, setView] = useState<"player" | "settings" | "macros">("player");
 
   const load = useCallback(async () => {
     try {
@@ -280,39 +283,53 @@ export function StudioEditor() {
       `}</style>
 
       <StudioTitleBar
-        title={showSettings ? "Settings" : title}
-        editable={!showSettings && !!selected}
+        title={view === "settings" ? "Settings" : view === "macros" ? "Macros" : title}
+        editable={view === "player" && !!selected}
         onTitleChange={handleRename}
         left={
-          <RecordingsMenu
-            recordings={recordings}
-            selectedId={selectedId}
-            confirmDeleteId={confirmDeleteId}
-            onSelect={(id) => {
-              setSelectedId(id);
-              setShowSettings(false);
-            }}
-            onDeleteClick={handleDeleteClick}
-            onOpen={() => void load()}
-          />
+          view === "macros" ? undefined : (
+            <RecordingsMenu
+              recordings={recordings}
+              selectedId={selectedId}
+              confirmDeleteId={confirmDeleteId}
+              onSelect={(id) => {
+                setSelectedId(id);
+                setView("player");
+              }}
+              onDeleteClick={handleDeleteClick}
+              onOpen={() => void load()}
+            />
+          )
         }
         right={
-          <button
-            type="button"
-            className={`studio-gear${showSettings ? " active" : ""}`}
-            aria-label="Settings"
-            title="Settings"
-            aria-pressed={showSettings}
-            onClick={() => setShowSettings((s) => !s)}
-          >
-            <Settings size={15} />
-          </button>
+          <>
+            <button
+              type="button"
+              className={`studio-gear${view === "macros" ? " active" : ""}`}
+              aria-label="Macro editor"
+              title="Macro editor"
+              aria-pressed={view === "macros"}
+              onClick={() => setView((v) => (v === "macros" ? "player" : "macros"))}
+            >
+              <Workflow size={15} />
+            </button>
+            <button
+              type="button"
+              className={`studio-gear${view === "settings" ? " active" : ""}`}
+              aria-label="Settings"
+              title="Settings"
+              aria-pressed={view === "settings"}
+              onClick={() => setView((v) => (v === "settings" ? "player" : "settings"))}
+            >
+              <Settings size={15} />
+            </button>
+          </>
         }
       />
 
-      {/* Body — settings view, else top is the clip and bottom is all the events. */}
+      {/* Body — settings or macros view, else top is the clip and bottom is all the events. */}
       <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        {showSettings ? (
+        {view === "settings" ? (
           <div
             className="studio-settings-scroll"
             style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "28px 24px 48px" }}
@@ -321,6 +338,8 @@ export function StudioEditor() {
               <SettingsTab />
             </div>
           </div>
+        ) : view === "macros" ? (
+          <MacroEditor recordings={recordings} />
         ) : selected && url ? (
           <>
             {/* Top: the clip */}

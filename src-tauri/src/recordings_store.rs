@@ -47,6 +47,27 @@ impl From<serde_json::Error> for StoreError {
     }
 }
 
+/// Ids that become path components (recording ids, macro ids, target ids)
+/// must never traverse: allow only ASCII alphanumerics, '-' and '_'.
+pub(crate) fn validate_storage_id(id: &str) -> Result<(), String> {
+    if id.is_empty() || id.len() > 128 {
+        return Err(format!("invalid id '{id}'"));
+    }
+    if !id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err(format!("invalid id '{id}'"));
+    }
+    Ok(())
+}
+
+/// `validate_storage_id` adapted to this store's error type.
+fn id_guard(id: &str) -> Result<(), StoreError> {
+    validate_storage_id(id)
+        .map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, e)))
+}
+
 pub struct RecordingsStore {
     data_dir: PathBuf,
 }
@@ -151,6 +172,7 @@ impl RecordingsStore {
     }
 
     pub fn delete(&self, id: &str) -> Result<(), StoreError> {
+        id_guard(id)?;
         let mut recordings = self.load_all()?;
         let before = recordings.len();
         recordings.retain(|r| r.id != id);
@@ -226,6 +248,8 @@ impl RecordingsStore {
     /// Add `target` to the recording's target list, replacing any existing
     /// target with the same id.
     pub fn add_target(&self, id: &str, target: Target) -> Result<Recording, StoreError> {
+        id_guard(id)?;
+        id_guard(&target.id)?;
         let mut recordings = self.load_all()?;
         let rec = recordings
             .iter_mut()
@@ -241,6 +265,8 @@ impl RecordingsStore {
     /// Remove the target with `target_id` from the recording, and
     /// best-effort delete its template PNG (if any).
     pub fn remove_target(&self, id: &str, target_id: &str) -> Result<Recording, StoreError> {
+        id_guard(id)?;
+        id_guard(target_id)?;
         let mut recordings = self.load_all()?;
         let rec = recordings
             .iter_mut()
@@ -335,7 +361,7 @@ impl RecordingsStore {
 
 /// Write to a sibling temp file then rename — prevents truncated/corrupt JSON
 /// if the process dies mid-write.
-fn atomic_write(final_path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+pub(crate) fn atomic_write(final_path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     let dir = final_path.parent().ok_or_else(|| {
         StoreError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -526,6 +552,43 @@ mod tests {
         let store = RecordingsStore::open_at(dir.path().to_path_buf());
         store.add(rec("1", "x")).unwrap();
         assert!(matches!(store.delete("nope"), Err(StoreError::NotFound)));
+    }
+
+    #[test]
+    fn delete_rejects_traversal_id() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        let err = store.delete("../evil").unwrap_err();
+        assert!(err.to_string().contains("invalid id"), "{err}");
+    }
+
+    #[test]
+    fn add_target_rejects_traversal_ids() {
+        use crate::perception::{Modality, Target, TargetKind};
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        let t = Target {
+            id: "a/b".into(),
+            name: "bad".into(),
+            modality: Modality::Visual,
+            region: None,
+            kind: TargetKind::TextOcr { expect: None },
+            created_at: 1,
+        };
+        let err = store.add_target("1", t).unwrap_err();
+        assert!(err.to_string().contains("invalid id"), "{err}");
+    }
+
+    #[test]
+    fn validate_storage_id_allows_safe_ids_and_rejects_traversal() {
+        assert!(validate_storage_id("abc-123_XYZ").is_ok());
+        assert!(validate_storage_id("").is_err());
+        assert!(validate_storage_id("a/b").is_err());
+        assert!(validate_storage_id("a\\b").is_err());
+        assert!(validate_storage_id("..").is_err());
+        assert!(validate_storage_id(&"a".repeat(200)).is_err());
     }
 
     #[test]

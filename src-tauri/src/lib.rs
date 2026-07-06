@@ -805,6 +805,9 @@ pub fn run() {
                 store.sweep_orphan_videos();
                 store.sweep_orphan_perception();
             }
+            if let Ok(store) = macros::store::MacroStore::open(app.app_handle()) {
+                store.sweep_orphans();
+            }
 
             crash_log::log_line("setup: complete");
             observability::log_info("app", "setup.complete", None);

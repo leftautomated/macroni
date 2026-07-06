@@ -132,3 +132,43 @@ export interface Recording {
   video?: VideoMetadata;
   targets?: PerceptionTarget[];
 }
+
+export interface MacroEdge {
+  from: string;
+  to: string;
+}
+
+export interface MacroProvenance {
+  recording_id: string;
+  start_ms: number;
+  end_ms: number;
+}
+
+export type MacroNodeKind =
+  | {
+      type: "Segment";
+      events: InputEvent[];
+      speed: number;
+      provenance?: MacroProvenance | null;
+    }
+  | {
+      type: "WaitFor";
+      target: PerceptionTarget;
+      timeout_ms: number;
+      poll_interval_ms: number;
+    };
+
+export interface MacroNode {
+  id: string;
+  kind: MacroNodeKind;
+  x: number;
+  y: number;
+}
+
+export interface MacroDoc {
+  id: string;
+  name: string;
+  nodes: MacroNode[];
+  edges: MacroEdge[];
+  created_at: number;
+}

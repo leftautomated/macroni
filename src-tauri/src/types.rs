@@ -7,7 +7,7 @@ use crate::playback::PlaybackEngine;
 use crate::recording_session::RecordingSession;
 
 /// Represents a single input event captured during recording
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "PascalCase")]
 pub enum InputEvent {
     KeyPress {

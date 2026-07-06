@@ -4,6 +4,7 @@ mod crash_log;
 mod encoder;
 mod event_capture;
 mod key_mapping;
+mod macros;
 mod observability;
 mod perception;
 mod permissions;

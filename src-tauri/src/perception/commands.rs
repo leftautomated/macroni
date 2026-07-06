@@ -2,6 +2,8 @@
 //! live or recorded frame, and persist/retrieve targets + observations
 //! through the recordings store.
 
+use std::path::{Component, Path};
+
 use serde::Deserialize;
 use serde_json::json;
 use tauri::{AppHandle, Manager};
@@ -37,10 +39,31 @@ pub fn evaluate(
     Ok(extractor.extract(&frame, region))
 }
 
-/// Build the extractor implied by a target's `kind`. `TemplateMatch` reads
-/// its reference PNG off disk (data-dir-relative path); `TextOcr` uses the
+/// True iff `image` is safe to join onto a base directory: relative, and
+/// carrying no component that could walk out of that base (`..`, a root, a
+/// Windows drive prefix, or a literal `\` — which isn't a separator on
+/// non-Windows targets, so `Component` parsing alone won't catch it there).
+///
+/// `image` is webview-supplied data (a macro/target's `TemplateMatch.image`)
+/// that gets joined onto a base dir and read off disk — a path escape here
+/// is a read-side exfil vector (e.g. `../../../../etc/passwd`).
+fn is_safe_relative_path(image: &str) -> bool {
+    let path = Path::new(image);
+    path.is_relative()
+        && !image.contains('\\')
+        && path.components().all(|c| matches!(c, Component::Normal(_)))
+}
+
+/// Build the extractor implied by a target's `kind`, resolving any
+/// `TemplateMatch` reference PNG relative to `base_dir`. Callers choose
+/// `base_dir`: the app data dir for the on-demand command below, and the
+/// macro's own directory for the live wait probe (`macros::probe`), so a
+/// macro's template assets travel alongside its JSON. `TextOcr` uses the
 /// macOS Vision extractor and is unavailable on other platforms.
-fn build_extractor(app: &AppHandle, kind: &TargetKind) -> Result<Box<dyn Extractor>, String> {
+pub(crate) fn build_extractor_with_base(
+    kind: &TargetKind,
+    base_dir: &Path,
+) -> Result<Box<dyn Extractor>, String> {
     match kind {
         TargetKind::ColorSample { rgb, tolerance } => Ok(Box::new(ColorSampler {
             rgb: *rgb,
@@ -51,8 +74,10 @@ fn build_extractor(app: &AppHandle, kind: &TargetKind) -> Result<Box<dyn Extract
             threshold,
             source_px,
         } => {
-            let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-            let template = png_io::read_png(&data_dir.join(image))?;
+            if !is_safe_relative_path(image) {
+                return Err("invalid template path".to_string());
+            }
+            let template = png_io::read_png(&base_dir.join(image))?;
             Ok(Box::new(TemplateMatcher {
                 template,
                 threshold: *threshold,
@@ -114,7 +139,8 @@ pub fn extract_region(
         }),
     };
     observability::trace_command("extract_region", trace_id, Some(fields), || {
-        let extractor = build_extractor(&app, &kind)?;
+        let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let extractor = build_extractor_with_base(&kind, &data_dir)?;
         let (mut source_impl, timestamp_ms): (Box<dyn PerceptionSource>, i64) = match &source {
             ExtractSource::Live => (Box::new(LiveSource::new()), 0),
             ExtractSource::Recording {
@@ -220,6 +246,60 @@ mod tests {
             }),
             other => panic!("extractor_for_test: unsupported kind for this test: {other:?}"),
         }
+    }
+
+    // ---- build_extractor_with_base: template path validation -------------
+    //
+    // The `image` path inside a WaitFor target's TemplateMatch kind is
+    // webview-supplied data. It is joined onto a base dir (data dir for the
+    // command path; the macro's own dir for the live probe) to read a PNG
+    // off disk, so any escape (absolute path, `..`, or a literal `\` that a
+    // Windows-authored macro doc might smuggle in) must be rejected before
+    // the join ever happens — a would-be read-side exfil vector.
+
+    fn template_kind(image: &str) -> TargetKind {
+        TargetKind::TemplateMatch {
+            image: image.to_string(),
+            threshold: 0.8,
+            source_px: [10, 10],
+        }
+    }
+
+    #[test]
+    fn build_extractor_with_base_accepts_a_plain_relative_image_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let template_path = dir.path().join("assets").join("t9.png");
+        std::fs::create_dir_all(template_path.parent().unwrap()).unwrap();
+        let frame = render_core::decode::RgbaFrame {
+            width: 1,
+            height: 1,
+            data: vec![1, 2, 3, 255],
+        };
+        super::super::png_io::write_png(&template_path, &frame).unwrap();
+
+        let result = build_extractor_with_base(&template_kind("assets/t9.png"), dir.path());
+        assert!(result.is_ok(), "expected ok, got {:?}", result.err());
+    }
+
+    #[test]
+    fn build_extractor_with_base_rejects_dot_dot_escape() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = build_extractor_with_base(&template_kind("assets/../../x"), dir.path());
+        assert_eq!(result.err(), Some("invalid template path".to_string()));
+    }
+
+    #[test]
+    fn build_extractor_with_base_rejects_absolute_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = build_extractor_with_base(&template_kind("/etc/passwd"), dir.path());
+        assert_eq!(result.err(), Some("invalid template path".to_string()));
+    }
+
+    #[test]
+    fn build_extractor_with_base_rejects_backslash_escape() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = build_extractor_with_base(&template_kind("..\\x"), dir.path());
+        assert_eq!(result.err(), Some("invalid template path".to_string()));
     }
 
     #[test]

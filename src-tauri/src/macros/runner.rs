@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::thread;
 
 use super::{chain_order, validate_runnable, MacroDoc, MacroNodeKind};
-use crate::perception::Target;
+use crate::perception::{ObservationResult, Target};
 use crate::playback::engine::{execute_steps, sleep_cancellable};
 use crate::playback::ports::Simulator;
 use crate::playback::{PlaybackEngine, PlaybackPlan};
@@ -23,6 +23,27 @@ use crate::playback::{PlaybackEngine, PlaybackPlan};
 /// `&mut` so a live implementation can hold a screen-capture/OCR pipeline.
 pub trait WaitProbe: Send + 'static {
     fn evaluate(&mut self, target: &Target) -> Result<bool, String>;
+}
+
+/// Pure mapping from an extractor's raw result to the wait node's pass/fail
+/// verdict — shared by the live probe (`probe.rs`) and unit tests here so the
+/// matching rules are tested without a screen-capture/OCR dependency.
+/// `expect_of_text` is `TargetKind::TextOcr { expect }`'s payload; `None` for
+/// every other target kind (Template/Color ignore it and use `matched`).
+pub fn result_matches(result: &ObservationResult, expect_of_text: Option<&str>) -> bool {
+    match result {
+        ObservationResult::Text { spans } => match expect_of_text {
+            None => !spans.is_empty(),
+            Some(expect) => {
+                let expect = expect.to_lowercase();
+                spans
+                    .iter()
+                    .any(|s| s.text.to_lowercase().contains(&expect))
+            }
+        },
+        ObservationResult::Template { matched, .. } => *matched,
+        ObservationResult::Color { matched, .. } => *matched,
+    }
 }
 
 /// Time source for the wait loop, injectable so tests can advance a virtual
@@ -199,9 +220,11 @@ impl MacroRunner {
 
 #[cfg(test)]
 mod tests {
-    use super::{run_chain, MacroClock, MacroEmitter, MacroRunner, RealClock, WaitProbe};
+    use super::{
+        result_matches, run_chain, MacroClock, MacroEmitter, MacroRunner, RealClock, WaitProbe,
+    };
     use crate::macros::{MacroDoc, MacroEdge, MacroNode, MacroNodeKind};
-    use crate::perception::{Modality, Region, Target, TargetKind};
+    use crate::perception::{Modality, ObservationResult, Region, Target, TargetKind, TextSpan};
     use crate::playback::ports::Simulator;
     use crate::playback::PlaybackEngine;
     use crate::types::InputEvent;
@@ -211,6 +234,91 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
+
+    // ---- result_matches ---------------------------------------------------
+
+    fn span(text: &str) -> TextSpan {
+        TextSpan {
+            text: text.into(),
+            region: Region {
+                x: 0.0,
+                y: 0.0,
+                w: 1.0,
+                h: 1.0,
+            },
+            confidence: 1.0,
+        }
+    }
+
+    #[test]
+    fn text_with_no_expectation_matches_iff_spans_nonempty() {
+        let none_expect: Option<&str> = None;
+        assert!(!result_matches(
+            &ObservationResult::Text { spans: vec![] },
+            none_expect
+        ));
+        assert!(result_matches(
+            &ObservationResult::Text {
+                spans: vec![span("anything")]
+            },
+            none_expect
+        ));
+    }
+
+    #[test]
+    fn text_with_expectation_matches_case_insensitive_substring() {
+        let result = ObservationResult::Text {
+            spans: vec![span("Ready to GO")],
+        };
+        assert!(result_matches(&result, Some("go")));
+        assert!(result_matches(&result, Some("READY")));
+    }
+
+    #[test]
+    fn text_with_expectation_misses_when_no_span_contains_it() {
+        let result = ObservationResult::Text {
+            spans: vec![span("Loading...")],
+        };
+        assert!(!result_matches(&result, Some("done")));
+    }
+
+    #[test]
+    fn text_with_expectation_and_empty_spans_never_matches() {
+        assert!(!result_matches(
+            &ObservationResult::Text { spans: vec![] },
+            Some("go")
+        ));
+    }
+
+    #[test]
+    fn template_result_matches_its_matched_field() {
+        let matched = ObservationResult::Template {
+            matched: true,
+            location: None,
+            score: 0.9,
+        };
+        let unmatched = ObservationResult::Template {
+            matched: false,
+            location: None,
+            score: 0.1,
+        };
+        assert!(result_matches(&matched, None));
+        assert!(!result_matches(&unmatched, None));
+    }
+
+    #[test]
+    fn color_result_matches_its_matched_field() {
+        let matched = ObservationResult::Color {
+            rgb: [1, 2, 3],
+            matched: true,
+        };
+        let unmatched = ObservationResult::Color {
+            rgb: [1, 2, 3],
+            matched: false,
+        };
+        assert!(result_matches(&matched, None));
+        assert!(!result_matches(&unmatched, None));
+    }
 
     // ---- Fakes -----------------------------------------------------------
 

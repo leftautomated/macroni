@@ -67,6 +67,34 @@ describe("CreateTargetPopover", () => {
     expect(onSave).toHaveBeenCalledWith("Target 3", { type: "TextOcr", expect: "Submit" });
   });
 
+  it("scopes the kind buttons to the provided `kinds` list, hiding Text", async () => {
+    const onSave = vi.fn();
+    render(
+      <CreateTargetPopover
+        region={region}
+        anchor={{ x: 0, y: 0 }}
+        defaultName="Target 1"
+        kinds={["Image", "Color"]}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Text" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Image" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Color" })).toBeInTheDocument();
+
+    // Defaults to the first of the scoped kinds (Image), not the hardcoded
+    // "Text" default used when no `kinds` prop is passed.
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSave).toHaveBeenCalledWith("Target 1", {
+      type: "TemplateMatch",
+      image: "",
+      threshold: 0.8,
+      source_px: [0, 0],
+    });
+  });
+
   it("calls onCancel when Cancel is clicked", async () => {
     const onCancel = vi.fn();
     render(

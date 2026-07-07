@@ -2,7 +2,7 @@ import type React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pause, Play, Repeat, SkipBack, SkipForward } from "lucide-react";
-import { CreateTargetPopover } from "@/components/studio/CreateTargetPopover";
+import { CreateTargetPopover, type KindOption } from "@/components/studio/CreateTargetPopover";
 import { PerceptionOverlay } from "@/components/studio/PerceptionOverlay";
 import { logEvent } from "@/lib/observability";
 import { videoDisplayRect } from "@/lib/video-rect";
@@ -35,6 +35,10 @@ interface StudioPlayerProps {
   onSaveTarget?: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
   /** Sample the average color of a region at the given playhead. */
   onSampleColor?: (region: Region, timestampMs: number) => Promise<[number, number, number]>;
+  /** Which kind buttons the authoring popover offers — defaults to all three
+   * (Text/Image/Color). Callers with a narrower authoring context (e.g. the
+   * macro Visual Wait mode, which has its own Text form) pass a subset. */
+  popoverKinds?: KindOption[];
 }
 
 /**
@@ -119,6 +123,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     hasObservations,
     onSaveTarget,
     onSampleColor,
+    popoverKinds,
   },
   ref,
 ) {
@@ -616,6 +621,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           region={popover.region}
           anchor={{ x: popover.x, y: popover.y }}
           defaultName={`Target ${(targets?.length ?? 0) + 1}`}
+          kinds={popoverKinds}
           onSave={handlePopoverSave}
           onCancel={closePopover}
         />

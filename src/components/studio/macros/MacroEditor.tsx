@@ -5,8 +5,15 @@ import { MacrosMenu } from "@/components/studio/macros/MacrosMenu";
 import { MacroToolbar } from "@/components/studio/macros/MacroToolbar";
 import type { useMacros } from "@/hooks/useMacros";
 import { isLinearChain } from "@/lib/macro-chain";
-import { logEvent, stringifyError } from "@/lib/observability";
-import type { MacroDoc, MacroNode, Recording } from "@/types";
+import { invoke, logEvent, stringifyError } from "@/lib/observability";
+import type {
+  MacroDoc,
+  MacroNode,
+  ObservationResult,
+  PerceptionTarget,
+  Recording,
+  Region,
+} from "@/types";
 
 export interface MacroEditorProps extends ReturnType<typeof useMacros> {
   recordings: Recording[];
@@ -113,6 +120,71 @@ export function MacroEditor({
     setDirty(true);
   }, []);
 
+  // Capture a newly authored Image (TemplateMatch) target for the Visual Wait
+  // panel: save_target crops the reference PNG out of the recording's video
+  // at `timestampMs` and rewrites `target.kind.image` to point at it — the
+  // panel wraps whatever this returns in a WaitFor node, never the pre-save
+  // target (which still has an empty `image`). Errors surface in the same
+  // banner as Save/Run and no node gets added (the panel never calls onAdd if
+  // this rejects).
+  const captureImageWait = useCallback(
+    async (
+      recordingId: string,
+      target: PerceptionTarget,
+      timestampMs: number,
+    ): Promise<PerceptionTarget> => {
+      try {
+        const updated = await invoke<Recording>("save_target", {
+          recordingId,
+          target,
+          timestampMs,
+        });
+        const saved = updated.targets?.find((t) => t.id === target.id);
+        if (!saved) {
+          throw new Error("save_target response did not include the saved target");
+        }
+        return saved;
+      } catch (e) {
+        logEvent("error", "macros", "capture_image_wait_failed", {
+          error: e,
+          fields: { recordingId, targetId: target.id },
+        });
+        setRunError(stringifyError(e));
+        throw e;
+      }
+    },
+    [],
+  );
+
+  // Sample the average color of a region at a given playhead (for the Visual
+  // Wait panel's Color authoring path) — mirrors StudioEditor's own
+  // handleSampleColor. Falls back to black on failure (surfaced via the
+  // banner) rather than throwing, since the panel always has a color to wrap.
+  const sampleColor = useCallback(
+    async (
+      recordingId: string,
+      region: Region,
+      timestampMs: number,
+    ): Promise<[number, number, number]> => {
+      try {
+        const res = await invoke<ObservationResult>("extract_region", {
+          source: { type: "Recording", recording_id: recordingId, timestamp_ms: timestampMs },
+          region,
+          kind: { type: "ColorSample", rgb: [0, 0, 0], tolerance: 255 },
+        });
+        return res.type === "Color" ? res.rgb : [0, 0, 0];
+      } catch (e) {
+        logEvent("error", "macros", "sample_color_failed", {
+          error: e,
+          fields: { recordingId, timestampMs },
+        });
+        setRunError(stringifyError(e));
+        return [0, 0, 0];
+      }
+    },
+    [],
+  );
+
   const handleSave = useCallback(() => {
     save(workingDoc)
       .then((resolved) => {
@@ -208,7 +280,12 @@ export function MacroEditor({
             borderRight: "1px solid rgba(255,255,255,0.08)",
           }}
         >
-          <AddNodePanel recordings={recordings} onAdd={handleAddNode} />
+          <AddNodePanel
+            recordings={recordings}
+            onAdd={handleAddNode}
+            captureImageWait={captureImageWait}
+            sampleColor={sampleColor}
+          />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <MacroCanvas

@@ -1,15 +1,44 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import type { KindOption } from "@/components/studio/CreateTargetPopover";
+import { StudioPlayer } from "@/components/studio/StudioPlayer";
 import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
+import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import { eventsInRange, segmentBasis, segmentNodeFromRange } from "@/lib/macro-segment";
 import { waitNodeFromTarget } from "@/lib/macro-wait";
-import type { MacroNode, PerceptionTarget, Recording } from "@/types";
+import type { MacroNode, PerceptionTarget, Recording, Region } from "@/types";
 
 const DEFAULT_TIMEOUT_S = 10;
 const MIN_TIMEOUT_S = 1;
 
+// Visual Wait authoring has its own dedicated Text form (Add Text Wait,
+// above) — scope the embedded player's popover to Image/Color only so the
+// two Text paths don't overlap.
+const VISUAL_WAIT_KINDS: KindOption[] = ["Image", "Color"];
+
+const noop = () => {};
+
 export interface AddNodePanelProps {
   recordings: Recording[];
   onAdd: (node: MacroNode) => void;
+  /**
+   * Persist a newly authored TemplateMatch target (invokes `save_target` to
+   * crop + write the reference PNG) and return the target with its rewritten
+   * `image` path. Only called for Image targets — Color targets need no
+   * capture. Provided by MacroEditor; rethrows on failure (surfaced via its
+   * banner) so no node is added.
+   */
+  captureImageWait?: (
+    recordingId: string,
+    target: PerceptionTarget,
+    timestampMs: number,
+  ) => Promise<PerceptionTarget>;
+  /** Sample the average color of a region at a given playhead (invokes
+   * `extract_region`), for the embedded player's Color authoring path. */
+  sampleColor?: (
+    recordingId: string,
+    region: Region,
+    timestampMs: number,
+  ) => Promise<[number, number, number]>;
 }
 
 /** A range currently selected on the Add Segment timeline, in basis-relative ms. */
@@ -25,7 +54,12 @@ interface RangeMs {
  * input and hand a fully-formed MacroNode to `onAdd` — this component never
  * touches the doc or the canvas directly.
  */
-export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
+export function AddNodePanel({
+  recordings,
+  onAdd,
+  captureImageWait,
+  sampleColor,
+}: AddNodePanelProps) {
   const recordingsWithVideo = useMemo(() => recordings.filter((r) => r.video), [recordings]);
 
   const [recordingId, setRecordingId] = useState("");
@@ -41,6 +75,9 @@ export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
   const [timeoutS, setTimeoutS] = useState(String(DEFAULT_TIMEOUT_S));
 
   const selected = recordingsWithVideo.find((r) => r.id === recordingId) ?? null;
+  // Reused by the embedded Visual Wait player — src stays "" until it
+  // resolves; StudioPlayer already renders its own "Loading…" state for that.
+  const { url: videoUrl } = useVideoAssetUrl(selected?.video);
 
   const handleRecordingChange = (id: string) => {
     setRecordingId(id);
@@ -129,6 +166,35 @@ export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
     };
     onAdd(waitNodeFromTarget(target, timeoutMs));
   };
+
+  // Fed to the embedded player's `onSaveTarget` — fires once the user finishes
+  // dragging a box and saving it via CreateTargetPopover (scoped to Image/
+  // Color below). Image targets need a capture round-trip first (save_target
+  // crops + writes the reference PNG and returns the target with its
+  // rewritten `image` path); Color targets already carry their sampled rgb
+  // and are wrapped as-is. A captureImageWait rejection propagates out of
+  // this handler (and StudioPlayer's own try/catch just logs + closes the
+  // popover) — no node is added, matching every other error path here.
+  const handleVisualTarget = useCallback(
+    async (target: PerceptionTarget, timestampMs: number) => {
+      if (!selected) return;
+      if (target.kind.type === "TemplateMatch" && captureImageWait) {
+        const captured = await captureImageWait(selected.id, target, timestampMs);
+        onAdd(waitNodeFromTarget(captured));
+      } else {
+        onAdd(waitNodeFromTarget(target));
+      }
+    },
+    [selected, captureImageWait, onAdd],
+  );
+
+  const handleSampleColor = useCallback(
+    async (region: Region, timestampMs: number): Promise<[number, number, number]> => {
+      if (!selected || !sampleColor) return [0, 0, 0];
+      return sampleColor(selected.id, region, timestampMs);
+    },
+    [selected, sampleColor],
+  );
 
   return (
     <div className="anp-root">
@@ -236,6 +302,25 @@ export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
         <button type="button" className="anp-add" disabled={!expectValid} onClick={handleAddWait}>
           Add Text Wait
         </button>
+      </div>
+
+      <div className="anp-section">
+        <div className="anp-title">Add Visual Wait</div>
+        {selected?.video ? (
+          <StudioPlayer
+            src={videoUrl ?? ""}
+            fps={selected.video.fps}
+            onTimeUpdate={noop}
+            onReplay={noop}
+            onSaveTarget={handleVisualTarget}
+            onSampleColor={handleSampleColor}
+            popoverKinds={VISUAL_WAIT_KINDS}
+          />
+        ) : (
+          <div className="anp-summary">
+            Select a recording above, then drag a box on the frame to add an image or color wait.
+          </div>
+        )}
       </div>
     </div>
   );

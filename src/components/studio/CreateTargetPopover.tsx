@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Region, TargetKind } from "@/types";
 
-type KindOption = "Text" | "Image" | "Color";
+export type KindOption = "Text" | "Image" | "Color";
 
 const KIND_OPTIONS: KindOption[] = ["Text", "Image", "Color"];
 
@@ -11,6 +11,10 @@ interface CreateTargetPopoverProps {
   /** Fixed-position anchor in viewport (client) coordinates — the pointer-up point. */
   anchor: { x: number; y: number };
   defaultName?: string;
+  /** Which kind buttons to offer — defaults to all three. Callers that only
+   * want a subset (e.g. macro Visual Wait authoring, which has its own Text
+   * form) pass a narrower list. */
+  kinds?: KindOption[];
   onSave: (name: string, kind: TargetKind) => void;
   onCancel: () => void;
 }
@@ -37,11 +41,12 @@ export function CreateTargetPopover({
   region,
   anchor,
   defaultName = "Target 1",
+  kinds = KIND_OPTIONS,
   onSave,
   onCancel,
 }: CreateTargetPopoverProps) {
   const [name, setName] = useState(defaultName);
-  const [kind, setKind] = useState<KindOption>("Text");
+  const [kind, setKind] = useState<KindOption>(kinds[0] ?? "Text");
   const [expectText, setExpectText] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -124,7 +129,7 @@ export function CreateTargetPopover({
       />
 
       <div className="ctp-kinds">
-        {KIND_OPTIONS.map((option) => (
+        {kinds.map((option) => (
           <button
             key={option}
             type="button"

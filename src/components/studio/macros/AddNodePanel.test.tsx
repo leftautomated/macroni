@@ -1,8 +1,58 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { InputEventType, type InputEvent, type PerceptionTarget, type Recording } from "@/types";
+
+// StudioPlayer pulls in real <video>/ResizeObserver/perception-overlay
+// rendering that's irrelevant here — the unit under test is AddNodePanel's
+// node-building wiring around StudioPlayer's onSaveTarget callback, not video
+// playback. The stub exposes two buttons that invoke the real onSaveTarget
+// prop it was given with a canned TemplateMatch or ColorSample target, the
+// same way StudioPlayer's real drag-to-select → CreateTargetPopover flow
+// would once the user finishes authoring a target.
+const fixtures = vi.hoisted(() => ({
+  templateMatchTarget: {
+    id: "target-image-1",
+    name: "Target 1",
+    modality: "visual",
+    region: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    kind: { type: "TemplateMatch", image: "", threshold: 0.8, source_px: [0, 0] },
+    created_at: 1000,
+  },
+  colorSampleTarget: {
+    id: "target-color-1",
+    name: "Target 2",
+    modality: "visual",
+    region: { x: 0.3, y: 0.3, w: 0.1, h: 0.1 },
+    kind: { type: "ColorSample", rgb: [10, 20, 30], tolerance: 10 },
+    created_at: 2000,
+  },
+}));
+
+vi.mock("@/components/studio/StudioPlayer", () => ({
+  StudioPlayer: ({
+    onSaveTarget,
+  }: {
+    onSaveTarget?: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
+  }) => (
+    <div data-testid="studio-player-stub">
+      <button
+        type="button"
+        onClick={() => onSaveTarget?.(fixtures.templateMatchTarget as PerceptionTarget, 4200)}
+      >
+        Simulate Image Save
+      </button>
+      <button
+        type="button"
+        onClick={() => onSaveTarget?.(fixtures.colorSampleTarget as PerceptionTarget, 4200)}
+      >
+        Simulate Color Save
+      </button>
+    </div>
+  ),
+}));
+
 import { AddNodePanel } from "./AddNodePanel";
-import { InputEventType, type InputEvent, type Recording } from "@/types";
 
 beforeEach(() => {
   // jsdom returns zeroed rects; give the timeline track a 100px width so the
@@ -366,5 +416,75 @@ describe("AddNodePanel", () => {
 
     await userEvent.type(screen.getByLabelText(/expect/i), "   ");
     expect(screen.getByRole("button", { name: /add text wait/i })).toBeDisabled();
+  });
+
+  describe("Add Visual Wait", () => {
+    it("does not render the visual-wait player when no recording is selected", () => {
+      render(<AddNodePanel recordings={recordings} onAdd={() => {}} />);
+      expect(screen.queryByTestId("studio-player-stub")).not.toBeInTheDocument();
+    });
+
+    it("renders the visual-wait player once a recording with video is selected", async () => {
+      render(<AddNodePanel recordings={recordings} onAdd={() => {}} />);
+      await selectRecording("rec-1");
+      expect(screen.getByTestId("studio-player-stub")).toBeInTheDocument();
+    });
+
+    it("captures a TemplateMatch target via captureImageWait and adds a WaitFor node with the captured (returned) target", async () => {
+      const onAdd = vi.fn();
+      const capturedTarget: PerceptionTarget = {
+        ...(fixtures.templateMatchTarget as PerceptionTarget),
+        kind: {
+          type: "TemplateMatch",
+          image: "targets/rec-1/target-image-1.png",
+          threshold: 0.8,
+          source_px: [1920, 1080],
+        },
+      };
+      const captureImageWait = vi.fn().mockResolvedValue(capturedTarget);
+      const sampleColor = vi.fn();
+      render(
+        <AddNodePanel
+          recordings={recordings}
+          onAdd={onAdd}
+          captureImageWait={captureImageWait}
+          sampleColor={sampleColor}
+        />,
+      );
+
+      await selectRecording("rec-1");
+      await userEvent.click(screen.getByRole("button", { name: /simulate image save/i }));
+
+      await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(1));
+      expect(captureImageWait).toHaveBeenCalledWith("rec-1", fixtures.templateMatchTarget, 4200);
+      expect(sampleColor).not.toHaveBeenCalled();
+      const node = onAdd.mock.calls[0][0];
+      expect(node.kind.type).toBe("WaitFor");
+      expect(node.kind.target).toBe(capturedTarget);
+      expect(node.kind.timeout_ms).toBe(10000);
+      expect(node.kind.poll_interval_ms).toBe(500);
+    });
+
+    it("wraps a ColorSample target directly, without calling captureImageWait", async () => {
+      const onAdd = vi.fn();
+      const captureImageWait = vi.fn();
+      render(
+        <AddNodePanel
+          recordings={recordings}
+          onAdd={onAdd}
+          captureImageWait={captureImageWait}
+          sampleColor={vi.fn()}
+        />,
+      );
+
+      await selectRecording("rec-1");
+      await userEvent.click(screen.getByRole("button", { name: /simulate color save/i }));
+
+      await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(1));
+      expect(captureImageWait).not.toHaveBeenCalled();
+      const node = onAdd.mock.calls[0][0];
+      expect(node.kind.type).toBe("WaitFor");
+      expect(node.kind.target).toEqual(fixtures.colorSampleTarget);
+    });
   });
 });

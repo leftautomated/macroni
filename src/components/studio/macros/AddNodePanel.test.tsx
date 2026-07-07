@@ -1,8 +1,30 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AddNodePanel } from "./AddNodePanel";
 import { InputEventType, type InputEvent, type Recording } from "@/types";
+
+beforeEach(() => {
+  // jsdom returns zeroed rects; give the timeline track a 100px width so the
+  // clientX→ms drag math is deterministic, and stub pointer capture (not
+  // implemented in jsdom). Mirrors StudioTimeline.test.tsx's beforeEach.
+  Element.prototype.getBoundingClientRect = vi.fn(
+    () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 50,
+        width: 100,
+        height: 50,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect,
+  );
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+});
 
 function mkEvent(key: string, timestamp: number): InputEvent {
   return { type: InputEventType.KeyPress, key, timestamp };
@@ -143,6 +165,134 @@ describe("AddNodePanel", () => {
   it("disables the Add Segment button when no recording is selected", () => {
     render(<AddNodePanel recordings={recordings} onAdd={() => {}} />);
     expect(screen.getByRole("button", { name: /add segment/i })).toBeDisabled();
+  });
+
+  it("drags a range on the timeline and adds a segment with those events", async () => {
+    const onAdd = vi.fn();
+    const { container } = render(<AddNodePanel recordings={recordings} onAdd={onAdd} />);
+
+    await selectRecording("rec-1");
+
+    // rec-1's 5 events span basis(1000)+0..+4000; duration_ms=5000 over a
+    // mocked 100px track: clientX 40 → 40% → 2000ms, 80 → 80% → 4000ms.
+    const track = container.querySelector(".tl-track") as HTMLElement;
+    fireEvent.pointerDown(track, { clientX: 40, pointerId: 1 });
+    fireEvent.pointerMove(track, { clientX: 80, pointerId: 1 });
+    fireEvent.pointerUp(track, { clientX: 80, pointerId: 1 });
+
+    expect(screen.getByText("3 events · 2.0s")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /add segment/i }));
+
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    const node = onAdd.mock.calls[0][0];
+    expect(node.kind.type).toBe("Segment");
+    expect(node.kind.events).toEqual([
+      mkEvent("e2", 3000),
+      mkEvent("e3", 4000),
+      mkEvent("e4", 5000),
+    ]);
+    expect(node.kind.provenance).toEqual({
+      recording_id: "rec-1",
+      start_ms: 2000,
+      end_ms: 4000,
+    });
+  });
+
+  it("disables Add until a range is selected", async () => {
+    const { container } = render(<AddNodePanel recordings={recordings} onAdd={() => {}} />);
+
+    await selectRecording("rec-1");
+    expect(screen.getByRole("button", { name: /add segment/i })).toBeDisabled();
+    expect(screen.getByText("Drag on the timeline to select a range")).toBeInTheDocument();
+
+    const track = container.querySelector(".tl-track") as HTMLElement;
+    fireEvent.pointerDown(track, { clientX: 40, pointerId: 1 });
+    fireEvent.pointerMove(track, { clientX: 80, pointerId: 1 });
+    fireEvent.pointerUp(track, { clientX: 80, pointerId: 1 });
+
+    expect(screen.getByRole("button", { name: /add segment/i })).toBeEnabled();
+  });
+
+  it("resets the numeric inputs when the timeline range is cleared", async () => {
+    const { container } = render(<AddNodePanel recordings={recordings} onAdd={() => {}} />);
+    await selectRecording("rec-1");
+
+    // Drag 40→80 (rel 2000..4000ms) so the numeric fields populate to 2/4.
+    const track = container.querySelector(".tl-track") as HTMLElement;
+    fireEvent.pointerDown(track, { clientX: 40, pointerId: 1 });
+    fireEvent.pointerMove(track, { clientX: 80, pointerId: 1 });
+    fireEvent.pointerUp(track, { clientX: 80, pointerId: 1 });
+
+    const startInput = screen.getByRole("spinbutton", { name: /start/i });
+    const endInput = screen.getByRole("spinbutton", { name: /end/i });
+    expect(startInput).toHaveValue(2);
+    expect(endInput).toHaveValue(4);
+
+    // StudioTimeline's ✕ clear button fires onLoopChange(null) (same path as a
+    // plain non-drag track click). The numeric buffers must clear too, or they'd
+    // keep describing a range that no longer exists.
+    await userEvent.click(screen.getByRole("button", { name: /loop/i }));
+
+    expect(startInput).toHaveValue(0);
+    expect(endInput).toHaveValue(null);
+    expect(screen.getByText("Drag on the timeline to select a range")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add segment/i })).toBeDisabled();
+  });
+
+  it("rounds the dragged range so the summary count matches the added node's events", async () => {
+    // Non-evenly-divisible track width so msAt() (clientX/width × dur) yields a
+    // fractional ms at the drag boundary. An event sits exactly on the rounded
+    // boundary but NOT on the raw fraction, so an unrounded handleLoopChange
+    // would count it in the summary differently than segmentNodeFromRange (which
+    // rounds internally) counts it in the built node — "what you see ≠ what's added".
+    Element.prototype.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          left: 0,
+          top: 0,
+          right: 137,
+          bottom: 50,
+          width: 137,
+          height: 50,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    );
+
+    // basis = video.start_ms = 0 → rel = timestamp. Event at rel 292 is the
+    // boundary event; the one at rel 100 sits safely inside the range.
+    const rec: Recording = {
+      ...recordingWithVideo,
+      id: "rec-frac",
+      name: "Fractional",
+      events: [mkEvent("inside", 100), mkEvent("boundary", 292)],
+      video: { ...recordingWithVideo.video!, start_ms: 0, duration_ms: 5000 },
+    };
+    const onAdd = vi.fn();
+    const { container } = render(<AddNodePanel recordings={[rec]} onAdd={onAdd} />);
+    await selectRecording("Fractional");
+
+    // Drag clientX 0 → 8 over the 137px/5000ms track: msAt(8) = 8/137×5000 =
+    // 291.9708ms, which rounds to 292 — landing on the boundary event.
+    const track = container.querySelector(".tl-track") as HTMLElement;
+    fireEvent.pointerDown(track, { clientX: 0, pointerId: 1 });
+    fireEvent.pointerMove(track, { clientX: 8, pointerId: 1 });
+    fireEvent.pointerUp(track, { clientX: 8, pointerId: 1 });
+
+    // Summary count and the built node's event count must agree. Against the
+    // unrounded version this fails: summary reads 1 (292 > 291.97, excluded),
+    // node reads 2 (292 <= round(291.97)=292, included).
+    const summaryText = screen.getByText(/events ·/).textContent ?? "";
+    const summaryCount = Number(summaryText.match(/^(\d+)/)?.[1]);
+
+    await userEvent.click(screen.getByRole("button", { name: /add segment/i }));
+    const node = onAdd.mock.calls[0][0];
+
+    expect(summaryCount).toBe(node.kind.events.length);
+    expect(summaryCount).toBe(2);
+    expect(node.kind.provenance.end_ms).toBe(292);
   });
 
   it("disables the Add Segment button when the range is out of bounds", async () => {

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { segmentNodeFromRange } from "@/lib/macro-segment";
+import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
+import { eventsInRange, segmentBasis, segmentNodeFromRange } from "@/lib/macro-segment";
 import type { MacroNode, Recording } from "@/types";
 
 const DEFAULT_TIMEOUT_S = 10;
@@ -8,6 +9,12 @@ const MIN_TIMEOUT_S = 1;
 export interface AddNodePanelProps {
   recordings: Recording[];
   onAdd: (node: MacroNode) => void;
+}
+
+/** A range currently selected on the Add Segment timeline, in basis-relative ms. */
+interface RangeMs {
+  start: number;
+  end: number;
 }
 
 /**
@@ -21,28 +28,85 @@ export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
   const recordingsWithVideo = useMemo(() => recordings.filter((r) => r.video), [recordings]);
 
   const [recordingId, setRecordingId] = useState("");
+  // Numeric-second text inputs are a separate, freely-editable buffer so the
+  // user can type partial values (e.g. "1.") — they're parsed into `rangeMs`
+  // (the canonical range) on every change, and re-synced from `rangeMs` when
+  // the timeline drag sets it instead.
   const [startS, setStartS] = useState("0");
   const [endS, setEndS] = useState("");
+  const [rangeMs, setRangeMs] = useState<RangeMs | null>(null);
 
   const [expectText, setExpectText] = useState("");
   const [timeoutS, setTimeoutS] = useState(String(DEFAULT_TIMEOUT_S));
 
   const selected = recordingsWithVideo.find((r) => r.id === recordingId) ?? null;
-  const duration = selected?.video ? selected.video.duration_ms / 1000 : 0;
 
-  const start = Number(startS);
-  const end = Number(endS);
-  const segmentValid =
-    selected !== null &&
-    Number.isFinite(start) &&
-    Number.isFinite(end) &&
-    start >= 0 &&
-    end > start &&
-    end <= duration;
+  const handleRecordingChange = (id: string) => {
+    setRecordingId(id);
+    setRangeMs(null);
+    setStartS("0");
+    setEndS("");
+  };
+
+  // Parses the start/end second text fields into `rangeMs`, rounding to whole
+  // ms and rejecting (→ null, disabling Add) anything out of [0, duration_ms]
+  // or with end <= start — mirrors segmentNodeFromRange's own rounding.
+  const applyTypedRange = (nextStartS: string, nextEndS: string) => {
+    if (!selected?.video) {
+      setRangeMs(null);
+      return;
+    }
+    const s = Number(nextStartS);
+    const e = Number(nextEndS);
+    if (!Number.isFinite(s) || !Number.isFinite(e)) {
+      setRangeMs(null);
+      return;
+    }
+    const startMs = Math.round(s * 1000);
+    const endMs = Math.round(e * 1000);
+    if (startMs < 0 || endMs <= startMs || endMs > selected.video.duration_ms) {
+      setRangeMs(null);
+      return;
+    }
+    setRangeMs({ start: startMs, end: endMs });
+  };
+
+  const handleStartChange = (value: string) => {
+    setStartS(value);
+    applyTypedRange(value, endS);
+  };
+  const handleEndChange = (value: string) => {
+    setEndS(value);
+    applyTypedRange(startS, value);
+  };
+
+  const handleLoopChange = (loop: LoopRegion | null) => {
+    if (loop) {
+      // StudioTimeline's msAt() emits fractional ms (clientX/width × dur). Round
+      // here so the summary's eventsInRange and segmentNodeFromRange (which rounds
+      // internally) filter on identical bounds — otherwise a boundary event could
+      // be counted in the summary but excluded from the added node (or vice versa).
+      const start = Math.round(loop.a);
+      const end = Math.round(loop.b);
+      setRangeMs({ start, end });
+      setStartS(String(start / 1000));
+      setEndS(String(end / 1000));
+    } else {
+      // StudioTimeline fires onLoopChange(null) on its ✕ clear button and on any
+      // plain (non-drag) track click. Reset the numeric buffers too, or they'd
+      // keep showing the now-deleted range — breaking the single-source-of-truth
+      // invariant (mirrors handleRecordingChange).
+      setRangeMs(null);
+      setStartS("0");
+      setEndS("");
+    }
+  };
+
+  const segmentValid = selected !== null && rangeMs !== null && rangeMs.end > rangeMs.start;
 
   const handleAddSegment = () => {
-    if (!segmentValid || !selected?.video) return;
-    onAdd(segmentNodeFromRange(selected, start * 1000, end * 1000));
+    if (!segmentValid || !selected?.video || !rangeMs) return;
+    onAdd(segmentNodeFromRange(selected, rangeMs.start, rangeMs.end));
   };
 
   const expectValid = expectText.trim().length > 0;
@@ -99,6 +163,7 @@ export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
         }
         .anp-add:hover:not(:disabled) { background: rgba(99,102,241,0.4); }
         .anp-add:disabled { opacity: 0.4; cursor: default; }
+        .anp-summary { font-size: 11px; color: rgba(255,255,255,0.5); }
       `}</style>
 
       <div className="anp-section">
@@ -107,7 +172,7 @@ export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
           aria-label="Recording"
           className="anp-input"
           value={recordingId}
-          onChange={(e) => setRecordingId(e.target.value)}
+          onChange={(e) => handleRecordingChange(e.target.value)}
         >
           <option value="">Select recording…</option>
           {recordingsWithVideo.map((r) => (
@@ -116,20 +181,38 @@ export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
             </option>
           ))}
         </select>
+        {selected?.video && (
+          <>
+            <StudioTimeline
+              events={selected.events}
+              startMs={segmentBasis(selected)}
+              durationMs={selected.video.duration_ms}
+              videoMs={0}
+              onSeekSeconds={() => {}}
+              loop={rangeMs ? { a: rangeMs.start, b: rangeMs.end } : null}
+              onLoopChange={handleLoopChange}
+            />
+            <div className="anp-summary">
+              {rangeMs
+                ? `${eventsInRange(selected.events, segmentBasis(selected), rangeMs.start, rangeMs.end).length} events · ${((rangeMs.end - rangeMs.start) / 1000).toFixed(1)}s`
+                : "Drag on the timeline to select a range"}
+            </div>
+          </>
+        )}
         <div className="anp-row">
           <input
             aria-label="Start (s)"
             className="anp-input"
             type="number"
             value={startS}
-            onChange={(e) => setStartS(e.target.value)}
+            onChange={(e) => handleStartChange(e.target.value)}
           />
           <input
             aria-label="End (s)"
             className="anp-input"
             type="number"
             value={endS}
-            onChange={(e) => setEndS(e.target.value)}
+            onChange={(e) => handleEndChange(e.target.value)}
           />
         </div>
         <button

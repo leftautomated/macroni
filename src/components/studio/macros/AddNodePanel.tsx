@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
 import { eventsInRange, segmentBasis, segmentNodeFromRange } from "@/lib/macro-segment";
-import type { MacroNode, Recording } from "@/types";
+import { waitNodeFromTarget } from "@/lib/macro-wait";
+import type { MacroNode, PerceptionTarget, Recording } from "@/types";
 
 const DEFAULT_TIMEOUT_S = 10;
 const MIN_TIMEOUT_S = 1;
@@ -118,24 +119,15 @@ export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
     const expect = expectText.trim();
     // Same rounding concern as the segment ms values above.
     const timeoutMs = Math.round((timeoutValid ? timeout : DEFAULT_TIMEOUT_S) * 1000);
-    onAdd({
+    const target: PerceptionTarget = {
       id: crypto.randomUUID(),
-      kind: {
-        type: "WaitFor",
-        target: {
-          id: crypto.randomUUID(),
-          name: expect,
-          modality: "visual",
-          region: { x: 0, y: 0, w: 1, h: 1 },
-          kind: { type: "TextOcr", expect },
-          created_at: Date.now(),
-        },
-        timeout_ms: timeoutMs,
-        poll_interval_ms: 500,
-      },
-      x: 40,
-      y: 160,
-    });
+      name: expect,
+      modality: "visual",
+      region: { x: 0, y: 0, w: 1, h: 1 },
+      kind: { type: "TextOcr", expect },
+      created_at: Date.now(),
+    };
+    onAdd(waitNodeFromTarget(target, timeoutMs));
   };
 
   return (

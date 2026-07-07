@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { segmentNodeFromRange } from "@/lib/macro-segment";
 import type { MacroNode, Recording } from "@/types";
 
 const DEFAULT_TIMEOUT_S = 10;
@@ -41,27 +42,7 @@ export function AddNodePanel({ recordings, onAdd }: AddNodePanelProps) {
 
   const handleAddSegment = () => {
     if (!segmentValid || !selected?.video) return;
-    const basis = selected.video.start_ms ?? selected.created_at;
-    // Round to whole milliseconds — a fractional-second input (e.g. 1.001)
-    // would otherwise produce a non-integer ms value that fails to
-    // deserialize into Rust's i64/u64 fields on the backend.
-    const startMs = Math.round(start * 1000);
-    const endMs = Math.round(end * 1000);
-    const events = selected.events.filter((e) => {
-      const rel = e.timestamp - basis;
-      return rel >= startMs && rel <= endMs;
-    });
-    onAdd({
-      id: crypto.randomUUID(),
-      kind: {
-        type: "Segment",
-        events,
-        speed: 1,
-        provenance: { recording_id: selected.id, start_ms: startMs, end_ms: endMs },
-      },
-      x: 40,
-      y: 40,
-    });
+    onAdd(segmentNodeFromRange(selected, start * 1000, end * 1000));
   };
 
   const expectValid = expectText.trim().length > 0;

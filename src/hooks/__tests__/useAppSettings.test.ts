@@ -14,7 +14,7 @@ describe("useAppSettings", () => {
 
   it("loads settings on mount", async () => {
     invokeMock.mockResolvedValueOnce({
-      capture: { fps: 30, quality: "med", audio: true },
+      capture: { video: true, fps: 30, quality: "med", audio: true },
       perception: { continuous_ocr: false },
     });
     const { result } = renderHook(() => useAppSettings());
@@ -24,7 +24,7 @@ describe("useAppSettings", () => {
 
   it("persists updates via save_settings", async () => {
     invokeMock.mockResolvedValueOnce({
-      capture: { fps: 30, quality: "med", audio: true },
+      capture: { video: true, fps: 30, quality: "med", audio: true },
       perception: { continuous_ocr: false },
     });
     invokeMock.mockResolvedValueOnce(undefined);
@@ -33,7 +33,7 @@ describe("useAppSettings", () => {
 
     await act(async () => {
       await result.current.update({
-        capture: { fps: 60, quality: "high", audio: false },
+        capture: { video: false, fps: 60, quality: "high", audio: false },
         perception: { continuous_ocr: false },
       });
     });
@@ -42,7 +42,7 @@ describe("useAppSettings", () => {
       "save_settings",
       expect.objectContaining({
         settings: {
-          capture: { fps: 60, quality: "high", audio: false },
+          capture: { video: false, fps: 60, quality: "high", audio: false },
           perception: { continuous_ocr: false },
         },
         traceId: expect.any(String),

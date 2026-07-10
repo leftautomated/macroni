@@ -199,14 +199,36 @@ impl CaptureQuality {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureSettings {
+    #[serde(default = "default_capture_video")]
+    pub video: bool,
+    #[serde(default = "default_capture_fps")]
     pub fps: u32,
+    #[serde(default = "default_capture_quality")]
     pub quality: CaptureQuality,
+    #[serde(default = "default_capture_audio")]
     pub audio: bool,
+}
+
+fn default_capture_video() -> bool {
+    true
+}
+
+fn default_capture_fps() -> u32 {
+    30
+}
+
+fn default_capture_quality() -> CaptureQuality {
+    CaptureQuality::Med
+}
+
+fn default_capture_audio() -> bool {
+    true
 }
 
 impl Default for CaptureSettings {
     fn default() -> Self {
         Self {
+            video: default_capture_video(),
             fps: 30,
             quality: CaptureQuality::Med,
             audio: true,

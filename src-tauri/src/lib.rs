@@ -72,17 +72,14 @@ fn start_recording(
 
         // Build capture config from settings.
         let settings = crate::settings::load(&app);
-        let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-        let videos_dir = app_data_dir.join("videos");
-        std::fs::create_dir_all(&videos_dir).map_err(|e| e.to_string())?;
-        let output_path = videos_dir.join(format!("{}.mp4", id));
 
         // Perception tee: opt-in continuous OCR (macOS-only extractor for now).
         // Build the channel BEFORE CaptureConfig so `tee` can move into capture
         // and `perception_rx` stays here to feed the worker once capture starts.
         let mut tee = None;
         let mut perception_rx = None;
-        if settings.perception.continuous_ocr
+        if settings.capture.video
+            && settings.perception.continuous_ocr
             && crate::perception::extractor::continuous_extractor().is_some()
         {
             let (tx, rx) = std::sync::mpsc::sync_channel::<crate::capture::Frame>(1);
@@ -91,7 +88,11 @@ fn start_recording(
         }
 
         // Start capture (may fail on permission denied — surface the error).
-        let capture =
+        let capture = if settings.capture.video {
+            let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+            let videos_dir = app_data_dir.join("videos");
+            std::fs::create_dir_all(&videos_dir).map_err(|e| e.to_string())?;
+            let output_path = videos_dir.join(format!("{}.mp4", id));
             match crate::capture::ScreenCaptureSession::start(crate::capture::CaptureConfig {
                 output_path,
                 settings: settings.capture.clone(),
@@ -113,7 +114,15 @@ fn start_recording(
                     );
                     None
                 }
-            };
+            }
+        } else {
+            observability::log_info(
+                "capture",
+                "disabled_event_only",
+                Some(json!({ "recordingId": id })),
+            );
+            None
+        };
 
         // Spawn the perception worker only when capture actually started and a
         // tee channel was created; timestamps are video-relative via start_ms().
@@ -135,6 +144,7 @@ fn start_recording(
             "started",
             Some(json!({
                 "recordingId": id,
+                "video": settings.capture.video,
                 "fps": settings.capture.fps,
                 "quality": settings.capture.quality,
                 "audio": settings.capture.audio,

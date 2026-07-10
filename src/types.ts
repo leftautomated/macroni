@@ -50,6 +50,7 @@ export interface VideoMetadata {
 export type CaptureQuality = "low" | "med" | "high";
 
 export interface CaptureSettings {
+  video: boolean;
   fps: number; // UI offers 15, 30, 60 — parser accepts any u32
   quality: CaptureQuality;
   audio: boolean;

@@ -44,6 +44,7 @@ pub fn save_settings(
     trace_id: Option<String>,
 ) -> Result<(), String> {
     let fields = json!({
+        "video": settings.capture.video,
         "fps": settings.capture.fps,
         "quality": settings.capture.quality,
         "audio": settings.capture.audio,
@@ -62,6 +63,7 @@ mod tests {
     #[test]
     fn default_settings_have_sensible_values() {
         let s = AppSettings::default();
+        assert!(s.capture.video);
         assert_eq!(s.capture.fps, 30);
         assert!(matches!(s.capture.quality, CaptureQuality::Med));
         assert!(s.capture.audio);
@@ -79,7 +81,17 @@ mod tests {
     fn missing_fields_deserialize_to_defaults() {
         let json = "{}";
         let s: AppSettings = serde_json::from_str(json).unwrap();
+        assert!(s.capture.video);
         assert_eq!(s.capture.fps, 30);
+    }
+
+    #[test]
+    fn missing_capture_fields_deserialize_to_defaults() {
+        let s: AppSettings = serde_json::from_str(r#"{"capture":{"fps":15}}"#).unwrap();
+        assert!(s.capture.video);
+        assert_eq!(s.capture.fps, 15);
+        assert!(matches!(s.capture.quality, CaptureQuality::Med));
+        assert!(s.capture.audio);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use render_core::decode::RgbaFrame;
+use render_core::frame::RgbaFrame;
 
 use super::extractor::{region_to_pixels, Extractor};
 use super::{ObservationResult, Region};
@@ -100,7 +100,7 @@ impl Extractor for TemplateMatcher {
 mod tests {
     use super::*;
     use crate::perception::{ObservationResult, Region};
-    use render_core::decode::RgbaFrame;
+    use render_core::frame::RgbaFrame;
 
     /// Black frame with a white w×h block at (x, y).
     fn frame_with_block(fw: u32, fh: u32, x: u32, y: u32, w: u32, h: u32) -> RgbaFrame {

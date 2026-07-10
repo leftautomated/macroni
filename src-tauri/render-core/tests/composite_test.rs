@@ -1,3 +1,4 @@
+#![cfg(not(target_os = "windows"))]
 use render_core::decode::Mp4FrameSource;
 use render_core::gpu::{composite_frame_on_bg, Gpu};
 use std::path::Path;

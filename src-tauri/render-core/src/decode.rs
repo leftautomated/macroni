@@ -13,13 +13,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-/// A single decoded video frame in RGBA8 format (row-major, `width*height*4` bytes).
-#[derive(Clone)]
-pub struct RgbaFrame {
-    pub width: u32,
-    pub height: u32,
-    pub data: Vec<u8>,
-}
+pub use crate::frame::RgbaFrame;
 
 /// Errors that can occur during demux or decode.
 #[derive(Debug)]

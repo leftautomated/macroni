@@ -242,7 +242,7 @@ pub fn load_observations(
 mod tests {
     use super::*;
     use crate::perception::{ObservationResult, Region, TargetKind};
-    use render_core::decode::RgbaFrame;
+    use render_core::frame::RgbaFrame;
 
     fn extractor_for_test(kind: &TargetKind) -> Box<dyn Extractor> {
         match kind {
@@ -276,7 +276,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let template_path = dir.path().join("assets").join("t9.png");
         std::fs::create_dir_all(template_path.parent().unwrap()).unwrap();
-        let frame = render_core::decode::RgbaFrame {
+        let frame = render_core::frame::RgbaFrame {
             width: 1,
             height: 1,
             data: vec![1, 2, 3, 255],

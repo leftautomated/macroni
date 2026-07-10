@@ -1,7 +1,7 @@
 //! Extractor seam. All extractors consume RGBA8 frames (top-left origin);
 //! sources are responsible for converting into this pixel order (convert.rs).
 
-use render_core::decode::RgbaFrame;
+use render_core::frame::RgbaFrame;
 
 use super::{ObservationResult, Region};
 
@@ -139,7 +139,7 @@ impl Extractor for ColorSampler {
 mod tests {
     use super::super::TextSpan;
     use super::*;
-    use render_core::decode::RgbaFrame;
+    use render_core::frame::RgbaFrame;
 
     fn solid(w: u32, h: u32, rgba: [u8; 4]) -> RgbaFrame {
         RgbaFrame {

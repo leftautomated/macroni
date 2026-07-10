@@ -1,3 +1,4 @@
+#![cfg(not(target_os = "windows"))]
 use render_core::decode::Mp4FrameSource;
 use render_core::doc::{Background, Rgba};
 use render_core::engine::{Engine, EngineError};

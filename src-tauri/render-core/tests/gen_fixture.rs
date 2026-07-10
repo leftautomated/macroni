@@ -1,3 +1,4 @@
+#![cfg(not(target_os = "windows"))]
 //! Fixture generator: encodes 3 solid-colour BGRA frames (red, green, blue) at
 //! 64×48 into `tests/fixtures/solid.mp4` using the same openh264 + mp4 path
 //! that `src-tauri/src/encoder.rs` uses in production.

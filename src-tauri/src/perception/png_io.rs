@@ -2,7 +2,7 @@ use std::io::Cursor;
 use std::path::Path;
 
 use png::{BitDepth, ColorType, Encoder};
-use render_core::decode::RgbaFrame;
+use render_core::frame::RgbaFrame;
 
 pub fn encode_png(frame: &RgbaFrame) -> Vec<u8> {
     let mut buf = vec![];

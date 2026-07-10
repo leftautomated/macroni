@@ -94,7 +94,7 @@ mod tests {
     use super::*;
     use crate::capture::Frame;
     use crate::perception::{ObservationResult, Region};
-    use render_core::decode::RgbaFrame;
+    use render_core::frame::RgbaFrame;
 
     #[test]
     fn worker_converts_stamps_video_relative_and_finishes_on_disconnect() {

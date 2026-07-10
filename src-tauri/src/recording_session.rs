@@ -274,7 +274,7 @@ mod tests {
         use crate::perception::extractor::Extractor;
         use crate::perception::worker::PerceptionWorker;
         use crate::perception::{ObservationResult, Region};
-        use render_core::decode::RgbaFrame;
+        use render_core::frame::RgbaFrame;
 
         struct Noop;
         impl Extractor for Noop {

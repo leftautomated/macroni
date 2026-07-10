@@ -1,6 +1,6 @@
 //! BGRA (scap's native order) → RGBA (the extractor pixel-order canon).
 
-use render_core::decode::RgbaFrame;
+use render_core::frame::RgbaFrame;
 
 pub fn bgra_to_rgba(width: u32, height: u32, bgra: &[u8]) -> RgbaFrame {
     let mut data = vec![0u8; (width * height * 4) as usize];

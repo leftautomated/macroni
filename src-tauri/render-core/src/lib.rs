@@ -2,6 +2,7 @@
 //! MUST NOT depend on `tauri`.
 
 pub mod doc;
+pub mod frame;
 
 #[cfg(not(target_os = "windows"))]
 pub mod compositor;

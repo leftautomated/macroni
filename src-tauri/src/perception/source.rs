@@ -3,7 +3,9 @@
 
 use std::path::Path;
 
-use render_core::decode::{Mp4FrameSource, RgbaFrame};
+#[cfg(not(target_os = "windows"))]
+use render_core::decode::Mp4FrameSource;
+use render_core::frame::RgbaFrame;
 
 pub trait PerceptionSource {
     /// One frame as RGBA8. Live sources ignore `timestamp_ms` (grab "now").
@@ -27,10 +29,13 @@ pub fn frame_index_for_ms(timestamp_ms: i64, fps: u32, frame_count: usize) -> us
 }
 
 pub struct RecordingSource {
+    #[cfg(not(target_os = "windows"))]
     src: Mp4FrameSource,
+    #[cfg(not(target_os = "windows"))]
     fps: u32,
 }
 
+#[cfg(not(target_os = "windows"))]
 impl RecordingSource {
     pub fn open(path: &Path, fps: u32) -> Result<Self, String> {
         Ok(Self {
@@ -40,6 +45,14 @@ impl RecordingSource {
     }
 }
 
+#[cfg(target_os = "windows")]
+impl RecordingSource {
+    pub fn open(_path: &Path, _fps: u32) -> Result<Self, String> {
+        Err("recording-decode-unsupported-on-windows".to_string())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
 impl PerceptionSource for RecordingSource {
     fn frame_at(&mut self, timestamp_ms: i64) -> Result<RgbaFrame, String> {
         let idx = frame_index_for_ms(timestamp_ms, self.fps, self.src.frame_count());
@@ -47,6 +60,16 @@ impl PerceptionSource for RecordingSource {
     }
     fn dimensions(&self) -> (u32, u32) {
         self.src.dimensions()
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl PerceptionSource for RecordingSource {
+    fn frame_at(&mut self, _timestamp_ms: i64) -> Result<RgbaFrame, String> {
+        Err("recording-decode-unsupported-on-windows".to_string())
+    }
+    fn dimensions(&self) -> (u32, u32) {
+        (0, 0)
     }
 }
 

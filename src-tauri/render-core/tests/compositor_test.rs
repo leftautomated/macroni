@@ -1,3 +1,4 @@
+#![cfg(not(target_os = "windows"))]
 use render_core::compositor::Compositor;
 use render_core::decode::RgbaFrame;
 use render_core::doc::{Background, Rgba};

@@ -49,12 +49,14 @@ log = "0.4"
 tauri-plugin-log = { version = "2.8.0", features = ["tracing", "colored"] }
 png = "0.17"
 
-[target.'cfg(not(target_os = "windows"))'.dependencies]
-# Video capture: scap 0.1.0-beta.1 does not currently compile on Windows due to
-# an upstream bug (calls `frame.timespan()` which doesn't exist in its
-# `windows-capture` dep). We keep scap + the H.264 encoder on macOS/Linux only
-# and skip video capture/export entirely on Windows for now. Event recording
-# still works cross-platform. Revisit when scap fixes Windows or we switch libs.
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Video capture: scap depends on native platform capture stacks. The maintained
+# fork fixes macOS frame delivery, but its Linux PipeWire stack requires newer
+# libspa headers than Ubuntu 22.04 ships. Keep live screen capture macOS-only
+# for now; Linux/Windows run event-only until we add a compatible backend.
 openh264 = { version = "0.6", default-features = false, features = ["source"] }
 mp4 = "0.14"
 # Data-parallelism for the per-frame BGRA->I420 conversion (real-time encode).
@@ -63,11 +65,6 @@ rayon = "1"
 # single frame on macOS (its SCStream silently stalls after frame 1). The
 # Open-GPUI fork fixes frame delivery. Package-renamed so code still uses `scap`.
 scap = { package = "open-gpui-scap", version = "0.1.0-beta.1" }
-
-[dev-dependencies]
-tempfile = "3"
-
-[target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 core-graphics = "0.24"
 # Space-switch watcher (Task 4): Objective-C block for the NSWorkspace

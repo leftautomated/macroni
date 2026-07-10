@@ -69,9 +69,7 @@
       "deb": {
         "depends": [
           "libayatana-appindicator3-1",
-          "libdbus-1-3",
           "libgtk-3-0",
-          "libpipewire-0.3-0",
           "librsvg2-2",
           "libssl3",
           "libwebkit2gtk-4.1-0",

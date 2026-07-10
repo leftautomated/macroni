@@ -19,7 +19,7 @@ A minimal, clean desktop application for recording keyboard and mouse activity w
 - Rust (latest stable version)
 - Platform-specific requirements:
   - **macOS**: You'll be prompted to grant Accessibility permissions on first run
-  - **Linux**: No additional permissions required
+  - **Linux**: X11 session for global input listening and playback; PipeWire desktop capture support for screen recording
   - **Windows**: No additional permissions required
 
 ## Installation

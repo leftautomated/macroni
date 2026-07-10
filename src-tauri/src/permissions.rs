@@ -945,17 +945,17 @@ pub fn refresh_permission_assistant(
                 }
                 if *returning_reason == Some(AssistantReturnReason::Completed) {
                     let close_result = close_assistant_window(&mut window_ptr);
-                    clear_assistant_runtime_state(
-                        &mut active_panel,
-                        &mut active_source_frame,
-                        &mut payload_ptr,
-                        &mut landing_payload_ptr,
-                        &mut last_frame,
-                        &mut opening_until,
-                        &mut returning_until,
-                        &mut completion_until,
-                        &mut returning_reason,
-                    );
+                    clear_assistant_runtime_state(AssistantRuntimeStateRefs {
+                        active_panel: &mut active_panel,
+                        active_source_frame: &mut active_source_frame,
+                        payload_ptr: &mut payload_ptr,
+                        landing_payload_ptr: &mut landing_payload_ptr,
+                        last_frame: &mut last_frame,
+                        opening_until: &mut opening_until,
+                        returning_until: &mut returning_until,
+                        completion_until: &mut completion_until,
+                        returning_reason: &mut returning_reason,
+                    });
                     let mut window_flow = state
                         .window_flow
                         .lock()
@@ -1010,17 +1010,17 @@ pub fn refresh_permission_assistant(
                     }
 
                     let close_result = close_assistant_window(&mut window_ptr);
-                    clear_assistant_runtime_state(
-                        &mut active_panel,
-                        &mut active_source_frame,
-                        &mut payload_ptr,
-                        &mut landing_payload_ptr,
-                        &mut last_frame,
-                        &mut opening_until,
-                        &mut returning_until,
-                        &mut completion_until,
-                        &mut returning_reason,
-                    );
+                    clear_assistant_runtime_state(AssistantRuntimeStateRefs {
+                        active_panel: &mut active_panel,
+                        active_source_frame: &mut active_source_frame,
+                        payload_ptr: &mut payload_ptr,
+                        landing_payload_ptr: &mut landing_payload_ptr,
+                        last_frame: &mut last_frame,
+                        opening_until: &mut opening_until,
+                        returning_until: &mut returning_until,
+                        completion_until: &mut completion_until,
+                        returning_reason: &mut returning_reason,
+                    });
                     let mut window_flow = state
                         .window_flow
                         .lock()
@@ -1040,17 +1040,17 @@ pub fn refresh_permission_assistant(
 
             let Some(target_frame) = assistant_frame(mtm, ns_window_ptr)? else {
                 let close_result = close_assistant_window(&mut window_ptr);
-                clear_assistant_runtime_state(
-                    &mut active_panel,
-                    &mut active_source_frame,
-                    &mut payload_ptr,
-                    &mut landing_payload_ptr,
-                    &mut last_frame,
-                    &mut opening_until,
-                    &mut returning_until,
-                    &mut completion_until,
-                    &mut returning_reason,
-                );
+                clear_assistant_runtime_state(AssistantRuntimeStateRefs {
+                    active_panel: &mut active_panel,
+                    active_source_frame: &mut active_source_frame,
+                    payload_ptr: &mut payload_ptr,
+                    landing_payload_ptr: &mut landing_payload_ptr,
+                    last_frame: &mut last_frame,
+                    opening_until: &mut opening_until,
+                    returning_until: &mut returning_until,
+                    completion_until: &mut completion_until,
+                    returning_reason: &mut returning_reason,
+                });
                 let mut window_flow = state
                     .window_flow
                     .lock()
@@ -1154,17 +1154,17 @@ pub fn dismiss_permission_assistant(
                             .map_err(|_| "permission assistant flow mutex poisoned".to_string())?;
 
                         let close_result = close_assistant_window(&mut window_ptr);
-                        clear_assistant_runtime_state(
-                            &mut active_panel,
-                            &mut active_source_frame,
-                            &mut payload_ptr,
-                            &mut landing_payload_ptr,
-                            &mut last_frame,
-                            &mut opening_until,
-                            &mut returning_until,
-                            &mut completion_until,
-                            &mut returning_reason,
-                        );
+                        clear_assistant_runtime_state(AssistantRuntimeStateRefs {
+                            active_panel: &mut active_panel,
+                            active_source_frame: &mut active_source_frame,
+                            payload_ptr: &mut payload_ptr,
+                            landing_payload_ptr: &mut landing_payload_ptr,
+                            last_frame: &mut last_frame,
+                            opening_until: &mut opening_until,
+                            returning_until: &mut returning_until,
+                            completion_until: &mut completion_until,
+                            returning_reason: &mut returning_reason,
+                        });
                         *target_candidate = None;
                         let restore_result =
                             restore_permission_flow_windows(&app, &mut window_flow);
@@ -1434,26 +1434,29 @@ fn show_assistant_completion(
 }
 
 #[cfg(target_os = "macos")]
-fn clear_assistant_runtime_state(
-    active_panel: &mut Option<PermissionPanel>,
-    active_source_frame: &mut Option<AssistantFrameSnapshot>,
-    payload_ptr: &mut Option<usize>,
-    landing_payload_ptr: &mut Option<usize>,
-    last_frame: &mut Option<AssistantFrameSnapshot>,
-    opening_until: &mut Option<Instant>,
-    returning_until: &mut Option<Instant>,
-    completion_until: &mut Option<Instant>,
-    returning_reason: &mut Option<AssistantReturnReason>,
-) {
-    *active_panel = None;
-    *active_source_frame = None;
-    *payload_ptr = None;
-    *landing_payload_ptr = None;
-    *last_frame = None;
-    *opening_until = None;
-    *returning_until = None;
-    *completion_until = None;
-    *returning_reason = None;
+struct AssistantRuntimeStateRefs<'a> {
+    active_panel: &'a mut Option<PermissionPanel>,
+    active_source_frame: &'a mut Option<AssistantFrameSnapshot>,
+    payload_ptr: &'a mut Option<usize>,
+    landing_payload_ptr: &'a mut Option<usize>,
+    last_frame: &'a mut Option<AssistantFrameSnapshot>,
+    opening_until: &'a mut Option<Instant>,
+    returning_until: &'a mut Option<Instant>,
+    completion_until: &'a mut Option<Instant>,
+    returning_reason: &'a mut Option<AssistantReturnReason>,
+}
+
+#[cfg(target_os = "macos")]
+fn clear_assistant_runtime_state(state: AssistantRuntimeStateRefs<'_>) {
+    *state.active_panel = None;
+    *state.active_source_frame = None;
+    *state.payload_ptr = None;
+    *state.landing_payload_ptr = None;
+    *state.last_frame = None;
+    *state.opening_until = None;
+    *state.returning_until = None;
+    *state.completion_until = None;
+    *state.returning_reason = None;
 }
 
 #[cfg(target_os = "macos")]

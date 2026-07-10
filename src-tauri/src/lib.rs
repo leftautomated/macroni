@@ -853,11 +853,10 @@ pub fn run() {
                             dedup.note_key_press(key, *timestamp)
                         }
                         InputEvent::KeyRelease { key, .. } => dedup.note_key_release(key),
-                        InputEvent::SpaceSwitch { timestamp, .. } => {
-                            if !dedup.admit(*timestamp) {
-                                continue; // ⌃arrow already recorded this switch
-                            }
+                        InputEvent::SpaceSwitch { timestamp, .. } if !dedup.admit(*timestamp) => {
+                            continue; // ⌃arrow already recorded this switch
                         }
+                        InputEvent::SpaceSwitch { .. } => {}
                         _ => {}
                     }
                     collector_session.push_event(event);

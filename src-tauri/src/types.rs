@@ -210,7 +210,7 @@ pub struct CaptureSettings {
 }
 
 fn default_capture_video() -> bool {
-    true
+    cfg!(target_os = "macos")
 }
 
 fn default_capture_fps() -> u32 {

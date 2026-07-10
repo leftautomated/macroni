@@ -1,6 +1,6 @@
 mod capture;
 mod crash_log;
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 mod encoder;
 mod event_capture;
 mod key_mapping;

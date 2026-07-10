@@ -7,7 +7,7 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
 
-/// Raw captured frame in BGRA (scap's native format on macOS/Windows).
+/// Raw captured frame in BGRA (scap's native format on macOS).
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // width/height belong to the Frame contract; consumers may not read them
 pub struct Frame {
@@ -88,7 +88,7 @@ pub struct CaptureConfig {
 
 /// A raw frame handed from the acquisition thread to the encoder thread. Holds
 /// native-resolution BGRA; the resize/encode happens on the encoder side.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 struct CapturedFrame {
     width: u32,
     height: u32,
@@ -107,19 +107,15 @@ pub struct ScreenCaptureSession {
 impl ScreenCaptureSession {
     /// Start a screen capture session.
     ///
-    /// On Windows this currently returns `Err("windows-capture-unsupported")`
-    /// because scap's upstream Windows path does not compile against the
-    /// current `windows-capture` dependency. The caller treats non-
-    /// permission-denied errors as "no video, keep recording events" so the
-    /// app still works — just without the video half of the preview feature.
-    /// Revisit when upstream scap fixes Windows or when we replace the
-    /// cross-platform capture layer.
-    #[cfg(target_os = "windows")]
+    /// Non-macOS builds currently run event-only: the caller treats this as
+    /// "no video, keep recording events" so the app still works without the
+    /// video half of the preview feature.
+    #[cfg(not(target_os = "macos"))]
     pub fn start(_config: CaptureConfig) -> Result<Self, String> {
-        Err("windows-capture-unsupported".to_string())
+        Err("video-capture-unsupported-on-this-platform".to_string())
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     pub fn start(config: CaptureConfig) -> Result<Self, String> {
         if !scap::is_supported() {
             return Err("Screen capture is not supported on this platform".to_string());
@@ -369,7 +365,7 @@ impl ScreenCaptureSession {
 ///
 /// Slot k covers `[base + k·interval, base + (k+1)·interval)`. Slot 0 is the
 /// first real frame, written by the caller before constructing the pacer.
-#[cfg_attr(target_os = "windows", allow(dead_code))] // encoder loop is not built on Windows
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // encoder loop is macOS-only
 struct FramePacer {
     base_ts: i64,
     interval_ms: i64,
@@ -377,7 +373,7 @@ struct FramePacer {
     emitted: i64,
 }
 
-#[cfg_attr(target_os = "windows", allow(dead_code))] // encoder loop is not built on Windows
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // encoder loop is macOS-only
 impl FramePacer {
     fn new(first_frame_ts: i64, interval_ms: i64) -> Self {
         Self {
@@ -432,7 +428,7 @@ impl FramePacer {
 /// dimensions (I420 requirement). This is well within openh264's 4K hard limit
 /// AND keeps software encode real-time — encoding native 4K/5K on the CPU only
 /// manages a few fps, whereas 1080p is plenty to review a macro recording.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 fn encode_target(w: u32, h: u32) -> (u32, u32) {
     const MAX_LONG: f64 = 1920.0;
     const MAX_SHORT: f64 = 1080.0;
@@ -562,7 +558,7 @@ mod tests {
         assert_eq!(frames_handle.lock().unwrap().len(), 3);
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     #[test]
     fn encode_target_caps_at_1080p() {
         // 16:9 displays -> exactly 1080p

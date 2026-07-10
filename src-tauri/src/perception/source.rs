@@ -83,7 +83,7 @@ impl LiveSource {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_os = "macos"))]
 impl PerceptionSource for LiveSource {
     fn frame_at(&mut self, _timestamp_ms: i64) -> Result<RgbaFrame, String> {
         Err("live-capture-unsupported".to_string())
@@ -93,7 +93,7 @@ impl PerceptionSource for LiveSource {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 impl PerceptionSource for LiveSource {
     fn frame_at(&mut self, _timestamp_ms: i64) -> Result<RgbaFrame, String> {
         use scap::capturer::{Capturer, Options, Resolution};

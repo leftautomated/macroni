@@ -25,6 +25,7 @@ enum SessionState {
         id: String,
         events: Vec<InputEvent>,
         capture: Option<ScreenCaptureSession>,
+        perception: Option<crate::perception::worker::PerceptionWorker>,
     },
 }
 
@@ -33,6 +34,7 @@ pub struct StoppedSession {
     pub id: String,
     pub events: Vec<InputEvent>,
     pub capture: Option<ScreenCaptureSession>,
+    pub perception: Option<crate::perception::worker::PerceptionWorker>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -67,6 +69,7 @@ impl RecordingSession {
         &self,
         id: String,
         capture: Option<ScreenCaptureSession>,
+        perception: Option<crate::perception::worker::PerceptionWorker>,
     ) -> Result<(), SessionError> {
         let mut state = self.inner.lock().map_err(|_| SessionError::AlreadyActive)?;
         if matches!(*state, SessionState::Active { .. }) {
@@ -76,6 +79,7 @@ impl RecordingSession {
             id,
             events: Vec::new(),
             capture,
+            perception,
         };
         self.recording.store(true, Ordering::Relaxed);
         Ok(())
@@ -106,10 +110,12 @@ impl RecordingSession {
                 id,
                 events,
                 capture,
+                perception,
             } => Ok(StoppedSession {
                 id,
                 events,
                 capture,
+                perception,
             }),
             SessionState::Idle => Err(SessionError::NotActive),
         }
@@ -154,7 +160,7 @@ mod tests {
     #[test]
     fn start_makes_session_active() {
         let s = RecordingSession::new();
-        s.start("rec-1".into(), None).unwrap();
+        s.start("rec-1".into(), None, None).unwrap();
         assert!(s.is_active());
         assert_eq!(s.current_id(), Some("rec-1".into()));
     }
@@ -162,9 +168,9 @@ mod tests {
     #[test]
     fn double_start_errors() {
         let s = RecordingSession::new();
-        s.start("rec-1".into(), None).unwrap();
+        s.start("rec-1".into(), None, None).unwrap();
         assert_eq!(
-            s.start("rec-2".into(), None),
+            s.start("rec-2".into(), None, None),
             Err(SessionError::AlreadyActive)
         );
     }
@@ -180,7 +186,7 @@ mod tests {
         let s = RecordingSession::new();
         // Push while idle — should be a no-op (no panic, no events accumulated).
         s.push_event(ev(0));
-        s.start("rec-1".into(), None).unwrap();
+        s.start("rec-1".into(), None, None).unwrap();
         s.push_event(ev(1));
         s.push_event(ev(2));
         let stopped = s.stop().unwrap();
@@ -196,11 +202,11 @@ mod tests {
     #[test]
     fn start_resets_events_from_prior_session() {
         let s = RecordingSession::new();
-        s.start("first".into(), None).unwrap();
+        s.start("first".into(), None, None).unwrap();
         s.push_event(ev(1));
         s.push_event(ev(2));
         let _ = s.stop().unwrap();
-        s.start("second".into(), None).unwrap();
+        s.start("second".into(), None, None).unwrap();
         s.push_event(ev(99));
         let stopped = s.stop().unwrap();
         assert_eq!(stopped.id, "second");
@@ -215,7 +221,7 @@ mod tests {
     #[test]
     fn stop_returns_id_and_events() {
         let s = RecordingSession::new();
-        s.start("rec-1".into(), None).unwrap();
+        s.start("rec-1".into(), None, None).unwrap();
         s.push_event(ev(10));
         let stopped = s.stop().unwrap();
         assert_eq!(stopped.id, "rec-1");
@@ -227,7 +233,7 @@ mod tests {
     fn is_active_flips_on_start_and_stop() {
         let s = RecordingSession::new();
         assert!(!s.is_active());
-        s.start("rec-1".into(), None).unwrap();
+        s.start("rec-1".into(), None, None).unwrap();
         assert!(s.is_active());
         s.stop().unwrap();
         assert!(!s.is_active());
@@ -236,7 +242,7 @@ mod tests {
     #[test]
     fn current_id_is_none_after_stop() {
         let s = RecordingSession::new();
-        s.start("rec-1".into(), None).unwrap();
+        s.start("rec-1".into(), None, None).unwrap();
         s.stop().unwrap();
         assert_eq!(s.current_id(), None);
     }
@@ -252,7 +258,7 @@ mod tests {
     #[test]
     fn events_preserve_insertion_order_across_many_pushes() {
         let s = RecordingSession::new();
-        s.start("rec-1".into(), None).unwrap();
+        s.start("rec-1".into(), None, None).unwrap();
         for i in 0..100 {
             s.push_event(ev(i));
         }
@@ -261,5 +267,38 @@ mod tests {
         for (i, e) in stopped.events.iter().enumerate() {
             assert_eq!(e.timestamp(), i as i64);
         }
+    }
+
+    #[test]
+    fn stop_returns_perception_worker_pass_through() {
+        use crate::perception::extractor::Extractor;
+        use crate::perception::worker::PerceptionWorker;
+        use crate::perception::{ObservationResult, Region};
+        use render_core::frame::RgbaFrame;
+
+        struct Noop;
+        impl Extractor for Noop {
+            fn extract(&self, _f: &RgbaFrame, _r: &Region) -> ObservationResult {
+                ObservationResult::Color {
+                    rgb: [0, 0, 0],
+                    matched: false,
+                }
+            }
+        }
+
+        // Drop the sender up front so the worker thread exits immediately; the
+        // session only needs to prove it carries the handle through start→stop.
+        let (tx, rx) = std::sync::mpsc::sync_channel::<crate::capture::Frame>(1);
+        drop(tx);
+        let worker = PerceptionWorker::spawn(rx, 0, Box::new(Noop));
+
+        let s = RecordingSession::new();
+        s.start("rec-1".into(), None, Some(worker)).unwrap();
+        let stopped = s.stop().unwrap();
+        assert!(
+            stopped.perception.is_some(),
+            "perception worker must pass through start→stop"
+        );
+        assert!(stopped.perception.unwrap().finish().is_empty());
     }
 }

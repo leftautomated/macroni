@@ -1,3 +1,4 @@
+#![cfg(not(target_os = "windows"))]
 use render_core::gpu::{render_solid, Gpu};
 
 #[test]

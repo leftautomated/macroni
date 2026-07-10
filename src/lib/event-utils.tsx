@@ -13,6 +13,20 @@ export function scrollSummary(deltaX: number, deltaY: number): string {
   return parts.length > 0 ? parts.join("  ") : "—";
 }
 
+/**
+ * Conservative swipe recognition over a scroll group: decisively horizontal
+ * (≥3× vertical), a fling (≤400ms), and above a 120px magnitude floor (deltas are pixels — rdev fork). Borderline
+ * cases stay "Scroll" — a false "Swipe" label is the failure mode that
+ * matters. Display-only: replay always uses the raw scroll events.
+ */
+export function swipeLabel(row: Extract<EventRow, { kind: "scroll" }>): string | null {
+  const ax = Math.abs(row.deltaX);
+  if (ax < 120) return null;
+  if (ax < 3 * Math.abs(row.deltaY)) return null;
+  if (row.endTimestamp - row.timestamp > 400) return null;
+  return row.deltaX > 0 ? "Swipe →" : "Swipe ←";
+}
+
 export interface EventDetails {
   icon: React.ReactNode;
   action: string;
@@ -71,6 +85,13 @@ export function getEventDetails(event: InputEvent): EventDetails {
         value: scrollSummary(event.delta_x, event.delta_y),
         detail: "",
       };
+    case InputEventType.SpaceSwitch:
+      return {
+        icon: <Keyboard className="h-3 w-3" />,
+        action: "Space Switch",
+        value: `⇄ ${event.direction === "left" ? "←" : "→"}${event.count > 1 ? ` ×${event.count}` : ""}`,
+        detail: "",
+      };
   }
 }
 
@@ -106,6 +127,7 @@ export type EventRow =
       deltaX: number;
       deltaY: number;
       timestamp: number;
+      endTimestamp: number;
     }
   | {
       kind: "move";
@@ -212,6 +234,7 @@ export function groupEvents(events: InputEvent[]): EventRow[] {
         last.count += 1;
         last.deltaX += event.delta_x;
         last.deltaY += event.delta_y;
+        last.endTimestamp = event.timestamp;
       } else {
         rows.push({
           kind: "scroll",
@@ -221,6 +244,7 @@ export function groupEvents(events: InputEvent[]): EventRow[] {
           deltaX: event.delta_x,
           deltaY: event.delta_y,
           timestamp: event.timestamp,
+          endTimestamp: event.timestamp,
         });
       }
     } else if (event.type === InputEventType.MouseMove) {

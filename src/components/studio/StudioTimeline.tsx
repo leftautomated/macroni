@@ -1,6 +1,12 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import { type EventRow, getEventDetails, groupEvents, scrollSummary } from "@/lib/event-utils";
+import {
+  type EventRow,
+  getEventDetails,
+  groupEvents,
+  scrollSummary,
+  swipeLabel,
+} from "@/lib/event-utils";
 import { type InputEvent, InputEventType } from "@/types";
 
 /** A loop region, in video-relative milliseconds. */
@@ -18,6 +24,8 @@ interface StudioTimelineProps {
   onSeekSeconds: (seconds: number) => void;
   loop: LoopRegion | null;
   onLoopChange: (loop: LoopRegion | null) => void;
+  /** Perception observations to render as ticks in their own lane, video-relative ms. */
+  perceptionTicks?: Array<{ ms: number; label: string }>;
 }
 
 function fmt(ms: number): string {
@@ -31,12 +39,14 @@ const COLOR = {
   move: "rgba(255,255,255,0.28)",
   click: "#f59e0b",
   key: "#34d399",
+  space: "#f472b6",
 };
 
 const KEY_TYPES = new Set<InputEventType>([
   InputEventType.KeyPress,
   InputEventType.KeyRelease,
   InputEventType.KeyCombo,
+  InputEventType.SpaceSwitch,
 ]);
 
 const isKeyRow = (row: EventRow) =>
@@ -70,6 +80,7 @@ export function StudioTimeline({
   onSeekSeconds,
   loop,
   onLoopChange,
+  perceptionTicks,
 }: StudioTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -79,6 +90,11 @@ export function StudioTimeline({
   // loading another clip turns it back on.
   const follow = useRef(true);
   const [secondsVisible, setSecondsVisible] = useState(DEFAULT_SECONDS_VISIBLE);
+  // Custom horizontal scrollbar (the native one is hidden): thumb geometry in
+  // px within the strip, or null while the track fits the viewport.
+  const hTrackRef = useRef<HTMLDivElement>(null);
+  const hDrag = useRef<{ startX: number; startScrollLeft: number } | null>(null);
+  const [hThumb, setHThumb] = useState<{ left: number; width: number } | null>(null);
 
   const dur = Math.max(1, durationMs);
   const durSec = dur / 1000;
@@ -111,6 +127,66 @@ export function StudioTimeline({
   useEffect(() => {
     follow.current = true;
   }, [durationMs, startMs]);
+
+  // Mirror the scroller's geometry into the custom scrollbar thumb. The strip
+  // spans the same width as the viewport, so px map 1:1.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const measure = () => {
+      const view = scroller.clientWidth;
+      const full = scroller.scrollWidth;
+      if (full <= view + 1) {
+        setHThumb(null);
+        return;
+      }
+      const width = Math.max(30, (view / full) * view);
+      const left = (scroller.scrollLeft / (full - view)) * (view - width);
+      setHThumb({ left, width });
+    };
+    measure();
+    scroller.addEventListener("scroll", measure, { passive: true });
+    const ro = new ResizeObserver(measure);
+    ro.observe(scroller);
+    return () => {
+      scroller.removeEventListener("scroll", measure);
+      ro.disconnect();
+    };
+  }, [trackWidthPct]);
+
+  const hDown = (e: React.PointerEvent) => {
+    const scroller = scrollRef.current;
+    const track = hTrackRef.current;
+    if (!scroller || !track || !hThumb) return;
+    // The user is navigating — stop pulling the view back to the playhead.
+    follow.current = false;
+    track.setPointerCapture(e.pointerId);
+    let scrollLeft = scroller.scrollLeft;
+    const rect = track.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    if (x < hThumb.left || x > hThumb.left + hThumb.width) {
+      // Pressing the track outside the thumb centers the thumb on the pointer
+      // (macOS "jump to spot"), then the drag continues from there.
+      const range = rect.width - hThumb.width;
+      const ratio = Math.min(1, Math.max(0, (x - hThumb.width / 2) / range));
+      scrollLeft = ratio * (scroller.scrollWidth - scroller.clientWidth);
+      scroller.scrollLeft = scrollLeft;
+    }
+    hDrag.current = { startX: e.clientX, startScrollLeft: scrollLeft };
+  };
+  const hMove = (e: React.PointerEvent) => {
+    const d = hDrag.current;
+    const scroller = scrollRef.current;
+    const track = hTrackRef.current;
+    if (!d || !scroller || !track || !hThumb) return;
+    const range = track.getBoundingClientRect().width - hThumb.width;
+    if (range <= 0) return;
+    const scrollable = scroller.scrollWidth - scroller.clientWidth;
+    scroller.scrollLeft = d.startScrollLeft + ((e.clientX - d.startX) * scrollable) / range;
+  };
+  const hUp = () => {
+    hDrag.current = null;
+  };
 
   // Zoom slider maps log-linearly: left = whole recording, right = most zoomed-in.
   const logMin = Math.log(MIN_SECONDS_VISIBLE);
@@ -173,7 +249,12 @@ export function StudioTimeline({
     if (row.kind === "event") {
       const start = rel(row.event.timestamp);
       const d = getEventDetails(row.event);
-      const color = lane === "keys" ? COLOR.key : COLOR.click;
+      const color =
+        row.event.type === InputEventType.SpaceSwitch
+          ? COLOR.space
+          : lane === "keys"
+            ? COLOR.key
+            : COLOR.click;
       return (
         <div
           key={`e${row.index}`}
@@ -206,13 +287,21 @@ export function StudioTimeline({
     }
     const end = rel(events[row.endIndex].timestamp);
     const width = `max(3px, ${pctOf(end - start)}%)`;
-    const info =
-      row.kind === "drag"
-        ? `Drag ${row.button} → (${Math.round(row.x2)}, ${Math.round(row.y2)})`
-        : row.kind === "scroll"
-          ? `Scroll ${scrollSummary(row.deltaX, row.deltaY)}`
-          : "Mouse move";
-    const label = row.kind === "drag" ? "Drag" : row.kind === "scroll" ? "Scroll" : "Move";
+    let info: string;
+    let label: string;
+    if (row.kind === "drag") {
+      info = `Drag ${row.button} → (${Math.round(row.x2)}, ${Math.round(row.y2)})`;
+      label = "Drag";
+    } else if (row.kind === "scroll") {
+      const sw = swipeLabel(row);
+      label = sw ?? "Scroll";
+      info = sw
+        ? `${sw} (${scrollSummary(row.deltaX, row.deltaY)})`
+        : `Scroll ${scrollSummary(row.deltaX, row.deltaY)}`;
+    } else {
+      info = "Mouse move";
+      label = "Move";
+    }
     return (
       <div
         key={`g${row.startIndex}`}
@@ -229,8 +318,16 @@ export function StudioTimeline({
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <style>{`
         /* Headroom for the ruler labels, which sit just above the tick marks at
-           the very top of the track; without it, overflow-y:hidden clips their tops. */
-        .tl-scroll { overflow-x: auto; overflow-y: hidden; padding-top: 4px; }
+           the very top of the track; without it, overflow-y:hidden clips their tops.
+           The native horizontal scrollbar is hidden — the .tl-hscroll strip below
+           the lanes replaces it, since WKWebView renders the native overlay bar
+           however macOS pleases. */
+        .tl-scroll { overflow-x: auto; overflow-y: hidden; padding-top: 4px; scrollbar-width: none; }
+        .tl-scroll::-webkit-scrollbar { display: none; }
+        .tl-hscroll { position: relative; height: 8px; border-radius: 999px; background: rgba(255,255,255,0.05); cursor: pointer; touch-action: none; transition: opacity 150ms ease; }
+        .tl-hthumb { position: absolute; top: 1px; bottom: 1px; border-radius: 999px; background: rgba(255,255,255,0.2); transition: background 120ms ease; }
+        .tl-hscroll:hover .tl-hthumb { background: rgba(255,255,255,0.35); }
+        .tl-hscroll:active .tl-hthumb { background: rgba(255,255,255,0.5); }
         .tl-track { position: relative; user-select: none; cursor: pointer; touch-action: none; display: flex; flex-direction: column; gap: 4px; }
         .tl-ruler { position: relative; height: 18px; }
         .tl-tickmark { position: absolute; bottom: 0; width: 1px; background: rgba(255,255,255,0.22); pointer-events: none; }
@@ -294,6 +391,8 @@ export function StudioTimeline({
           { c: COLOR.scroll, l: "Scroll" },
           { c: COLOR.click, l: "Click" },
           { c: COLOR.key, l: "Key" },
+          { c: COLOR.space, l: "Space" },
+          ...(perceptionTicks && perceptionTicks.length > 0 ? [{ c: "#38bdf8", l: "Text" }] : []),
         ].map(({ c, l }) => (
           <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
             <span style={{ width: 10, height: 8, borderRadius: 2, background: c }} />
@@ -345,6 +444,24 @@ export function StudioTimeline({
           <div className="tl-lane">{mouseRows.map((r) => renderRow(r, "mouse"))}</div>
           <div className="tl-lane">{keyRows.map((r) => renderRow(r, "keys"))}</div>
 
+          {perceptionTicks && perceptionTicks.length > 0 && (
+            <div className="tl-lane">
+              {perceptionTicks.map((t, i) => (
+                <div
+                  key={`p${i}`}
+                  className="tl-tick"
+                  title={t.label}
+                  style={{ left: `${pctOf(t.ms)}%`, background: "#38bdf8", cursor: "pointer" }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSeekSeconds(t.ms / 1000);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                />
+              ))}
+            </div>
+          )}
+
           {loop && (
             <div
               style={{
@@ -374,6 +491,19 @@ export function StudioTimeline({
             }}
           />
         </div>
+      </div>
+
+      {/* Always mounted at fixed height so appearing/disappearing (zooming
+          across the fits-the-viewport threshold) causes no layout shift. */}
+      <div
+        ref={hTrackRef}
+        className="tl-hscroll"
+        style={hThumb ? undefined : { opacity: 0, pointerEvents: "none" }}
+        onPointerDown={hDown}
+        onPointerMove={hMove}
+        onPointerUp={hUp}
+      >
+        {hThumb && <div className="tl-hthumb" style={{ left: hThumb.left, width: hThumb.width }} />}
       </div>
     </div>
   );

@@ -51,6 +51,17 @@ impl PlaybackEngine {
         self.loop_count.store(0, Ordering::Relaxed);
     }
 
+    /// Claim the playback slot for a macro run (mutually exclusive with
+    /// `start`). Errors if playback or another macro already holds it.
+    /// Release by storing `false` into the returned flag (or via `stop()`,
+    /// which the macro runner observes to cancel).
+    pub(crate) fn claim_for_macro(&self) -> Result<Arc<AtomicBool>, String> {
+        if self.is_playing.swap(true, Ordering::Relaxed) {
+            return Err("Already playing".to_string());
+        }
+        Ok(Arc::clone(&self.is_playing))
+    }
+
     /// Begin playback. Spawns a worker thread; returns immediately.
     /// Errors if already playing.
     pub fn start(
@@ -103,6 +114,23 @@ fn run_plan(
     simulator: impl Simulator,
     emitter: impl Emitter,
 ) {
+    // Hold a macOS "no App Nap" activity assertion for the WHOLE run. When the
+    // user focuses their target app, macroni drops to the background; without
+    // this, App Nap + timer coalescing stretch every `thread::sleep` in the
+    // loop and inflate the replay. Dropped on return. No-op off macOS.
+    let _no_nap = crate::power::NoNapGuard::new("Replaying macro");
+    // For the post-run timing confirmation log: total planned sleep time vs.
+    // wall-clock elapsed. Ratio should sit near 1.0 with the guard held.
+    let started = std::time::Instant::now();
+    let planned_ms: u64 = plan
+        .steps
+        .iter()
+        .filter_map(|s| match s {
+            PlannedStep::Sleep { ms } => Some(*ms),
+            _ => None,
+        })
+        .sum();
+
     // Warmup so UI subscribers have a chance to attach.
     if !sleep_cancellable(WARMUP_MS, is_playing) {
         return finalize(emitter, is_playing, position, loop_count);
@@ -126,53 +154,79 @@ fn run_plan(
         }
         is_first_iteration = false;
 
-        let mut completed = true;
-        for step in &plan.steps {
-            if !is_playing.load(Ordering::Relaxed) {
-                completed = false;
-                break;
+        let completed = execute_steps(&plan.steps, is_playing, &simulator, |i| {
+            if let Ok(mut p) = position.lock() {
+                *p = Some(i);
             }
-            match step {
-                PlannedStep::EmitPosition { index } => {
-                    if let Ok(mut p) = position.lock() {
-                        *p = Some(*index);
-                    }
-                    emitter.emit_position(*index);
-                }
-                PlannedStep::Sleep { ms } => {
-                    if !sleep_cancellable(*ms, is_playing) {
-                        completed = false;
-                        break;
-                    }
-                }
-                PlannedStep::Simulate(event_type) => {
-                    // Re-check cancellation right before firing the OS-level
-                    // input event. Without this, a stop() that lands while the
-                    // worker is between the for-loop guard and the simulate
-                    // call can still inject a final event into the OS after
-                    // the frontend has been told playback-stopped.
-                    if !is_playing.load(Ordering::Relaxed) {
-                        completed = false;
-                        break;
-                    }
-                    if let Err(e) = simulator.simulate(*event_type) {
-                        crate::observability::log_error(
-                            "playback",
-                            "simulate_event_failed",
-                            &e,
-                            None,
-                        );
-                    }
-                }
-            }
-        }
+            emitter.emit_position(i);
+        });
 
         if !completed || !loop_forever {
             break;
         }
     }
 
+    // Confirmation log: with the no-nap guard held, actualMs should track
+    // plannedMs (ratio ~= 1.0). Before the fix, an unfocused run napped and
+    // ratio ran well above 1. `.max(1)` guards a zero-sleep plan.
+    let actual_ms = started.elapsed().as_millis() as u64;
+    crate::observability::log_info(
+        "playback",
+        "replay_timing",
+        Some(serde_json::json!({
+            "plannedMs": planned_ms,
+            "actualMs": actual_ms,
+            "ratio": actual_ms as f64 / planned_ms.max(1) as f64,
+        })),
+    );
+
     finalize(emitter, is_playing, position, loop_count);
+}
+
+/// Execute a single iteration's worth of steps against `simulator`,
+/// reporting each `EmitPosition` step's index via `on_position` and
+/// bailing as soon as `cancel` flips false. Returns whether every step
+/// ran to completion (`true`) or the run was cut short by cancellation
+/// (`false`).
+pub(crate) fn execute_steps(
+    steps: &[PlannedStep],
+    cancel: &AtomicBool,
+    simulator: &impl Simulator,
+    mut on_position: impl FnMut(usize),
+) -> bool {
+    let mut completed = true;
+    for step in steps {
+        if !cancel.load(Ordering::Relaxed) {
+            completed = false;
+            break;
+        }
+        match step {
+            PlannedStep::EmitPosition { index } => {
+                on_position(*index);
+            }
+            PlannedStep::Sleep { ms } => {
+                if !sleep_cancellable(*ms, cancel) {
+                    completed = false;
+                    break;
+                }
+            }
+            PlannedStep::Simulate(event_type) => {
+                // Re-check cancellation right before firing the OS-level
+                // input event. Without this, a stop() that lands while the
+                // worker is between the for-loop guard and the simulate
+                // call can still inject a final event into the OS after
+                // the frontend has been told playback-stopped.
+                if !cancel.load(Ordering::Relaxed) {
+                    completed = false;
+                    break;
+                }
+                if let Err(e) = simulator.simulate(*event_type) {
+                    crate::observability::log_error("playback", "simulate_event_failed", &e, None);
+                }
+            }
+        }
+    }
+    completed
 }
 
 fn finalize(
@@ -191,7 +245,7 @@ fn finalize(
 
 /// Sleep `ms` in small chunks, bailing if `is_playing` flips to false. Returns
 /// `true` if we slept the full duration, `false` if cancelled.
-fn sleep_cancellable(ms: u64, is_playing: &AtomicBool) -> bool {
+pub(crate) fn sleep_cancellable(ms: u64, is_playing: &AtomicBool) -> bool {
     if ms == 0 {
         return is_playing.load(Ordering::Relaxed);
     }
@@ -516,6 +570,53 @@ mod tests {
         assert!(
             observed > 0,
             "loop_count never reported a value above 0 during a looping run"
+        );
+    }
+
+    #[test]
+    fn claim_for_macro_excludes_playback_and_stop_releases() {
+        let engine = PlaybackEngine::new();
+        let flag = engine.claim_for_macro().unwrap();
+        assert!(engine.is_playing());
+        // Playback cannot start while a macro holds the slot.
+        assert!(engine
+            .start(
+                trivial_plan(),
+                false,
+                FakeSimulator::default(),
+                FakeEmitter::default()
+            )
+            .is_err());
+        // A second macro cannot claim either.
+        assert!(engine.claim_for_macro().is_err());
+        // engine.stop() flips the shared flag — the macro runner sees it.
+        engine.stop();
+        assert!(!flag.load(Ordering::Relaxed));
+        // Slot reusable after release.
+        assert!(engine.claim_for_macro().is_ok());
+        engine.stop();
+    }
+
+    #[test]
+    fn execute_steps_runs_and_respects_cancellation() {
+        let sim = FakeSimulator::default();
+        let calls = Arc::clone(&sim.calls);
+        let cancel = AtomicBool::new(true);
+        let mut positions = Vec::new();
+        let steps = vec![
+            PlannedStep::EmitPosition { index: 7 },
+            PlannedStep::Simulate(EventType::KeyPress(Key::KeyA)),
+        ];
+        assert!(execute_steps(&steps, &cancel, &sim, |i| positions.push(i)));
+        assert_eq!(calls.lock().unwrap().len(), 1);
+        assert_eq!(positions, vec![7]);
+        // Cancelled flag short-circuits before simulating.
+        cancel.store(false, Ordering::Relaxed);
+        assert!(!execute_steps(&steps, &cancel, &sim, |_| {}));
+        assert_eq!(
+            calls.lock().unwrap().len(),
+            1,
+            "no new simulate after cancel"
         );
     }
 }

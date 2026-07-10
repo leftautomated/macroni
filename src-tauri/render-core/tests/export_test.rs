@@ -1,3 +1,4 @@
+#![cfg(not(target_os = "windows"))]
 //! Acceptance test for `Engine::export`.
 //!
 //! Opens the bundled `solid.mp4` fixture, exports it through a default

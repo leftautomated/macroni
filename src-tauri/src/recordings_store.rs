@@ -9,10 +9,13 @@ use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
-use crate::types::Recording;
+use crate::perception::{Observation, Target};
+use crate::types::{InputEvent, Recording, VideoMetadata};
 
 const RECORDINGS_FILENAME: &str = "recordings.json";
 const VIDEOS_DIRNAME: &str = "videos";
+const OBSERVATIONS_DIRNAME: &str = "observations";
+const TARGETS_DIRNAME: &str = "targets";
 
 #[derive(Debug)]
 pub enum StoreError {
@@ -42,6 +45,27 @@ impl From<serde_json::Error> for StoreError {
     fn from(e: serde_json::Error) -> Self {
         StoreError::Serde(e)
     }
+}
+
+/// Ids that become path components (recording ids, macro ids, target ids)
+/// must never traverse: allow only ASCII alphanumerics, '-' and '_'.
+pub(crate) fn validate_storage_id(id: &str) -> Result<(), String> {
+    if id.is_empty() || id.len() > 128 {
+        return Err(format!("invalid id '{id}'"));
+    }
+    if !id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err(format!("invalid id '{id}'"));
+    }
+    Ok(())
+}
+
+/// `validate_storage_id` adapted to this store's error type.
+fn id_guard(id: &str) -> Result<(), StoreError> {
+    validate_storage_id(id)
+        .map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, e)))
 }
 
 pub struct RecordingsStore {
@@ -74,6 +98,17 @@ impl RecordingsStore {
     fn video_path(&self, id: &str) -> PathBuf {
         self.videos_dir().join(format!("{}.mp4", id))
     }
+    fn observations_path(&self, id: &str) -> PathBuf {
+        self.data_dir
+            .join(OBSERVATIONS_DIRNAME)
+            .join(format!("{}.json", id))
+    }
+    pub fn targets_dir(&self, id: &str) -> PathBuf {
+        self.data_dir.join(TARGETS_DIRNAME).join(id)
+    }
+    pub fn template_path(&self, id: &str, target_id: &str) -> PathBuf {
+        self.targets_dir(id).join(format!("{}.png", target_id))
+    }
 
     pub fn load_all(&self) -> Result<Vec<Recording>, StoreError> {
         let path = self.recordings_path();
@@ -82,7 +117,14 @@ impl RecordingsStore {
         }
         let content = std::fs::read_to_string(&path)?;
         match serde_json::from_str::<Vec<Recording>>(&content) {
-            Ok(list) => Ok(list),
+            Ok(mut list) => {
+                // Upgrade legacy line-unit scroll deltas to pixels so replay
+                // (which emits pixel-unit wheel events) matches magnitude.
+                for recording in &mut list {
+                    recording.normalize_scroll_units();
+                }
+                Ok(list)
+            }
             Err(e) => {
                 crate::observability::log_warn(
                     "recordings_store",
@@ -95,7 +137,35 @@ impl RecordingsStore {
         }
     }
 
+    /// Persist a just-stopped recording under the default name — the same
+    /// auto-save the frontend performs after `stop_recording`. Used by the
+    /// Rust-side shortcut stop path, which cannot rely on the webview being
+    /// responsive. Returns `None` (writing nothing) when the session captured
+    /// neither events nor video.
+    pub fn save_stopped(
+        &self,
+        id: String,
+        events: Vec<InputEvent>,
+        video: Option<VideoMetadata>,
+    ) -> Result<Option<Recording>, StoreError> {
+        if events.is_empty() && video.is_none() {
+            return Ok(None);
+        }
+        self.add(Recording {
+            id,
+            name: "Untitled".to_string(),
+            events,
+            created_at: chrono::Utc::now().timestamp_millis(),
+            playback_speed: 1.0,
+            scroll_unit: crate::types::ScrollUnit::Pixels,
+            video,
+            targets: Vec::new(),
+        })
+        .map(Some)
+    }
+
     pub fn add(&self, recording: Recording) -> Result<Recording, StoreError> {
+        id_guard(&recording.id)?;
         let mut recordings = self.load_all()?;
         recordings.push(recording.clone());
         self.write_all(&recordings)?;
@@ -103,6 +173,7 @@ impl RecordingsStore {
     }
 
     pub fn delete(&self, id: &str) -> Result<(), StoreError> {
+        id_guard(id)?;
         let mut recordings = self.load_all()?;
         let before = recordings.len();
         recordings.retain(|r| r.id != id);
@@ -111,6 +182,8 @@ impl RecordingsStore {
         }
         self.write_all(&recordings)?;
         let _ = std::fs::remove_file(self.video_path(id));
+        let _ = std::fs::remove_file(self.observations_path(id));
+        let _ = std::fs::remove_dir_all(self.targets_dir(id));
         Ok(())
     }
 
@@ -144,6 +217,73 @@ impl RecordingsStore {
         Ok(updated)
     }
 
+    pub fn write_observations(&self, id: &str, obs: &[Observation]) -> Result<(), StoreError> {
+        let path = self.observations_path(id);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let content = serde_json::to_string(obs)?;
+        atomic_write(&path, content.as_bytes())
+    }
+
+    pub fn load_observations(&self, id: &str) -> Result<Vec<Observation>, StoreError> {
+        let path = self.observations_path(id);
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let content = std::fs::read_to_string(&path)?;
+        match serde_json::from_str::<Vec<Observation>>(&content) {
+            Ok(list) => Ok(list),
+            Err(e) => {
+                crate::observability::log_warn(
+                    "recordings_store",
+                    "observations_json_unreadable",
+                    &format!("{} unreadable, treating as empty: {e}", path.display()),
+                    None,
+                );
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    /// Add `target` to the recording's target list, replacing any existing
+    /// target with the same id.
+    pub fn add_target(&self, id: &str, target: Target) -> Result<Recording, StoreError> {
+        id_guard(id)?;
+        id_guard(&target.id)?;
+        let mut recordings = self.load_all()?;
+        let rec = recordings
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(StoreError::NotFound)?;
+        rec.targets.retain(|t| t.id != target.id);
+        rec.targets.push(target);
+        let updated = rec.clone();
+        self.write_all(&recordings)?;
+        Ok(updated)
+    }
+
+    /// Remove the target with `target_id` from the recording, and
+    /// best-effort delete its template PNG (if any).
+    pub fn remove_target(&self, id: &str, target_id: &str) -> Result<Recording, StoreError> {
+        id_guard(id)?;
+        id_guard(target_id)?;
+        let mut recordings = self.load_all()?;
+        let rec = recordings
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(StoreError::NotFound)?;
+        let before = rec.targets.len();
+        rec.targets.retain(|t| t.id != target_id);
+        if rec.targets.len() == before {
+            return Err(StoreError::NotFound);
+        }
+        let updated = rec.clone();
+        self.write_all(&recordings)?;
+        let _ = std::fs::remove_file(self.template_path(id, target_id));
+        Ok(updated)
+    }
+
     /// Remove `videos/*.mp4` files whose id doesn't match any saved recording.
     pub fn sweep_orphan_videos(&self) {
         let videos_dir = self.videos_dir();
@@ -171,6 +311,47 @@ impl RecordingsStore {
         }
     }
 
+    /// Remove `observations/*.json` files and `targets/*` directories whose
+    /// id doesn't match any saved recording.
+    pub fn sweep_orphan_perception(&self) {
+        let known_ids: std::collections::HashSet<String> = match self.load_all() {
+            Ok(list) => list.into_iter().map(|r| r.id).collect(),
+            Err(_) => return,
+        };
+
+        let observations_dir = self.data_dir.join(OBSERVATIONS_DIRNAME);
+        if let Ok(entries) = std::fs::read_dir(&observations_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                    continue;
+                }
+                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if !known_ids.contains(stem) {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+
+        let targets_dir = self.data_dir.join(TARGETS_DIRNAME);
+        if let Ok(entries) = std::fs::read_dir(&targets_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if !known_ids.contains(name) {
+                    let _ = std::fs::remove_dir_all(&path);
+                }
+            }
+        }
+    }
+
     fn write_all(&self, recordings: &[Recording]) -> Result<(), StoreError> {
         std::fs::create_dir_all(&self.data_dir)?;
         let final_path = self.recordings_path();
@@ -181,7 +362,7 @@ impl RecordingsStore {
 
 /// Write to a sibling temp file then rename — prevents truncated/corrupt JSON
 /// if the process dies mid-write.
-fn atomic_write(final_path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+pub(crate) fn atomic_write(final_path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     let dir = final_path.parent().ok_or_else(|| {
         StoreError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -206,7 +387,7 @@ fn atomic_write(final_path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::InputEvent;
+    use crate::types::{InputEvent, ScrollUnit};
     use tempfile::tempdir;
 
     fn rec(id: &str, name: &str) -> Recording {
@@ -219,7 +400,9 @@ mod tests {
             }],
             created_at: 1_700_000_000_000,
             playback_speed: 1.0,
+            scroll_unit: ScrollUnit::Pixels,
             video: None,
+            targets: Vec::new(),
         }
     }
 
@@ -240,6 +423,15 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].id, "1");
         assert_eq!(all[1].name, "second");
+    }
+
+    #[test]
+    fn add_rejects_traversal_id_and_writes_nothing() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        let err = store.add(rec("../evil", "x")).unwrap_err();
+        assert!(err.to_string().contains("invalid id"), "{err}");
+        assert!(!dir.path().join(RECORDINGS_FILENAME).exists());
     }
 
     #[test]
@@ -373,6 +565,43 @@ mod tests {
     }
 
     #[test]
+    fn delete_rejects_traversal_id() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        let err = store.delete("../evil").unwrap_err();
+        assert!(err.to_string().contains("invalid id"), "{err}");
+    }
+
+    #[test]
+    fn add_target_rejects_traversal_ids() {
+        use crate::perception::{Modality, Target, TargetKind};
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        let t = Target {
+            id: "a/b".into(),
+            name: "bad".into(),
+            modality: Modality::Visual,
+            region: None,
+            kind: TargetKind::TextOcr { expect: None },
+            created_at: 1,
+        };
+        let err = store.add_target("1", t).unwrap_err();
+        assert!(err.to_string().contains("invalid id"), "{err}");
+    }
+
+    #[test]
+    fn validate_storage_id_allows_safe_ids_and_rejects_traversal() {
+        assert!(validate_storage_id("abc-123_XYZ").is_ok());
+        assert!(validate_storage_id("").is_err());
+        assert!(validate_storage_id("a/b").is_err());
+        assert!(validate_storage_id("a\\b").is_err());
+        assert!(validate_storage_id("..").is_err());
+        assert!(validate_storage_id(&"a".repeat(200)).is_err());
+    }
+
+    #[test]
     fn sweep_orphan_videos_removes_unknown_mp4s_only() {
         let dir = tempdir().unwrap();
         let store = RecordingsStore::open_at(dir.path().to_path_buf());
@@ -388,6 +617,36 @@ mod tests {
         assert!(kept.exists(), "known recording's video should remain");
         assert!(!orphan.exists(), "orphan mp4 should be removed");
         assert!(unrelated.exists(), "non-mp4 should be left alone");
+    }
+
+    #[test]
+    fn save_stopped_persists_untitled_and_skips_empty_sessions() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        // Nothing captured -> nothing saved, nothing written.
+        assert!(store
+            .save_stopped("empty".into(), Vec::new(), None)
+            .unwrap()
+            .is_none());
+        assert_eq!(store.load_all().unwrap().len(), 0);
+        // Events captured -> saved under the default name with defaults.
+        let saved = store
+            .save_stopped(
+                "1".into(),
+                vec![InputEvent::KeyPress {
+                    key: "A".into(),
+                    timestamp: 1,
+                }],
+                None,
+            )
+            .unwrap()
+            .expect("session with events must be saved");
+        assert_eq!(saved.name, "Untitled");
+        assert_eq!(saved.playback_speed, 1.0);
+        assert!(saved.targets.is_empty());
+        let all = store.load_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].id, "1");
     }
 
     #[test]
@@ -407,10 +666,203 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
+    fn legacy_recording_without_scroll_unit_loads_with_pixel_scaled_deltas() {
+        // Files written before the pixel-delta capture fix have no
+        // scroll_unit field and store coarse line deltas. On macOS, loading
+        // must scale them to pixels (x10) so replay magnitude matches — the
+        // rdev fork that switched capture to pixel-precision deltas only
+        // changed macOS `listen`.
+        let dir = tempdir().unwrap();
+        let legacy = r#"[{
+            "id": "old",
+            "name": "legacy",
+            "events": [
+                {"type": "Scroll", "delta_x": 2, "delta_y": -3, "timestamp": 1},
+                {"type": "KeyPress", "key": "A", "timestamp": 2}
+            ],
+            "created_at": 1700000000000
+        }]"#;
+        std::fs::write(dir.path().join("recordings.json"), legacy).unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        let all = store.load_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].scroll_unit, ScrollUnit::Pixels);
+        match &all[0].events[0] {
+            InputEvent::Scroll {
+                delta_x, delta_y, ..
+            } => {
+                assert_eq!(*delta_x, 20);
+                assert_eq!(*delta_y, -30);
+            }
+            other => panic!("expected Scroll, got {:?}", other),
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn legacy_recording_without_scroll_unit_loads_with_deltas_unchanged() {
+        // On non-macOS platforms the line->pixel mismatch never existed —
+        // legacy recordings already replayed at the correct magnitude. Loading
+        // must still mark the recording as Pixels (so the migration only ever
+        // runs once) but must NOT rescale the deltas.
+        let dir = tempdir().unwrap();
+        let legacy = r#"[{
+            "id": "old",
+            "name": "legacy",
+            "events": [
+                {"type": "Scroll", "delta_x": 2, "delta_y": -3, "timestamp": 1},
+                {"type": "KeyPress", "key": "A", "timestamp": 2}
+            ],
+            "created_at": 1700000000000
+        }]"#;
+        std::fs::write(dir.path().join("recordings.json"), legacy).unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        let all = store.load_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].scroll_unit, ScrollUnit::Pixels);
+        match &all[0].events[0] {
+            InputEvent::Scroll {
+                delta_x, delta_y, ..
+            } => {
+                assert_eq!(*delta_x, 2);
+                assert_eq!(*delta_y, -3);
+            }
+            other => panic!("expected Scroll, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn pixel_unit_recording_round_trips_without_rescaling() {
+        // A recording saved after the fix must not be scaled again on load —
+        // normalization is idempotent via the scroll_unit marker.
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        let mut r = rec("1", "pixels");
+        r.events = vec![InputEvent::Scroll {
+            delta_x: 7,
+            delta_y: -40,
+            timestamp: 1,
+        }];
+        store.add(r).unwrap();
+        // Load twice to prove repeated loads don't compound.
+        for _ in 0..2 {
+            let all = store.load_all().unwrap();
+            match &all[0].events[0] {
+                InputEvent::Scroll {
+                    delta_x, delta_y, ..
+                } => {
+                    assert_eq!(*delta_x, 7);
+                    assert_eq!(*delta_y, -40);
+                }
+                other => panic!("expected Scroll, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn save_stopped_tags_recordings_as_pixel_units() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        let saved = store
+            .save_stopped(
+                "1".into(),
+                vec![InputEvent::Scroll {
+                    delta_x: 5,
+                    delta_y: 5,
+                    timestamp: 1,
+                }],
+                None,
+            )
+            .unwrap()
+            .expect("session with events must be saved");
+        assert_eq!(saved.scroll_unit, ScrollUnit::Pixels);
+    }
+
+    #[test]
     fn corrupt_recordings_json_loads_as_empty() {
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("recordings.json"), b"not-json{").unwrap();
         let store = RecordingsStore::open_at(dir.path().to_path_buf());
         assert_eq!(store.load_all().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn observations_sidecar_round_trips_and_missing_reads_empty() {
+        use crate::perception::{Observation, ObservationResult};
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        assert!(store.load_observations("none").unwrap().is_empty());
+        let obs = vec![Observation {
+            target_id: None,
+            timestamp_ms: 500,
+            result: ObservationResult::Color {
+                rgb: [1, 2, 3],
+                matched: true,
+            },
+        }];
+        store.write_observations("1", &obs).unwrap();
+        assert_eq!(store.load_observations("1").unwrap(), obs);
+    }
+
+    #[test]
+    fn add_and_remove_target_update_recording() {
+        use crate::perception::{Modality, Region, Target, TargetKind};
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        let t = Target {
+            id: "t1".into(),
+            name: "Submit".into(),
+            modality: Modality::Visual,
+            region: Some(Region {
+                x: 0.1,
+                y: 0.1,
+                w: 0.2,
+                h: 0.1,
+            }),
+            kind: TargetKind::TextOcr { expect: None },
+            created_at: 1,
+        };
+        let updated = store.add_target("1", t.clone()).unwrap();
+        assert_eq!(updated.targets.len(), 1);
+        // Same id replaces, not duplicates.
+        let updated = store.add_target("1", t.clone()).unwrap();
+        assert_eq!(updated.targets.len(), 1);
+        let updated = store.remove_target("1", "t1").unwrap();
+        assert!(updated.targets.is_empty());
+        assert!(matches!(
+            store.remove_target("1", "t1"),
+            Err(StoreError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn delete_removes_sidecar_and_targets_dir() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("1", "x")).unwrap();
+        store.write_observations("1", &[]).unwrap();
+        std::fs::create_dir_all(store.targets_dir("1")).unwrap();
+        std::fs::write(store.template_path("1", "t1"), b"png").unwrap();
+        store.delete("1").unwrap();
+        assert!(!dir.path().join("observations/1.json").exists());
+        assert!(!store.targets_dir("1").exists());
+    }
+
+    #[test]
+    fn sweep_orphan_perception_prunes_unknown_ids_only() {
+        let dir = tempdir().unwrap();
+        let store = RecordingsStore::open_at(dir.path().to_path_buf());
+        store.add(rec("keep", "x")).unwrap();
+        store.write_observations("keep", &[]).unwrap();
+        store.write_observations("orphan", &[]).unwrap();
+        std::fs::create_dir_all(store.targets_dir("keep")).unwrap();
+        std::fs::create_dir_all(store.targets_dir("orphan")).unwrap();
+        store.sweep_orphan_perception();
+        assert!(dir.path().join("observations/keep.json").exists());
+        assert!(!dir.path().join("observations/orphan.json").exists());
+        assert!(store.targets_dir("keep").exists());
+        assert!(!store.targets_dir("orphan").exists());
     }
 }

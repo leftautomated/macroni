@@ -16,6 +16,10 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "delete_recording":
         fake.recordings = fake.recordings.filter((r) => r.id !== args?.id);
         return undefined;
+      case "load_observations":
+        return [];
+      case "load_macros":
+        return [];
       default:
         return undefined;
     }
@@ -31,6 +35,20 @@ vi.mock("@tauri-apps/api/window", () => ({
     maximize: vi.fn(),
     toggleMaximize: vi.fn(),
   }),
+}));
+
+// useMacros (pulled in via MacroEditor) listens for run events over Tauri's
+// event bridge, which doesn't exist under jsdom.
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async () => () => {}),
+}));
+
+// MacroCanvas renders react-flow, which isn't exercised here — these tests
+// only need to prove the macros view is reachable and the player hides, not
+// exercise the canvas itself. A stub keeps the view-switch test from paying
+// for (or risking) a react-flow mount under jsdom.
+vi.mock("@/components/studio/macros/MacroCanvas", () => ({
+  MacroCanvas: () => <div>macro canvas stub</div>,
 }));
 
 import { StudioEditor } from "@/components/studio/StudioEditor";
@@ -91,9 +109,50 @@ describe("StudioEditor (recordings browser)", () => {
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith(
         "request_replay",
-        expect.objectContaining({ id: "2000", traceId: expect.any(String) }),
+        expect.objectContaining({ id: "2000", loopForever: true, traceId: expect.any(String) }),
       );
     });
+  });
+
+  it("passes the Studio loop toggle to the replay request", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    fake.recordings = [makeRecording("2000", "Beta")];
+
+    render(<StudioEditor />);
+    await userEvent.click(await screen.findByRole("button", { name: /loop on/i }));
+    await userEvent.click(screen.getByRole("button", { name: /replay macro/i }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "request_replay",
+        expect.objectContaining({ id: "2000", loopForever: false, traceId: expect.any(String) }),
+      );
+    });
+  });
+
+  it("keeps the perception UI paused: no load_observations invoke, no panel", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const recording = makeRecording("2000", "Beta");
+    recording.targets = [
+      {
+        id: "t1",
+        name: "Submit",
+        modality: "visual",
+        region: { x: 0.1, y: 0.1, w: 0.2, h: 0.1 },
+        kind: { type: "TextOcr", expect: null },
+        created_at: 1,
+      },
+    ];
+    fake.recordings = [recording];
+
+    render(<StudioEditor />);
+    await screen.findByRole("button", { name: /replay macro/i });
+
+    expect(screen.queryByRole("button", { name: "Test frame" })).not.toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalledWith(
+      "load_observations",
+      expect.objectContaining({ recordingId: "2000" }),
+    );
   });
 
   it("deletes a recording via its row delete button (two-click confirm)", async () => {
@@ -122,5 +181,50 @@ describe("StudioEditor (recordings browser)", () => {
     });
     // Beta is selected, so its name is in both the list and the title bar.
     expect(screen.getAllByText("Beta").length).toBeGreaterThan(0);
+  });
+
+  it("shows the player by default, and switches to the macros view via the title-bar Macro editor button", async () => {
+    fake.recordings = [makeRecording("2000", "Beta")];
+    render(<StudioEditor />);
+
+    // Default view is the player.
+    await screen.findByRole("button", { name: /replay macro/i });
+
+    // Exactly one title-bar toggle named "Macro editor" (distinct from the
+    // menu's "Macros" picker button, which only exists inside the macros view).
+    const toggles = screen.getAllByRole("button", { name: /^macro editor$/i });
+    expect(toggles).toHaveLength(1);
+    await userEvent.click(toggles[0]);
+
+    // Player is gone; the macro editor is up (Run/Add Segment are its markers).
+    expect(screen.queryByRole("button", { name: /replay macro/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /run/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add segment/i })).toBeInTheDocument();
+  });
+
+  it("does not have two buttons sharing the name 'Macros' in the macros view", async () => {
+    fake.recordings = [makeRecording("2000", "Beta")];
+    render(<StudioEditor />);
+    await screen.findByRole("button", { name: /^macro editor$/i });
+
+    await userEvent.click(screen.getByRole("button", { name: /^macro editor$/i }));
+    await screen.findByRole("button", { name: /run/i });
+
+    // The only button named exactly "Macros" is the menu's picker — resolving
+    // it must not throw on multiple matches.
+    expect(screen.getByRole("button", { name: /^macros$/i })).toBeInTheDocument();
+  });
+
+  it("toggles back to the player when the Macro editor button is clicked again", async () => {
+    fake.recordings = [makeRecording("2000", "Beta")];
+    render(<StudioEditor />);
+    await screen.findByRole("button", { name: /replay macro/i });
+
+    const macrosButton = screen.getByRole("button", { name: /^macro editor$/i });
+    await userEvent.click(macrosButton);
+    await screen.findByRole("button", { name: /run/i });
+
+    await userEvent.click(macrosButton);
+    expect(await screen.findByRole("button", { name: /replay macro/i })).toBeInTheDocument();
   });
 });

@@ -1,18 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Settings } from "lucide-react";
+import { Settings, Workflow } from "lucide-react";
 import { SettingsTab } from "@/components/SettingsTab";
+import { MacroEditor } from "@/components/studio/macros/MacroEditor";
+import { PerceptionPanel } from "@/components/studio/PerceptionPanel";
 import { RecordingsMenu } from "@/components/studio/RecordingsMenu";
 import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
 import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
 import { StudioTitleBar } from "@/components/studio/StudioTitleBar";
+import { useMacros } from "@/hooks/useMacros";
 import { usePlaybackSync } from "@/hooks/usePlaybackSync";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import { invoke, logEvent } from "@/lib/observability";
 import { recordingTitle } from "@/lib/recording-format";
-import type { Recording } from "@/types";
+import type { Observation, ObservationResult, PerceptionTarget, Recording, Region } from "@/types";
 
 // Studio: pick a recording from the title-bar folder menu and play it. Effects
 // (background/framing/zoom) come later, one quality-checked feature at a time.
+
+// Perception UI (overlay chips, drag-to-author targets, the observations
+// panel) is paused pending the annotation-UX redesign — backend collection,
+// the Settings toggle, and the perception components themselves are untouched
+// and keep their own tests; this just stops the Studio from wiring them up.
+const PERCEPTION_STUDIO_UI = false;
 
 export function StudioEditor() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
@@ -26,8 +35,14 @@ export function StudioEditor() {
   // The player portals its transport controls into this bottom-panel node, so
   // the top stays just the clip and the bottom holds the controls + events.
   const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
-  // Settings view (capture/theme/permissions), toggled by the title-bar gear.
-  const [showSettings, setShowSettings] = useState(false);
+  // Which body is showing: the player (default), settings (capture/theme/
+  // permissions, toggled by the gear), or the macro editor (toggled by the
+  // Workflow button). Mutually exclusive, hence one union instead of two bools.
+  const [view, setView] = useState<"player" | "settings" | "macros">("player");
+  // Lifted (rather than called inside MacroEditor) so a run in progress —
+  // its Stop button, live highlight, runState — survives toggling away from
+  // the macros view; MacroEditor unmounts on toggle but this doesn't.
+  const macrosState = useMacros();
 
   const load = useCallback(async () => {
     try {
@@ -77,6 +92,59 @@ export function StudioEditor() {
     setConfirmDeleteId(null);
   }, [selectedId]);
 
+  // Perception observations for the selected recording, reloaded on switch.
+  // The cancelled flag (same pattern as useVideoAssetUrl) keeps a slow response
+  // for a previously selected recording from overwriting the current one's state.
+  const [observations, setObservations] = useState<Observation[]>([]);
+  useEffect(() => {
+    setObservations([]);
+    if (!PERCEPTION_STUDIO_UI || !selectedId) return;
+    let cancelled = false;
+    invoke<Observation[]>("load_observations", { recordingId: selectedId })
+      .then((obs) => {
+        if (!cancelled) setObservations(obs);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          logEvent("warn", "studio.perception", "load_observations_failed", { error: e });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
+
+  // Ticks for the timeline's perception lane — one per observation.
+  const perceptionTicks = useMemo(() => {
+    if (!PERCEPTION_STUDIO_UI) return [];
+    return observations.map((o) => ({
+      ms: o.timestamp_ms,
+      label:
+        o.result.type === "Text" && o.result.spans.length > 0
+          ? o.result.spans[0].text.slice(0, 40)
+          : "observation",
+    }));
+  }, [observations]);
+
+  // OCR spans to draw over the frame for the observation nearest the playhead
+  // (within 600ms), so pausing near a Text observation reveals its boxes.
+  const playheadSpans = useMemo(() => {
+    if (!PERCEPTION_STUDIO_UI) return [];
+    let best: Observation | null = null;
+    for (const o of observations) {
+      if (Math.abs(o.timestamp_ms - sync.videoTimeMs) <= 600) {
+        if (
+          !best ||
+          Math.abs(o.timestamp_ms - sync.videoTimeMs) <
+            Math.abs(best.timestamp_ms - sync.videoTimeMs)
+        ) {
+          best = o;
+        }
+      }
+    }
+    return best?.result.type === "Text" ? best.result.spans : [];
+  }, [observations, sync.videoTimeMs]);
+
   const handleDelete = useCallback(
     async (id: string) => {
       try {
@@ -105,11 +173,11 @@ export function StudioEditor() {
 
   // Replay runs from the main control panel (focus-safe). Hand it the recording;
   // the main window comes forward with it loaded, ready for the user to play.
-  const handleReplay = useCallback((id: string) => {
-    void invoke("request_replay", { id }).catch((e) =>
+  const handleReplay = useCallback((id: string, loopForever: boolean) => {
+    void invoke("request_replay", { id, loopForever }).catch((e) =>
       logEvent("error", "studio", "request_replay_failed", {
         error: e,
-        fields: { recordingId: id },
+        fields: { recordingId: id, loopForever },
       }),
     );
   }, []);
@@ -131,6 +199,50 @@ export function StudioEditor() {
     [selectedId],
   );
 
+  // Persist a target the user authored via drag-to-select in the player.
+  const handleSaveTarget = useCallback(
+    async (target: PerceptionTarget, timestampMs: number) => {
+      if (!selectedId) return;
+      try {
+        const updated = await invoke<Recording>("save_target", {
+          recordingId: selectedId,
+          target,
+          timestampMs,
+        });
+        setRecordings((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
+      } catch (e) {
+        logEvent("error", "studio.perception", "save_target_failed", {
+          error: e,
+          fields: { recordingId: selectedId, targetId: target.id },
+        });
+      }
+    },
+    [selectedId],
+  );
+
+  // Sample the average color of a region at a given playhead, for the Color
+  // target kind — used to fill in `rgb` before the target is saved.
+  const handleSampleColor = useCallback(
+    async (region: Region, timestampMs: number): Promise<[number, number, number]> => {
+      if (!selectedId) return [0, 0, 0];
+      try {
+        const res = await invoke<ObservationResult>("extract_region", {
+          source: { type: "Recording", recording_id: selectedId, timestamp_ms: timestampMs },
+          region,
+          kind: { type: "ColorSample", rgb: [0, 0, 0], tolerance: 255 },
+        });
+        return res.type === "Color" ? res.rgb : [0, 0, 0];
+      } catch (e) {
+        logEvent("error", "studio.perception", "sample_color_failed", {
+          error: e,
+          fields: { recordingId: selectedId, timestampMs },
+        });
+        return [0, 0, 0];
+      }
+    },
+    [selectedId],
+  );
+
   return (
     <div
       style={{
@@ -146,10 +258,11 @@ export function StudioEditor() {
       }}
     >
       <style>{`
-        /* Themed scrollbars for the whole studio window (universal selector,
-           like the main app's index.css — WKWebView honors ::-webkit-scrollbar
-           this way). Lives here in the always-mounted root component. */
-        * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+        /* Themed scrollbars for the whole studio window. ::-webkit-scrollbar
+           only — any non-auto scrollbar-width/scrollbar-color makes WebKit
+           ignore the pseudo-element styles entirely (CSS Scrollbars spec), so
+           setting both left the native bar showing. Lives here in the
+           always-mounted root component. */
         *::-webkit-scrollbar { width: 8px; height: 8px; }
         *::-webkit-scrollbar-track { background: transparent; }
         *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
@@ -175,39 +288,53 @@ export function StudioEditor() {
       `}</style>
 
       <StudioTitleBar
-        title={showSettings ? "Settings" : title}
-        editable={!showSettings && !!selected}
+        title={view === "settings" ? "Settings" : view === "macros" ? "Macros" : title}
+        editable={view === "player" && !!selected}
         onTitleChange={handleRename}
         left={
-          <RecordingsMenu
-            recordings={recordings}
-            selectedId={selectedId}
-            confirmDeleteId={confirmDeleteId}
-            onSelect={(id) => {
-              setSelectedId(id);
-              setShowSettings(false);
-            }}
-            onDeleteClick={handleDeleteClick}
-            onOpen={() => void load()}
-          />
+          view === "macros" ? undefined : (
+            <RecordingsMenu
+              recordings={recordings}
+              selectedId={selectedId}
+              confirmDeleteId={confirmDeleteId}
+              onSelect={(id) => {
+                setSelectedId(id);
+                setView("player");
+              }}
+              onDeleteClick={handleDeleteClick}
+              onOpen={() => void load()}
+            />
+          )
         }
         right={
-          <button
-            type="button"
-            className={`studio-gear${showSettings ? " active" : ""}`}
-            aria-label="Settings"
-            title="Settings"
-            aria-pressed={showSettings}
-            onClick={() => setShowSettings((s) => !s)}
-          >
-            <Settings size={15} />
-          </button>
+          <>
+            <button
+              type="button"
+              className={`studio-gear${view === "macros" ? " active" : ""}`}
+              aria-label="Macro editor"
+              title="Macro editor"
+              aria-pressed={view === "macros"}
+              onClick={() => setView((v) => (v === "macros" ? "player" : "macros"))}
+            >
+              <Workflow size={15} />
+            </button>
+            <button
+              type="button"
+              className={`studio-gear${view === "settings" ? " active" : ""}`}
+              aria-label="Settings"
+              title="Settings"
+              aria-pressed={view === "settings"}
+              onClick={() => setView((v) => (v === "settings" ? "player" : "settings"))}
+            >
+              <Settings size={15} />
+            </button>
+          </>
         }
       />
 
-      {/* Body — settings view, else top is the clip and bottom is all the events. */}
+      {/* Body — settings or macros view, else top is the clip and bottom is all the events. */}
       <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        {showSettings ? (
+        {view === "settings" ? (
           <div
             className="studio-settings-scroll"
             style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "28px 24px 48px" }}
@@ -216,6 +343,8 @@ export function StudioEditor() {
               <SettingsTab />
             </div>
           </div>
+        ) : view === "macros" ? (
+          <MacroEditor recordings={recordings} {...macrosState} />
         ) : selected && url ? (
           <>
             {/* Top: the clip */}
@@ -235,9 +364,18 @@ export function StudioEditor() {
                 src={url}
                 fps={selected.video?.fps ?? 30}
                 onTimeUpdate={sync.onVideoTime}
-                onReplay={() => handleReplay(selected.id)}
+                onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
                 loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
                 controlsHost={controlsHost}
+                {...(PERCEPTION_STUDIO_UI
+                  ? {
+                      targets: selected.targets ?? [],
+                      spans: playheadSpans,
+                      hasObservations: observations.length > 0,
+                      onSaveTarget: handleSaveTarget,
+                      onSampleColor: handleSampleColor,
+                    }
+                  : {})}
               />
             </div>
             {/* Bottom: transport controls + all the events */}
@@ -250,6 +388,16 @@ export function StudioEditor() {
               }}
             >
               <div ref={setControlsHost} style={{ marginBottom: 14 }} />
+              {PERCEPTION_STUDIO_UI && selected.targets && selected.targets.length > 0 && (
+                <PerceptionPanel
+                  recordingId={selected.id}
+                  targets={selected.targets}
+                  playheadMs={sync.videoTimeMs}
+                  onRecordingUpdate={(rec) =>
+                    setRecordings((rs) => rs.map((r) => (r.id === rec.id ? rec : r)))
+                  }
+                />
+              )}
               <StudioTimeline
                 events={selected.events}
                 startMs={sync.startMs}
@@ -258,6 +406,7 @@ export function StudioEditor() {
                 onSeekSeconds={(s) => playerRef.current?.seek(s)}
                 loop={loop}
                 onLoopChange={setLoop}
+                perceptionTicks={PERCEPTION_STUDIO_UI ? perceptionTicks : undefined}
               />
             </div>
           </>

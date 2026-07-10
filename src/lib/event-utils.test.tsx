@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupEvents, scrollSummary } from "./event-utils";
+import { type EventRow, groupEvents, scrollSummary, swipeLabel } from "./event-utils";
 import { type InputEvent, InputEventType } from "@/types";
 
 const key = (t: number): InputEvent => ({ type: InputEventType.KeyPress, key: "a", timestamp: t });
@@ -169,5 +169,31 @@ describe("scrollSummary", () => {
 
   it("returns a dash for no movement", () => {
     expect(scrollSummary(0, 0)).toBe("—");
+  });
+});
+
+describe("swipeLabel", () => {
+  it("labels a fast horizontal fling as a swipe", () => {
+    const rows = groupEvents([scroll(80, 5, 0), scroll(90, -4, 80), scroll(60, 0, 160)]);
+    expect(rows).toHaveLength(1);
+    const row = rows[0] as Extract<EventRow, { kind: "scroll" }>;
+    expect(swipeLabel(row)).toBe("Swipe →");
+  });
+
+  it("labels direction from the sign", () => {
+    const rows = groupEvents([scroll(-160, 0, 0), scroll(-120, 8, 100)]);
+    expect(swipeLabel(rows[0] as Extract<EventRow, { kind: "scroll" }>)).toBe("Swipe ←");
+  });
+
+  it("rejects diagonal scrolls, slow pans, and small jiggles", () => {
+    // Diagonal: vertical too large relative to horizontal.
+    const diag = groupEvents([scroll(120, 80, 0), scroll(120, 60, 100)]);
+    expect(swipeLabel(diag[0] as Extract<EventRow, { kind: "scroll" }>)).toBeNull();
+    // Slow: same deltas over 900ms.
+    const slow = groupEvents([scroll(120, 0, 0), scroll(120, 4, 900)]);
+    expect(swipeLabel(slow[0] as Extract<EventRow, { kind: "scroll" }>)).toBeNull();
+    // Tiny: under the 120px floor.
+    const tiny = groupEvents([scroll(40, 0, 0), scroll(50, 0, 50)]);
+    expect(swipeLabel(tiny[0] as Extract<EventRow, { kind: "scroll" }>)).toBeNull();
   });
 });

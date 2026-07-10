@@ -21,8 +21,6 @@ export interface PermissionAssistantSourceRect {
   sourceImageDataUrl?: string;
 }
 
-const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-
 export interface PermissionState {
   screenRecording: boolean | null;
   accessibility: boolean | null;
@@ -97,31 +95,22 @@ export const usePermissionStatus = () => {
           setActiveAssistantPanel(null);
         }
         await measureAsync("permissions", `open_${panel}_settings`, () => openUrl(url));
-        let lastError: unknown = null;
-        for (let attempt = 0; attempt < 18; attempt += 1) {
-          try {
-            const { sourceImageDataUrl, ...rect } = sourceRect ?? {};
-            const presented = await invoke<boolean>("present_permission_assistant", {
-              panel,
-              sourceRect: sourceRect ? rect : undefined,
-              sourceImageDataUrl,
-            });
-            if (presented) {
-              assistantVisible.current = true;
-              setActiveAssistantPanel(panel);
-              setAssistantActive(true);
-              const complete = await recheck();
-              if (complete) {
-                await dismissPermissionAssistant();
-              }
-              return;
-            }
-          } catch (err) {
-            lastError = err;
-          }
-          await sleep(90);
+        const { sourceImageDataUrl, ...rect } = sourceRect ?? {};
+        const presented = await invoke<boolean>("present_permission_assistant_when_ready", {
+          panel,
+          sourceRect: sourceRect ? rect : undefined,
+          sourceImageDataUrl,
+        });
+        if (!presented) {
+          throw new Error("System Settings window was not ready for the assistant.");
         }
-        throw lastError ?? new Error("System Settings window was not ready for the assistant.");
+        assistantVisible.current = true;
+        setActiveAssistantPanel(panel);
+        setAssistantActive(true);
+        const complete = await recheck();
+        if (complete) {
+          await dismissPermissionAssistant();
+        }
       } catch (err) {
         logEvent("error", "permissions", "present_permission_assistant_failed", {
           error: err,
@@ -144,6 +133,7 @@ export const usePermissionStatus = () => {
             assistantVisible.current = false;
             setAssistantActive(false);
             setActiveAssistantPanel(null);
+            void recheck();
           }
         } catch (err) {
           logEvent("error", "permissions", "refresh_permission_assistant_failed", { error: err });
@@ -155,7 +145,7 @@ export const usePermissionStatus = () => {
     }, 33);
 
     return () => window.clearInterval(interval);
-  }, [assistantActive]);
+  }, [assistantActive, recheck]);
 
   useEffect(() => {
     if (!isMac()) return;
@@ -168,16 +158,12 @@ export const usePermissionStatus = () => {
       state.screenRecording === false;
     if (!shouldPoll) return;
 
-    let cancelled = false;
     const intervalMs = assistantActive ? 500 : 1500;
     const poll = async () => {
       if (permissionPollInFlight.current) return;
       permissionPollInFlight.current = true;
       try {
-        const complete = await recheck();
-        if (!cancelled && complete && (assistantVisible.current || assistantActive)) {
-          await dismissPermissionAssistant();
-        }
+        await recheck();
       } finally {
         permissionPollInFlight.current = false;
       }
@@ -191,12 +177,10 @@ export const usePermissionStatus = () => {
     }
 
     return () => {
-      cancelled = true;
       window.clearInterval(interval);
     };
   }, [
     assistantActive,
-    dismissPermissionAssistant,
     recheck,
     state.accessibility,
     state.needsAccessibility,

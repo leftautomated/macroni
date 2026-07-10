@@ -1,23 +1,35 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { Recording } from "@/types";
 
-// Mock the Tauri APIs before importing App so the module picks them up.
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async (cmd: string) => {
-    // load_recordings is called by useRecordings on mount; return empty list.
-    if (cmd === "load_recordings") return [];
+const tauri = vi.hoisted(() => {
+  type Listener = (event: { payload: unknown }) => void | Promise<void>;
+  const state = {
+    listeners: new Map<string, Listener>(),
+    recordings: [] as unknown[],
+  };
+  const invoke = vi.fn(async (cmd: string) => {
+    // load_recordings is called by useRecordings on mount and by replay events.
+    if (cmd === "load_recordings") return [...state.recordings];
     if (cmd === "check_screen_recording_permission") return true;
     if (cmd === "check_accessibility_permission") return true;
     return undefined;
-  }),
+  });
+  const listen = vi.fn(async (event: string, handler: Listener) => {
+    state.listeners.set(event, handler);
+    return () => state.listeners.delete(event);
+  });
+  return { invoke, listen, state };
+});
+
+// Mock the Tauri APIs before importing App so the module picks them up.
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: tauri.invoke,
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(async () => {
-    // Tauri's listen returns an unlisten function.
-    return () => {};
-  }),
+  listen: tauri.listen,
 }));
 
 vi.mock("@tauri-apps/api/webviewWindow", () => ({
@@ -28,8 +40,22 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
 
 import App from "@/App";
 
+function makeRecording(id: string, loopSpeed = 1): Recording {
+  return {
+    id,
+    name: "Replay target",
+    events: [{ type: "KeyPress", key: "KeyA", timestamp: 0 }] as Recording["events"],
+    created_at: 1,
+    playback_speed: loopSpeed,
+  };
+}
+
 describe("App (integration root)", () => {
   beforeEach(() => {
+    tauri.state.recordings = [];
+    tauri.state.listeners.clear();
+    vi.clearAllMocks();
+
     // jsdom doesn't implement ResizeObserver; useAutoResize uses it.
     if (!("ResizeObserver" in globalThis)) {
       (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
@@ -62,6 +88,69 @@ describe("App (integration root)", () => {
       expect(invoke).toHaveBeenCalledWith(
         "focus_studio_window",
         expect.objectContaining({ traceId: expect.any(String) }),
+      );
+    });
+  });
+
+  it("does not subscribe to per-event input traffic (long-recording freeze regression)", async () => {
+    render(<App />);
+    await screen.findByRole("button", { name: /start/i });
+    // A long recording delivers tens of thousands of input events; any
+    // per-event listener doing React work wedges the webview main thread —
+    // and with it the (former) frontend stop path. The bar has no live event
+    // view, so the webview must not subscribe at all.
+    expect(tauri.state.listeners.has("input-event")).toBe(false);
+  });
+
+  it("refreshes recordings when the backend stops a recording (shortcut path)", async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(tauri.state.listeners.get("recording-stopped")).toBeDefined();
+    });
+    tauri.invoke.mockClear();
+
+    // Rust stopped + saved the recording itself (webview may have been busy);
+    // the frontend only refreshes its list and resets local state.
+    await act(async () => {
+      await tauri.state.listeners.get("recording-stopped")?.({
+        payload: makeRecording("rec-stopped"),
+      });
+    });
+
+    await waitFor(() => {
+      expect(tauri.invoke).toHaveBeenCalledWith(
+        "load_recordings",
+        expect.objectContaining({ traceId: expect.any(String) }),
+      );
+    });
+    // It must NOT save again — Rust already persisted it.
+    expect(tauri.invoke).not.toHaveBeenCalledWith("save_recording", expect.anything());
+  });
+
+  it("starts Studio replay with the requested loop setting", async () => {
+    const recording = makeRecording("rec-1");
+    tauri.state.recordings = [recording];
+
+    render(<App />);
+    await waitFor(() => {
+      expect(tauri.state.listeners.get("replay-recording")).toBeDefined();
+    });
+
+    await act(async () => {
+      await tauri.state.listeners.get("replay-recording")?.({
+        payload: { id: "rec-1", loopForever: false },
+      });
+    });
+
+    await waitFor(() => {
+      expect(tauri.invoke).toHaveBeenCalledWith(
+        "play_recording",
+        expect.objectContaining({
+          events: recording.events,
+          loopForever: false,
+          speed: 1,
+          traceId: expect.any(String),
+        }),
       );
     });
   });

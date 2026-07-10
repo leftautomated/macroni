@@ -10,14 +10,12 @@ interface StopResult {
 
 export const useRecorder = () => {
   const [status, setStatus] = useState<RecordingStatus>(RecordingStatus.Idle);
-  const [currentEvents, setCurrentEvents] = useState<InputEvent[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
 
   const startRecording = useCallback(async () => {
     const id = await invoke<string>("start_recording");
     setCurrentId(id);
     setStatus(RecordingStatus.Recording);
-    setCurrentEvents([]);
   }, []);
 
   const stopRecording = useCallback(async () => {
@@ -34,25 +32,21 @@ export const useRecorder = () => {
     }
   }, []);
 
-  const addEvent = useCallback((event: InputEvent) => {
-    setCurrentEvents((prev) => [...prev, event]);
-  }, []);
-
+  // The webview deliberately holds NO per-event state: events are accumulated
+  // on the Rust side and returned by stop_recording. A per-event React update
+  // here once wedged the webview main thread on long recordings.
   const clearEvents = useCallback(() => {
-    setCurrentEvents([]);
     setStatus(RecordingStatus.Idle);
     setCurrentId(null);
   }, []);
 
   return {
     status,
-    currentEvents,
     currentId,
     isRecording: status === RecordingStatus.Recording,
     isProcessing: status === RecordingStatus.Processing,
     startRecording,
     stopRecording,
-    addEvent,
     clearEvents,
   } as const;
 };

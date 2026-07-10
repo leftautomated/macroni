@@ -1,5 +1,6 @@
 import {
   CheckCircle2,
+  Eye,
   ExternalLink,
   Keyboard,
   Monitor,
@@ -41,6 +42,16 @@ export const SettingsTab = () => {
     update({ ...settings, capture: { ...settings.capture, ...partial } });
   };
 
+  const toggleCaptureVideo = () => {
+    if (!settings) return;
+    const video = !settings.capture.video;
+    update({
+      ...settings,
+      capture: { ...settings.capture, video },
+      perception: video ? settings.perception : { ...settings.perception, continuous_ocr: false },
+    });
+  };
+
   return (
     <div className="st-root">
       <style>{`
@@ -64,6 +75,7 @@ export const SettingsTab = () => {
           padding: 11px 14px; min-height: 46px; box-sizing: border-box;
         }
         .st-row + .st-row { border-top: 1px solid rgba(255,255,255,0.06); }
+        .st-row.is-disabled .st-row-label, .st-row.is-disabled .st-row-desc { opacity: 0.56; }
         .st-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .st-row-label { font-size: 13px; color: rgba(255,255,255,0.86); }
         .st-row-desc { font-size: 11.5px; line-height: 1.45; color: rgba(255,255,255,0.45); }
@@ -86,6 +98,8 @@ export const SettingsTab = () => {
         }
         .st-seg-btn svg { width: 13px; height: 13px; }
         .st-seg-btn:hover:not(.active) { color: rgba(255,255,255,0.92); background: rgba(255,255,255,0.05); }
+        .st-seg-btn:disabled { cursor: default; opacity: 0.5; }
+        .st-seg-btn:disabled:hover { color: rgba(255,255,255,0.6); background: transparent; }
         .st-seg-btn.active {
           background: #6366f1; color: #fff;
           box-shadow: 0 1px 2px rgba(0,0,0,0.28);
@@ -98,6 +112,7 @@ export const SettingsTab = () => {
           transition: background 140ms ease;
         }
         .st-switch.on { background: #6366f1; }
+        .st-switch:disabled { cursor: default; opacity: 0.5; }
         .st-knob {
           position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
           border-radius: 50%; background: #fff;
@@ -150,6 +165,24 @@ export const SettingsTab = () => {
           {settings ? (
             <>
               <div className="st-row">
+                <div className="st-row-main">
+                  <span className="st-row-label">Record screen video</span>
+                  <span className="st-row-desc">
+                    Save a screen recording with each macro. Turn off for event-only recording.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.capture.video}
+                  aria-label="Record screen video"
+                  className={`st-switch${settings.capture.video ? " on" : ""}`}
+                  onClick={toggleCaptureVideo}
+                >
+                  <span className="st-knob" />
+                </button>
+              </div>
+              <div className="st-row">
                 <span className="st-row-label">Frame rate</span>
                 <div className="st-seg">
                   {FPS_OPTIONS.map((fps) => (
@@ -158,6 +191,7 @@ export const SettingsTab = () => {
                       type="button"
                       className={`st-seg-btn${settings.capture.fps === fps ? " active" : ""}`}
                       aria-pressed={settings.capture.fps === fps}
+                      disabled={!settings.capture.video}
                       onClick={() => setCapture({ fps })}
                     >
                       {fps}
@@ -174,6 +208,7 @@ export const SettingsTab = () => {
                       type="button"
                       className={`st-seg-btn${settings.capture.quality === q ? " active" : ""}`}
                       aria-pressed={settings.capture.quality === q}
+                      disabled={!settings.capture.video}
                       onClick={() => setCapture({ quality: q })}
                     >
                       {QUALITY_LABELS[q]}
@@ -192,12 +227,53 @@ export const SettingsTab = () => {
                   aria-checked={settings.capture.audio}
                   aria-label="Capture system audio"
                   className={`st-switch${settings.capture.audio ? " on" : ""}`}
+                  disabled={!settings.capture.video}
                   onClick={() => setCapture({ audio: !settings.capture.audio })}
                 >
                   <span className="st-knob" />
                 </button>
               </div>
             </>
+          ) : (
+            <div className="st-row">
+              <span className="st-row-desc">Loading…</span>
+            </div>
+          )}
+        </div>
+      </Section>
+
+      {/* Perception */}
+      <Section icon={<Eye />} label="Perception">
+        <div className="st-panel">
+          {settings ? (
+            <div className={`st-row${settings.capture.video ? "" : " is-disabled"}`}>
+              <div className="st-row-main">
+                <span className="st-row-label">Continuous text scan while recording</span>
+                <span className="st-row-desc">
+                  OCRs the screen ~1×/sec during recording to build a searchable text timeline.
+                  Stored as plain text with the recording — leave off if you record sensitive
+                  content. Requires screen video.
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={settings.capture.video && settings.perception.continuous_ocr}
+                aria-label="Continuous text scan while recording"
+                className={`st-switch${
+                  settings.capture.video && settings.perception.continuous_ocr ? " on" : ""
+                }`}
+                disabled={!settings.capture.video}
+                onClick={() =>
+                  update({
+                    ...settings,
+                    perception: { continuous_ocr: !settings.perception.continuous_ocr },
+                  })
+                }
+              >
+                <span className="st-knob" />
+              </button>
+            </div>
           ) : (
             <div className="st-row">
               <span className="st-row-desc">Loading…</span>

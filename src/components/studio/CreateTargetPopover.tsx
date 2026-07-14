@@ -64,7 +64,7 @@ export function CreateTargetPopover({
       <style>{`
         .ctp-root {
           width: 220px;
-          background: #1c1c24;
+          background: #111;
           border: 1px solid rgba(255,255,255,0.1);
           border-radius: 10px;
           box-shadow: 0 16px 40px rgba(0,0,0,0.5);
@@ -73,7 +73,7 @@ export function CreateTargetPopover({
           flex-direction: column;
           gap: 8px;
           font-size: 12px;
-          color: #e5e7eb;
+          color: #fff;
         }
         .ctp-meta { font-size: 11px; color: rgba(255,255,255,0.45); }
         .ctp-input {
@@ -83,10 +83,10 @@ export function CreateTargetPopover({
           border: 1px solid rgba(255,255,255,0.12);
           border-radius: 6px;
           padding: 6px 8px;
-          color: #e5e7eb;
+          color: #fff;
           font-size: 12px;
         }
-        .ctp-input:focus { outline: none; border-color: #6366f1; }
+        .ctp-input:focus { outline: none; border-color: #f0cd78; }
         .ctp-kinds { display: flex; gap: 4px; }
         .ctp-kind {
           flex: 1;
@@ -100,7 +100,7 @@ export function CreateTargetPopover({
           transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
         }
         .ctp-kind:hover { background: rgba(255,255,255,0.06); }
-        .ctp-kind.sel { border-color: #6366f1; background: rgba(99,102,241,0.22); color: #fff; }
+        .ctp-kind.sel { border-color: #f0cd78; background: rgba(240,205,120,0.18); color: #f4dda4; }
         .ctp-actions { display: flex; justify-content: flex-end; gap: 6px; }
         .ctp-cancel {
           border: none; background: transparent; color: rgba(255,255,255,0.6);
@@ -108,11 +108,11 @@ export function CreateTargetPopover({
         }
         .ctp-cancel:hover { background: rgba(255,255,255,0.08); color: #fff; }
         .ctp-save {
-          border: 1px solid rgba(99,102,241,0.5); background: rgba(99,102,241,0.28);
-          color: #fff; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600;
+          border: 1px solid rgba(240,205,120,0.55); background: rgba(240,205,120,0.22);
+          color: #f4dda4; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600;
           cursor: pointer; transition: background 120ms ease;
         }
-        .ctp-save:hover { background: rgba(99,102,241,0.4); }
+        .ctp-save:hover { background: rgba(240,205,120,0.32); }
         .ctp-save:disabled { opacity: 0.6; cursor: default; }
       `}</style>
 

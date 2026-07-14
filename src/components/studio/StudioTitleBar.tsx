@@ -109,8 +109,8 @@ export function StudioTitleBar({
           display: flex;
           align-items: center;
           padding: 0 14px;
-          background: #16161d;
-          border-bottom: 1px solid rgba(255,255,255,0.06);
+          background: #111;
+          border-bottom: 1px solid rgba(255,255,255,0.1);
           user-select: none;
         }
         .tl-lights { display: flex; align-items: center; gap: 8px; }
@@ -156,7 +156,7 @@ export function StudioTitleBar({
           padding: 2px 8px;
           transition: background 120ms ease;
         }
-        .studio-title.editable:hover { background: rgba(255,255,255,0.08); }
+        .studio-title.editable:hover { background: rgba(255,255,255,0.08); color: #fff; }
         .studio-title-input {
           position: absolute;
           left: 50%;
@@ -169,7 +169,7 @@ export function StudioTitleBar({
           font-weight: 500;
           color: #fff;
           background: rgba(255,255,255,0.1);
-          border: 1px solid rgba(99,102,241,0.6);
+          border: 1px solid rgba(240,205,120,0.62);
           border-radius: 5px;
           padding: 2px 8px;
           outline: none;

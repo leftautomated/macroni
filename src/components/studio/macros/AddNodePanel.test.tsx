@@ -113,8 +113,12 @@ const recordingWithoutVideo: Recording = {
 
 const recordings: Recording[] = [recordingWithVideo, recordingWithoutVideo];
 
-async function selectRecording(name: string) {
-  await userEvent.selectOptions(screen.getByRole("combobox", { name: /recording/i }), name);
+// The recording picker is a Radix (shadcn) Select: options only exist in the
+// DOM while the dropdown is open, so open it via the trigger first, then
+// click the option by its visible name.
+async function selectRecording(name: string | RegExp) {
+  await userEvent.click(screen.getByRole("combobox", { name: /recording/i }));
+  await userEvent.click(await screen.findByRole("option", { name }));
 }
 
 async function setStartEnd(start: string, end: string) {
@@ -127,9 +131,10 @@ async function setStartEnd(start: string, end: string) {
 }
 
 describe("AddNodePanel", () => {
-  it("only lists recordings that have video in the Add Segment select", () => {
+  it("only lists recordings that have video in the Add Segment select", async () => {
     render(<AddNodePanel recordings={recordings} onAdd={() => {}} />);
-    expect(screen.getByRole("option", { name: /recording one/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("combobox", { name: /recording/i }));
+    expect(await screen.findByRole("option", { name: /recording one/i })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /no video recording/i })).not.toBeInTheDocument();
   });
 
@@ -137,7 +142,7 @@ describe("AddNodePanel", () => {
     const onAdd = vi.fn();
     render(<AddNodePanel recordings={recordings} onAdd={onAdd} />);
 
-    await selectRecording("rec-1");
+    await selectRecording("Recording One");
     await setStartEnd("1", "3");
 
     await userEvent.click(screen.getByRole("button", { name: /add segment/i }));
@@ -166,7 +171,7 @@ describe("AddNodePanel", () => {
     const onAdd = vi.fn();
     render(<AddNodePanel recordings={recordings} onAdd={onAdd} />);
 
-    await selectRecording("rec-1");
+    await selectRecording("Recording One");
     await setStartEnd("1.001", "3.0004");
 
     await userEvent.click(screen.getByRole("button", { name: /add segment/i }));
@@ -206,7 +211,7 @@ describe("AddNodePanel", () => {
   it("disables the Add Segment button when end <= start", async () => {
     render(<AddNodePanel recordings={recordings} onAdd={() => {}} />);
 
-    await selectRecording("rec-1");
+    await selectRecording("Recording One");
     await setStartEnd("3", "3");
 
     expect(screen.getByRole("button", { name: /add segment/i })).toBeDisabled();
@@ -221,7 +226,7 @@ describe("AddNodePanel", () => {
     const onAdd = vi.fn();
     const { container } = render(<AddNodePanel recordings={recordings} onAdd={onAdd} />);
 
-    await selectRecording("rec-1");
+    await selectRecording("Recording One");
 
     // rec-1's 5 events span basis(1000)+0..+4000; duration_ms=5000 over a
     // mocked 100px track: clientX 40 → 40% → 2000ms, 80 → 80% → 4000ms.
@@ -252,7 +257,7 @@ describe("AddNodePanel", () => {
   it("disables Add until a range is selected", async () => {
     const { container } = render(<AddNodePanel recordings={recordings} onAdd={() => {}} />);
 
-    await selectRecording("rec-1");
+    await selectRecording("Recording One");
     expect(screen.getByRole("button", { name: /add segment/i })).toBeDisabled();
     expect(screen.getByText("Drag on the timeline to select a range")).toBeInTheDocument();
 
@@ -266,7 +271,7 @@ describe("AddNodePanel", () => {
 
   it("resets the numeric inputs when the timeline range is cleared", async () => {
     const { container } = render(<AddNodePanel recordings={recordings} onAdd={() => {}} />);
-    await selectRecording("rec-1");
+    await selectRecording("Recording One");
 
     // Drag 40→80 (rel 2000..4000ms) so the numeric fields populate to 2/4.
     const track = container.querySelector(".tl-track") as HTMLElement;
@@ -348,7 +353,7 @@ describe("AddNodePanel", () => {
   it("disables the Add Segment button when the range is out of bounds", async () => {
     render(<AddNodePanel recordings={recordings} onAdd={() => {}} />);
 
-    await selectRecording("rec-1");
+    await selectRecording("Recording One");
     await setStartEnd("1", "10");
 
     expect(screen.getByRole("button", { name: /add segment/i })).toBeDisabled();
@@ -426,7 +431,7 @@ describe("AddNodePanel", () => {
 
     it("renders the visual-wait player once a recording with video is selected", async () => {
       render(<AddNodePanel recordings={recordings} onAdd={() => {}} />);
-      await selectRecording("rec-1");
+      await selectRecording("Recording One");
       expect(screen.getByTestId("studio-player-stub")).toBeInTheDocument();
     });
 
@@ -452,7 +457,7 @@ describe("AddNodePanel", () => {
         />,
       );
 
-      await selectRecording("rec-1");
+      await selectRecording("Recording One");
       await userEvent.click(screen.getByRole("button", { name: /simulate image save/i }));
 
       await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(1));
@@ -477,7 +482,7 @@ describe("AddNodePanel", () => {
         />,
       );
 
-      await selectRecording("rec-1");
+      await selectRecording("Recording One");
       await userEvent.click(screen.getByRole("button", { name: /simulate color save/i }));
 
       await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(1));

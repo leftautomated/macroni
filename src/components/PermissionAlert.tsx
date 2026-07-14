@@ -198,7 +198,7 @@ function PermissionDragRow({ onError }: { onError: (message: string | null) => v
 
   return (
     <div className="mt-2 flex items-center gap-2">
-      <ArrowUp className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+      <ArrowUp className="h-5 w-5 text-primary" />
       <div
         ref={rowRef}
         className="flex min-h-11 flex-1 items-center gap-2 rounded-md border bg-background/80 px-2.5 py-2 shadow-sm"

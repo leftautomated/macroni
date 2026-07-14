@@ -49,8 +49,8 @@ interface StudioPlayerProps {
 type PerceptionLayerKey = "targets" | "text";
 
 const OVERLAY_LAYERS: Array<{ key: PerceptionLayerKey; label: string; color: string }> = [
-  { key: "targets", label: "Targets", color: "#6366f1" },
-  { key: "text", label: "Text", color: "#38bdf8" },
+  { key: "targets", label: "Targets", color: "#f0cd78" },
+  { key: "text", label: "Text", color: "#f4dda4" },
 ];
 
 /** Clamped fractional (0..1) position of a client point within a rect. */
@@ -363,7 +363,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           type="range"
           className="sp-slider"
           style={{
-            background: `linear-gradient(to right, #6366f1 ${speedFrac * 100}%, rgba(255,255,255,0.18) ${speedFrac * 100}%)`,
+            background: `linear-gradient(to right, #f0cd78 ${speedFrac * 100}%, rgba(255,255,255,0.18) ${speedFrac * 100}%)`,
           }}
           min={SPEED_MIN}
           max={SPEED_MAX}
@@ -429,23 +429,23 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
         display: "flex",
         flexDirection: "column",
         gap: 12,
-        background: "#0f0f14",
+        background: "#000",
       }}
     >
       <style>{`
           .sp-btn { display:inline-flex; align-items:center; justify-content:center; border:none; background:transparent; color:#cbd5e1; border-radius:6px; padding:6px; cursor:pointer; transition: background 120ms ease, color 120ms ease; }
           .sp-btn:hover { background: rgba(255,255,255,0.08); color:#fff; }
-          .sp-btn.on { color:#a5b4fc; }
+          .sp-btn.on { color:#f0cd78; }
           /* Emphasized, circular play/pause in the center — the primary action. */
           .sp-play { display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:50%; border:1px solid rgba(255,255,255,0.25); background:transparent; color:#fff; cursor:pointer; transition: background 120ms ease, border-color 120ms ease; }
-          .sp-play:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.5); }
+          .sp-play:hover { background: rgba(240,205,120,0.12); border-color: rgba(240,205,120,0.55); color:#f0cd78; }
           .sp-text { font-size:12px; font-variant-numeric: tabular-nums; color:rgba(255,255,255,0.6); }
           .sp-time { font-size:13px; font-variant-numeric: tabular-nums; color:rgba(255,255,255,0.55); }
           .sp-slider { -webkit-appearance:none; appearance:none; width:84px; height:4px; border-radius:2px; background:rgba(255,255,255,0.18); cursor:pointer; outline:none; }
-          .sp-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:12px; height:12px; border-radius:50%; background:#a5b4fc; cursor:pointer; transition: background 120ms ease; }
-          .sp-slider::-webkit-slider-thumb:hover { background:#c7d2fe; }
-          .sp-replay { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(99,102,241,0.5); background:rgba(99,102,241,0.18); color:#e5e7eb; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; transition: background 120ms ease, border-color 120ms ease; }
-          .sp-replay:hover { background:rgba(99,102,241,0.28); border-color:#6366f1; }
+          .sp-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:12px; height:12px; border-radius:50%; background:#f0cd78; cursor:pointer; transition: background 120ms ease; }
+          .sp-slider::-webkit-slider-thumb:hover { background:#f4dda4; }
+          .sp-replay { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(240,205,120,0.5); background:rgba(240,205,120,0.18); color:#f4dda4; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; transition: background 120ms ease, border-color 120ms ease; }
+          .sp-replay:hover { background:rgba(240,205,120,0.28); border-color:#f0cd78; }
           .sp-layer { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(255,255,255,0.14); background:rgba(15,15,20,0.72); color:rgba(255,255,255,0.45); border-radius:999px; padding:3px 10px; font-size:11px; font-weight:600; cursor:pointer; transition: color 120ms ease, border-color 120ms ease; }
           .sp-layer:hover { border-color: rgba(255,255,255,0.3); }
           .sp-layer.on { color:#e5e7eb; }
@@ -550,8 +550,8 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
                 width: `${selection.w * 100}%`,
                 height: `${selection.h * 100}%`,
                 boxSizing: "border-box",
-                border: "1.5px dashed #38bdf8",
-                background: "rgba(56,189,248,0.15)",
+                border: "1.5px dashed #f0cd78",
+                background: "rgba(240,205,120,0.15)",
                 pointerEvents: "none",
               }}
             />

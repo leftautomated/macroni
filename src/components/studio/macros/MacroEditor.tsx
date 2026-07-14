@@ -5,7 +5,7 @@ import { MacrosMenu } from "@/components/studio/macros/MacrosMenu";
 import { MacroToolbar } from "@/components/studio/macros/MacroToolbar";
 import type { useMacros } from "@/hooks/useMacros";
 import { isLinearChain } from "@/lib/macro-chain";
-import { invoke, logEvent, stringifyError } from "@/lib/observability";
+import { invoke, logEvent } from "@/lib/observability";
 import type {
   MacroDoc,
   MacroNode,
@@ -14,6 +14,7 @@ import type {
   Recording,
   Region,
 } from "@/types";
+import "./macro-editor.css";
 
 export interface MacroEditorProps extends ReturnType<typeof useMacros> {
   recordings: Recording[];
@@ -48,7 +49,6 @@ export function MacroEditor({
   const [workingDoc, setWorkingDoc] = useState<MacroDoc>(() => emptyMacro("Untitled Macro"));
   const [dirty, setDirty] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
 
   // The editor always opens onto *something* editable — a throwaway blank
   // draft until the saved list arrives. Once it does, hand off from that
@@ -70,7 +70,6 @@ export function MacroEditor({
       setWorkingDoc(found);
       setDirty(false);
       setConfirmDeleteId(null);
-      setRunError(null);
       clearFailed();
     },
     [macros, clearFailed],
@@ -82,7 +81,6 @@ export function MacroEditor({
       setWorkingDoc(emptyMacro(name));
       setDirty(false);
       setConfirmDeleteId(null);
-      setRunError(null);
       clearFailed();
     },
     [clearFailed],
@@ -124,9 +122,8 @@ export function MacroEditor({
   // panel: save_target crops the reference PNG out of the recording's video
   // at `timestampMs` and rewrites `target.kind.image` to point at it — the
   // panel wraps whatever this returns in a WaitFor node, never the pre-save
-  // target (which still has an empty `image`). Errors surface in the same
-  // banner as Save/Run and no node gets added (the panel never calls onAdd if
-  // this rejects).
+  // target (which still has an empty `image`). No node gets added if this
+  // rejects (the panel never calls onAdd), and the failure is logged.
   const captureImageWait = useCallback(
     async (
       recordingId: string,
@@ -149,7 +146,6 @@ export function MacroEditor({
           error: e,
           fields: { recordingId, targetId: target.id },
         });
-        setRunError(stringifyError(e));
         throw e;
       }
     },
@@ -158,8 +154,8 @@ export function MacroEditor({
 
   // Sample the average color of a region at a given playhead (for the Visual
   // Wait panel's Color authoring path) — mirrors StudioEditor's own
-  // handleSampleColor. Falls back to black on failure (surfaced via the
-  // banner) rather than throwing, since the panel always has a color to wrap.
+  // handleSampleColor. Falls back to black on failure rather than throwing,
+  // since the panel always has a color to wrap; the failure is logged.
   const sampleColor = useCallback(
     async (
       recordingId: string,
@@ -178,7 +174,6 @@ export function MacroEditor({
           error: e,
           fields: { recordingId, timestampMs },
         });
-        setRunError(stringifyError(e));
         return [0, 0, 0];
       }
     },
@@ -197,7 +192,6 @@ export function MacroEditor({
           error: e,
           fields: { id: workingDoc.id },
         });
-        setRunError(stringifyError(e));
       });
   }, [save, workingDoc]);
 
@@ -211,90 +205,68 @@ export function MacroEditor({
 
   const handleRun = useCallback(() => {
     if (!valid || needsSave || runState !== "idle") return;
-    setRunError(null);
     run(workingDoc.id).catch((e) => {
       logEvent("error", "macros", "run_macro_failed", { error: e, fields: { id: workingDoc.id } });
-      // Tauri commands reject with plain strings, not Error objects — route
-      // through stringifyError so the real backend reason surfaces instead of
-      // collapsing to a generic message.
-      const message = stringifyError(e);
-      setRunError(message === "Already playing" ? "Stop playback first." : message);
     });
   }, [valid, needsSave, runState, run, workingDoc.id]);
 
   const handleStop = useCallback(() => {
     stop().catch((e) => {
       logEvent("error", "macros", "stop_macro_failed", { error: e });
-      setRunError(stringifyError(e));
     });
   }, [stop]);
 
   // A deliberate Stop surfaces as a macro-run-failed event with reason
-  // "stopped" — show it as neutral status, not a red failure banner/node.
+  // "stopped" — don't treat that as a failed canvas node.
   const isStoppedRun = failed?.reason === "stopped";
-  const bannerError =
-    runError ?? (failed && !isStoppedRun ? `"${failed.nodeId}" failed: ${failed.reason}` : null);
-  const bannerInfo = !runError && isStoppedRun ? "Run stopped." : null;
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: "10px 16px",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-        }}
-      >
-        <MacrosMenu
-          macros={macros}
-          selectedId={workingDoc.id}
-          confirmDeleteId={confirmDeleteId}
-          onSelect={handleSelect}
-          onCreate={handleCreate}
-          onDeleteClick={handleDeleteClick}
+    <div className="macro-editor-root">
+      <div className="macro-editor-header">
+        <div className="macro-editor-identity">
+          <MacrosMenu
+            macros={macros}
+            selectedId={workingDoc.id}
+            confirmDeleteId={confirmDeleteId}
+            onSelect={handleSelect}
+            onCreate={handleCreate}
+            onDeleteClick={handleDeleteClick}
+          />
+          <div className="macro-editor-title-group">
+            <div className="macro-editor-kicker">Macro Canvas</div>
+            <div className="macro-editor-title">{workingDoc.name}</div>
+          </div>
+        </div>
+        <MacroToolbar
+          dirty={dirty}
+          valid={valid}
+          runState={runState}
+          runDisabledReason={runDisabledReason}
+          onSave={handleSave}
+          onRun={handleRun}
+          onStop={handleStop}
         />
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb" }}>{workingDoc.name}</div>
       </div>
 
-      <MacroToolbar
-        dirty={dirty}
-        valid={valid}
-        runState={runState}
-        runDisabledReason={runDisabledReason}
-        onSave={handleSave}
-        onRun={handleRun}
-        onStop={handleStop}
-        error={bannerError}
-        info={bannerInfo}
-      />
-
-      <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-        <div
-          style={{
-            width: 260,
-            flexShrink: 0,
-            padding: 16,
-            overflowY: "auto",
-            borderRight: "1px solid rgba(255,255,255,0.08)",
-          }}
-        >
-          <AddNodePanel
-            recordings={recordings}
-            onAdd={handleAddNode}
-            captureImageWait={captureImageWait}
-            sampleColor={sampleColor}
-          />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="macro-editor-main">
+        <aside className="macro-editor-sidebar">
+          <div className="macro-editor-sidebar-inner">
+            <AddNodePanel
+              recordings={recordings}
+              onAdd={handleAddNode}
+              captureImageWait={captureImageWait}
+              sampleColor={sampleColor}
+            />
+          </div>
+        </aside>
+        <section className="macro-editor-canvas-pane" aria-label="Macro canvas">
           <MacroCanvas
             doc={workingDoc}
             liveNodeId={liveNodeId}
             failedNodeId={isStoppedRun ? null : (failed?.nodeId ?? null)}
             onChange={handleCanvasChange}
           />
-        </div>
+        </section>
       </div>
     </div>
   );

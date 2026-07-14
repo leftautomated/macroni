@@ -8,6 +8,11 @@ globalThis.ResizeObserver ??= class {
   disconnect() {}
 } as unknown as typeof ResizeObserver;
 
+// jsdom doesn't implement scrollIntoView or pointer capture, both of which
+// Radix popovers/selects call when opening.
+Element.prototype.scrollIntoView ??= () => {};
+Element.prototype.hasPointerCapture ??= () => false;
+
 vi.mock("@tauri-apps/plugin-log", () => ({
   attachConsole: vi.fn().mockResolvedValue(() => {}),
   debug: vi.fn().mockResolvedValue(undefined),

@@ -51,7 +51,7 @@ export const DiagnosticsPanel = () => {
           font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
           color: rgba(255,255,255,0.42);
         }
-        .diag-title svg { width: 13px; height: 13px; }
+        .diag-title svg { width: 13px; height: 13px; color: #f0cd78; }
         .diag-actions { display: inline-flex; gap: 6px; }
         .diag-btn {
           display: inline-flex; align-items: center; gap: 6px;
@@ -62,7 +62,7 @@ export const DiagnosticsPanel = () => {
           transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
         }
         .diag-btn svg { width: 13px; height: 13px; }
-        .diag-btn:hover:not(:disabled) { background: rgba(255,255,255,0.09); color: #fff; border-color: rgba(255,255,255,0.18); }
+        .diag-btn:hover:not(:disabled) { background: rgba(240,205,120,0.12); color: #f0cd78; border-color: rgba(240,205,120,0.3); }
         .diag-btn:disabled { opacity: 0.5; cursor: default; }
         .diag-panel {
           border: 1px solid rgba(255,255,255,0.07);
@@ -83,8 +83,8 @@ export const DiagnosticsPanel = () => {
           color: rgba(255,255,255,0.68); transition: color 120ms ease; min-width: 0;
         }
         .diag-path-link svg { width: 13px; height: 13px; flex-shrink: 0; color: rgba(255,255,255,0.38); transition: color 120ms ease; }
-        .diag-path-link:hover { color: #a5b4fc; }
-        .diag-path-link:hover svg { color: #a5b4fc; }
+        .diag-path-link:hover { color: #f0cd78; }
+        .diag-path-link:hover svg { color: #f0cd78; }
         .diag-path-link:hover .diag-path-v { text-decoration: underline; text-underline-offset: 2px; }
         .diag-path-v {
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

@@ -63,11 +63,11 @@ export function RecordingsMenu({
           color: rgba(255,255,255,0.65); cursor: pointer;
           transition: background 120ms ease, color 120ms ease;
         }
-        .rm-folder:hover, .rm-folder.open { background: rgba(255,255,255,0.1); color: #fff; }
+        .rm-folder:hover, .rm-folder.open { background: rgba(240,205,120,0.14); color: #f0cd78; }
         .rm-menu {
           position: absolute; top: calc(100% + 6px); left: 0; z-index: 100;
           width: 280px; max-height: 60vh; overflow-y: auto;
-          background: #1c1c24; border: 1px solid rgba(255,255,255,0.1);
+          background: #111; border: 1px solid rgba(255,255,255,0.1);
           border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,0.5);
           padding: 6px;
         }
@@ -87,14 +87,14 @@ export function RecordingsMenu({
           transition: background 120ms ease, border-color 120ms ease;
         }
         .rm-row:hover { background: rgba(255,255,255,0.05); }
-        .rm-row.sel { border-color: #6366f1; background: rgba(99,102,241,0.18); }
+        .rm-row.sel { border-color: rgba(240,205,120,0.5); background: rgba(240,205,120,0.14); }
         .rm-pick {
           flex: 1; min-width: 0; text-align: left;
           border: none; background: transparent; color: inherit;
           border-radius: 8px; padding: 8px 10px; cursor: pointer;
         }
         .rm-name {
-          font-size: 13px; font-weight: 600; margin-bottom: 2px; color: #e5e7eb;
+          font-size: 13px; font-weight: 600; margin-bottom: 2px; color: #fff;
           overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         .rm-meta { font-size: 12px; color: rgba(255,255,255,0.5); }

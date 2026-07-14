@@ -27,48 +27,60 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --brand-yellow: #f0cd78;
+  --brand-yellow-hover: #e5b853;
+  --brand-yellow-glow: #ffbd2e;
+  --brand-dark: #000000;
+  --brand-gray: #171717;
+  --brand-panel: #111111;
+  --brand-code: #050505;
+  --brand-border: rgb(255 255 255 / 10%);
+  --brand-border-strong: rgb(255 255 255 / 18%);
 
-  --opacity: 0.85;
+  --background: var(--brand-dark);
+  --foreground: #ffffff;
+  --card: var(--brand-panel);
+  --card-foreground: #ffffff;
+  --popover: var(--brand-panel);
+  --popover-foreground: #ffffff;
+  --primary: var(--brand-yellow);
+  --primary-foreground: #000000;
+  --secondary: var(--brand-gray);
+  --secondary-foreground: #ffffff;
+  --muted: var(--brand-gray);
+  --muted-foreground: rgb(255 255 255 / 48%);
+  --accent: rgb(255 255 255 / 8%);
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: var(--brand-border);
+  --input: rgb(255 255 255 / 12%);
+  --ring: var(--brand-yellow);
+
+  --opacity: 0.88;
   --backdrop-blur: blur(20px);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.18 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.18 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.24 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.24 0 0);
-  --muted-foreground: oklch(0.65 0 0);
-  --accent: oklch(0.24 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --background: var(--brand-dark);
+  --foreground: #ffffff;
+  --card: var(--brand-panel);
+  --card-foreground: #ffffff;
+  --popover: var(--brand-panel);
+  --popover-foreground: #ffffff;
+  --primary: var(--brand-yellow);
+  --primary-foreground: #000000;
+  --secondary: var(--brand-gray);
+  --secondary-foreground: #ffffff;
+  --muted: var(--brand-gray);
+  --muted-foreground: rgb(255 255 255 / 48%);
+  --accent: rgb(255 255 255 / 8%);
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: var(--brand-border);
+  --input: rgb(255 255 255 / 12%);
+  --ring: var(--brand-yellow);
 }
 
 @layer base {
@@ -83,6 +95,8 @@
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
   #root {
     @apply overflow-hidden;
@@ -98,27 +112,23 @@
     -ms-user-select: none;
   }
 
-  /* Remove outlines from interactive elements */
-  button:focus,
-  button:focus-visible,
-  a:focus,
-  a:focus-visible,
-  *:focus,
+  *:focus:not(:focus-visible) {
+    outline: none;
+  }
+
   *:focus-visible {
-    outline: none !important;
-    box-shadow: none !important;
+    outline: 2px solid var(--brand-yellow);
+    outline-offset: 2px;
   }
 }
 
-/* Custom scrollbars */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: oklch(0.5 0 0 / 0.15) transparent;
-}
+/* Custom scrollbars. Keep scrollbar-width/color at their default `auto` values:
+   setting either property makes modern WebKit use its native scrollbar instead
+   of the ::-webkit-scrollbar parts below. */
 
 *::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 *::-webkit-scrollbar-track {
@@ -126,28 +136,32 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background: oklch(0.5 0 0 / 0.15);
-  border-radius: 3px;
+  min-width: 40px;
+  min-height: 40px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: rgb(240 205 120 / 42%);
+  background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.5 0 0 / 0.3);
+  background-color: rgb(240 205 120 / 72%);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: rgb(240 205 120 / 92%);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 *::-webkit-scrollbar-corner {
   background: transparent;
-}
-
-.dark *::-webkit-scrollbar-thumb {
-  background: oklch(0.8 0 0 / 0.15);
-}
-
-.dark *::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.8 0 0 / 0.3);
-}
-
-.dark * {
-  scrollbar-color: oklch(0.8 0 0 / 0.15) transparent;
 }
 
 /* Apply transparency to cards */

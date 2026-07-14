@@ -10,7 +10,7 @@ interface PerceptionOverlayProps {
 
 /**
  * Read-only layer drawn over the video at its displayed rect: perception
- * targets (indigo boxes, name label chip) and OCR text spans (thin sky-blue
+ * targets (yellow boxes, name label chip) and OCR text spans (thin warm
  * boxes). Region coordinates are fractional (0..1) against the video frame,
  * so they're scaled to `rect.width`/`rect.height` in px here. Purely
  * presentational — `pointerEvents: "none"` so it never intercepts clicks;
@@ -41,7 +41,7 @@ export function PerceptionOverlay({ rect, targets, spans }: PerceptionOverlayPro
               width: region.w * rect.width,
               height: region.h * rect.height,
               boxSizing: "border-box",
-              border: "1.5px solid #6366f1",
+              border: "1.5px solid #f0cd78",
             }}
           >
             <span
@@ -54,8 +54,8 @@ export function PerceptionOverlay({ rect, targets, spans }: PerceptionOverlayPro
                 fontSize: 11,
                 fontWeight: 600,
                 lineHeight: "16px",
-                color: "#fff",
-                background: "#6366f1",
+                color: "#000",
+                background: "#f0cd78",
                 borderRadius: "3px 3px 0 0",
               }}
             >
@@ -75,7 +75,7 @@ export function PerceptionOverlay({ rect, targets, spans }: PerceptionOverlayPro
             width: span.region.w * rect.width,
             height: span.region.h * rect.height,
             boxSizing: "border-box",
-            border: "1px solid #38bdf8",
+            border: "1px solid #f4dda4",
           }}
         />
       ))}

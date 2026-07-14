@@ -63,7 +63,7 @@ export const SettingsTab = () => {
           font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
           color: rgba(255,255,255,0.42);
         }
-        .st-label svg { width: 13px; height: 13px; }
+        .st-label svg { width: 13px; height: 13px; color: #f0cd78; }
         .st-panel {
           border: 1px solid rgba(255,255,255,0.07);
           background: rgba(255,255,255,0.025);
@@ -101,7 +101,7 @@ export const SettingsTab = () => {
         .st-seg-btn:disabled { cursor: default; opacity: 0.5; }
         .st-seg-btn:disabled:hover { color: rgba(255,255,255,0.6); background: transparent; }
         .st-seg-btn.active {
-          background: #6366f1; color: #fff;
+          background: #f0cd78; color: #000;
           box-shadow: 0 1px 2px rgba(0,0,0,0.28);
         }
 
@@ -111,7 +111,7 @@ export const SettingsTab = () => {
           background: rgba(255,255,255,0.16); cursor: pointer;
           transition: background 140ms ease;
         }
-        .st-switch.on { background: #6366f1; }
+        .st-switch.on { background: #f0cd78; }
         .st-switch:disabled { cursor: default; opacity: 0.5; }
         .st-knob {
           position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
@@ -119,7 +119,7 @@ export const SettingsTab = () => {
           box-shadow: 0 1px 2px rgba(0,0,0,0.35);
           transition: transform 140ms cubic-bezier(0.2,0.8,0.2,1);
         }
-        .st-switch.on .st-knob { transform: translateX(16px); }
+        .st-switch.on .st-knob { transform: translateX(16px); background: #000; }
 
         .st-keys { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
         .st-kbd {
@@ -149,7 +149,7 @@ export const SettingsTab = () => {
           transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
         }
         .st-btn svg { width: 13px; height: 13px; }
-        .st-btn:hover { background: rgba(255,255,255,0.09); color: #fff; border-color: rgba(255,255,255,0.18); }
+        .st-btn:hover { background: rgba(240,205,120,0.12); color: #f0cd78; border-color: rgba(240,205,120,0.3); }
         .st-btn:disabled { opacity: 0.5; cursor: default; }
       `}</style>
 

@@ -212,7 +212,7 @@ describe("MacroEditor", () => {
     });
   });
 
-  it("surfaces a stop failure in the toolbar banner", async () => {
+  it("does not render a removed toolbar banner when Stop fails", async () => {
     fake.rejectStop = "engine busy";
     render(<Wrapper recordings={recordings} />);
     await screen.findByText(/0 node/i);
@@ -223,10 +223,10 @@ describe("MacroEditor", () => {
     const stopButton = await screen.findByRole("button", { name: /stop/i });
     await userEvent.click(stopButton);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/engine busy/i);
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 
-  it('surfaces a plain-string "Already playing" run rejection as "Stop playback first."', async () => {
+  it("does not render a removed toolbar banner when Run fails", async () => {
     fake.rejectRun = "Already playing";
     render(<Wrapper recordings={recordings} />);
     await screen.findByText(/0 node/i);
@@ -235,24 +235,10 @@ describe("MacroEditor", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /run/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/stop playback first/i);
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 
-  it("surfaces other plain-string run rejections verbatim (e.g. an invalid chain caught server-side)", async () => {
-    fake.rejectRun = "Macro nodes must form a single linear chain";
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
-    await addTextWait();
-    await saveAndWaitForRunEnabled();
-
-    await userEvent.click(screen.getByRole("button", { name: /run/i }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /macro nodes must form a single linear chain/i,
-    );
-  });
-
-  it("shows a neutral message (not the red banner or a red node) when a run is stopped deliberately", async () => {
+  it("does not show a status message or failed node when a run is stopped deliberately", async () => {
     render(<Wrapper recordings={recordings} />);
     await screen.findByText(/0 node/i);
     await waitFor(() => expect(state.listeners.get("macro-run-failed")).toBeDefined());
@@ -263,12 +249,12 @@ describe("MacroEditor", () => {
       });
     });
 
-    expect(await screen.findByText(/run stopped\./i)).toBeInTheDocument();
+    expect(screen.queryByText(/run stopped\./i)).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByText(/failed node: none/i)).toBeInTheDocument();
   });
 
-  it("shows the red failure banner and highlights the failed node for a genuine (non-stopped) failure", async () => {
+  it("highlights a genuine failed node without rendering the removed error banner", async () => {
     render(<Wrapper recordings={recordings} />);
     await screen.findByText(/0 node/i);
     await waitFor(() => expect(state.listeners.get("macro-run-failed")).toBeDefined());
@@ -279,11 +265,11 @@ describe("MacroEditor", () => {
       });
     });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/timeout waiting for text/i);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByText(/failed node: n1/i)).toBeInTheDocument();
   });
 
-  it("clears a stale failure banner/highlight when switching to a different macro", async () => {
+  it("clears a stale failure highlight when switching to a different macro", async () => {
     fake.macros = [{ id: "m1", name: "Other Macro", nodes: [], edges: [], created_at: 1 }];
     render(<Wrapper recordings={recordings} />);
     await screen.findByText(/0 node/i);
@@ -294,16 +280,15 @@ describe("MacroEditor", () => {
         payload: { macroId: "x", nodeId: "n1", reason: "boom" },
       });
     });
-    expect(await screen.findByRole("alert")).toHaveTextContent(/boom/i);
+    expect(screen.getByText(/failed node: n1/i)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
     await userEvent.click(screen.getByRole("button", { name: /other macro/i }));
 
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByText(/failed node: none/i)).toBeInTheDocument();
   });
 
-  it("clears a stale failure banner when creating a new macro", async () => {
+  it("clears a stale failure highlight when creating a new macro", async () => {
     render(<Wrapper recordings={recordings} />);
     await screen.findByText(/0 node/i);
     await waitFor(() => expect(state.listeners.get("macro-run-failed")).toBeDefined());
@@ -313,14 +298,14 @@ describe("MacroEditor", () => {
         payload: { macroId: "x", nodeId: "n1", reason: "boom" },
       });
     });
-    expect(await screen.findByRole("alert")).toHaveTextContent(/boom/i);
+    expect(screen.getByText(/failed node: n1/i)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
     await userEvent.click(screen.getByRole("button", { name: /new macro/i }));
     await userEvent.type(screen.getByLabelText(/macro name/i), "Fresh");
     await userEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText(/failed node: none/i)).toBeInTheDocument();
   });
 
   it("creating a named macro via the menu seeds a fresh working doc", async () => {

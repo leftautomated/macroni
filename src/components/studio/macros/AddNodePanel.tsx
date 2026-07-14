@@ -1,7 +1,16 @@
 import { useCallback, useMemo, useState } from "react";
+import { Film, ImagePlus, Plus, ScanText } from "lucide-react";
 import type { KindOption } from "@/components/studio/CreateTargetPopover";
 import { StudioPlayer } from "@/components/studio/StudioPlayer";
 import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import { eventsInRange, segmentBasis, segmentNodeFromRange } from "@/lib/macro-segment";
 import { waitNodeFromTarget } from "@/lib/macro-wait";
@@ -198,47 +207,31 @@ export function AddNodePanel({
 
   return (
     <div className="anp-root">
-      <style>{`
-        .anp-root { display: flex; flex-direction: column; gap: 16px; font-family: system-ui, -apple-system, sans-serif; }
-        .anp-section { display: flex; flex-direction: column; gap: 8px; }
-        .anp-title { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.85); }
-        .anp-row { display: flex; gap: 6px; }
-        .anp-input {
-          width: 100%;
-          box-sizing: border-box;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 6px;
-          padding: 6px 8px;
-          color: #e5e7eb;
-          font-size: 12px;
-        }
-        .anp-input:focus { outline: none; border-color: #6366f1; }
-        .anp-add {
-          border: 1px solid rgba(99,102,241,0.5); background: rgba(99,102,241,0.28);
-          color: #fff; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600;
-          cursor: pointer; transition: background 120ms ease;
-        }
-        .anp-add:hover:not(:disabled) { background: rgba(99,102,241,0.4); }
-        .anp-add:disabled { opacity: 0.4; cursor: default; }
-        .anp-summary { font-size: 11px; color: rgba(255,255,255,0.5); }
-      `}</style>
-
       <div className="anp-section">
-        <div className="anp-title">Add Segment</div>
-        <select
-          aria-label="Recording"
-          className="anp-input"
-          value={recordingId}
-          onChange={(e) => handleRecordingChange(e.target.value)}
-        >
-          <option value="">Select recording…</option>
-          {recordingsWithVideo.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name || r.id}
-            </option>
-          ))}
-        </select>
+        <div className="anp-title">
+          <Film aria-hidden="true" />
+          Add Segment
+        </div>
+        <div className="anp-field">
+          <span className="anp-label">Recording</span>
+          <Select value={recordingId} onValueChange={handleRecordingChange}>
+            <SelectTrigger
+              aria-label="Recording"
+              className="h-8 focus:ring-0 focus:ring-offset-0 focus-visible:ring-2"
+            >
+              <SelectValue placeholder="Select recording..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {recordingsWithVideo.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name || r.id}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
         {selected?.video && (
           <>
             <StudioTimeline
@@ -257,21 +250,27 @@ export function AddNodePanel({
             </div>
           </>
         )}
-        <div className="anp-row">
-          <input
-            aria-label="Start (s)"
-            className="anp-input"
-            type="number"
-            value={startS}
-            onChange={(e) => handleStartChange(e.target.value)}
-          />
-          <input
-            aria-label="End (s)"
-            className="anp-input"
-            type="number"
-            value={endS}
-            onChange={(e) => handleEndChange(e.target.value)}
-          />
+        <div className="anp-field-grid">
+          <label className="anp-field">
+            <span className="anp-label">Start (s)</span>
+            <input
+              aria-label="Start (s)"
+              className="anp-input"
+              type="number"
+              value={startS}
+              onChange={(e) => handleStartChange(e.target.value)}
+            />
+          </label>
+          <label className="anp-field">
+            <span className="anp-label">End (s)</span>
+            <input
+              aria-label="End (s)"
+              className="anp-input"
+              type="number"
+              value={endS}
+              onChange={(e) => handleEndChange(e.target.value)}
+            />
+          </label>
         </div>
         <button
           type="button"
@@ -279,43 +278,59 @@ export function AddNodePanel({
           disabled={!segmentValid}
           onClick={handleAddSegment}
         >
+          <Plus aria-hidden="true" />
           Add Segment
         </button>
       </div>
 
       <div className="anp-section">
-        <div className="anp-title">Add Text Wait</div>
-        <input
-          aria-label="Expected text"
-          className="anp-input"
-          value={expectText}
-          onChange={(e) => setExpectText(e.target.value)}
-          placeholder="Expected text"
-        />
-        <input
-          aria-label="Timeout (s)"
-          className="anp-input"
-          type="number"
-          value={timeoutS}
-          onChange={(e) => setTimeoutS(e.target.value)}
-        />
+        <div className="anp-title">
+          <ScanText aria-hidden="true" />
+          Add Text Wait
+        </div>
+        <label className="anp-field">
+          <span className="anp-label">Expected text</span>
+          <input
+            aria-label="Expected text"
+            className="anp-input"
+            value={expectText}
+            onChange={(e) => setExpectText(e.target.value)}
+            placeholder="Expected text"
+          />
+        </label>
+        <label className="anp-field">
+          <span className="anp-label">Timeout (s)</span>
+          <input
+            aria-label="Timeout (s)"
+            className="anp-input"
+            type="number"
+            value={timeoutS}
+            onChange={(e) => setTimeoutS(e.target.value)}
+          />
+        </label>
         <button type="button" className="anp-add" disabled={!expectValid} onClick={handleAddWait}>
+          <Plus aria-hidden="true" />
           Add Text Wait
         </button>
       </div>
 
       <div className="anp-section">
-        <div className="anp-title">Add Visual Wait</div>
+        <div className="anp-title">
+          <ImagePlus aria-hidden="true" />
+          Add Visual Wait
+        </div>
         {selected?.video ? (
-          <StudioPlayer
-            src={videoUrl ?? ""}
-            fps={selected.video.fps}
-            onTimeUpdate={noop}
-            onReplay={noop}
-            onSaveTarget={handleVisualTarget}
-            onSampleColor={handleSampleColor}
-            popoverKinds={VISUAL_WAIT_KINDS}
-          />
+          <div className="anp-video-well">
+            <StudioPlayer
+              src={videoUrl ?? ""}
+              fps={selected.video.fps}
+              onTimeUpdate={noop}
+              onReplay={noop}
+              onSaveTarget={handleVisualTarget}
+              onSampleColor={handleSampleColor}
+              popoverKinds={VISUAL_WAIT_KINDS}
+            />
+          </div>
         ) : (
           <div className="anp-summary">
             Select a recording above, then drag a box on the frame to add an image or color wait.

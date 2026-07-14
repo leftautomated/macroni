@@ -253,22 +253,14 @@ export function StudioEditor() {
         flexDirection: "column",
         borderRadius: 12,
         fontFamily: "system-ui, -apple-system, sans-serif",
-        color: "#e5e7eb",
-        background: "#0f0f14",
+        color: "#fff",
+        background:
+          "radial-gradient(circle at 50% -18%, rgba(240,205,120,0.11), transparent 36%), #000",
       }}
     >
       <style>{`
-        /* Themed scrollbars for the whole studio window. ::-webkit-scrollbar
-           only — any non-auto scrollbar-width/scrollbar-color makes WebKit
-           ignore the pseudo-element styles entirely (CSS Scrollbars spec), so
-           setting both left the native bar showing. Lives here in the
-           always-mounted root component. */
-        *::-webkit-scrollbar { width: 8px; height: 8px; }
-        *::-webkit-scrollbar-track { background: transparent; }
-        *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
-        *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.32); background-clip: padding-box; }
         .studio-gear { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 24px; padding: 0; border: none; border-radius: 6px; background: transparent; color: rgba(255,255,255,0.65); cursor: pointer; transition: background 120ms ease, color 120ms ease; }
-        .studio-gear:hover, .studio-gear.active { background: rgba(255,255,255,0.1); color: #fff; }
+        .studio-gear:hover, .studio-gear.active { background: rgba(240,205,120,0.14); color: #f0cd78; }
 
         /* Custom scrollbar for the settings page — a rounded thumb that floats
            inset from the edge (transparent border + padding-box clip), brighter
@@ -277,14 +269,14 @@ export function StudioEditor() {
         .studio-settings-scroll::-webkit-scrollbar { width: 12px; }
         .studio-settings-scroll::-webkit-scrollbar-track { background: transparent; }
         .studio-settings-scroll::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.16);
+          background: rgba(240,205,120,0.42);
           border-radius: 999px;
-          border: 4px solid transparent;
+          border: 3px solid transparent;
           background-clip: padding-box;
           min-height: 48px;
         }
-        .studio-settings-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); background-clip: padding-box; }
-        .studio-settings-scroll::-webkit-scrollbar-thumb:active { background: rgba(255,255,255,0.42); background-clip: padding-box; }
+        .studio-settings-scroll::-webkit-scrollbar-thumb:hover { background: rgba(240,205,120,0.72); background-clip: padding-box; }
+        .studio-settings-scroll::-webkit-scrollbar-thumb:active { background: rgba(240,205,120,0.92); background-clip: padding-box; }
       `}</style>
 
       <StudioTitleBar
@@ -384,7 +376,7 @@ export function StudioEditor() {
                 flexShrink: 0,
                 padding: "12px 24px 18px",
                 borderTop: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(20,20,28,0.55)",
+                background: "rgba(17,17,17,0.72)",
               }}
             >
               <div ref={setControlsHost} style={{ marginBottom: 14 }} />

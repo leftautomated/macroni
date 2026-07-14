@@ -1,57 +1,68 @@
+import type { CSSProperties } from "react";
+import { MousePointer2 } from "lucide-react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { nodeSummary } from "@/lib/macro-flow";
-import type { MacroNode } from "@/types";
+import type { MacroNode, MacroNodeKind } from "@/types";
 
-const ACCENT = "#6366f1";
-const FAILED = "#f87171";
+const ACCENT = "#f0cd78";
+
+function segmentDurationLabel(kind: Extract<MacroNodeKind, { type: "Segment" }>): string {
+  if (kind.provenance) {
+    return `${((kind.provenance.end_ms - kind.provenance.start_ms) / 1000).toFixed(1)}s`;
+  }
+  if (kind.events.length < 2) return "0s";
+  const first = kind.events[0];
+  const last = kind.events[kind.events.length - 1];
+  return `${Math.round(((last.timestamp - first.timestamp) / 1000) * 10) / 10}s`;
+}
 
 /** Custom react-flow node for a `Segment` macro node — a recorded input clip. */
 export function SegmentNodeView({ data }: NodeProps) {
   const node = data.node as MacroNode;
+  if (node.kind.type !== "Segment") return null;
+
   const live = Boolean(data.live);
   const failed = Boolean(data.failed);
-  const borderColor = failed ? FAILED : live ? ACCENT : "rgba(255,255,255,0.14)";
+  const stateLabel = failed ? "Failed" : live ? "Live" : "Segment";
+  const duration = segmentDurationLabel(node.kind);
+  const recording = node.kind.provenance?.recording_id ?? "manual";
+  const speed = `${node.kind.speed}x`;
 
   return (
     <div
-      style={{
-        minWidth: 170,
-        padding: "10px 14px",
-        borderRadius: 10,
-        background: "#16161d",
-        border: `1.5px solid ${borderColor}`,
-        boxShadow: failed
-          ? `0 0 0 3px ${FAILED}33`
-          : live
-            ? `0 0 0 3px ${ACCENT}33, 0 0 14px ${ACCENT}66`
-            : "none",
-        color: "#e5e7eb",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-        fontSize: 12,
-        animation: live ? "macro-segment-pulse 1.6s ease-in-out infinite" : "none",
-        transition: "border-color 150ms ease, box-shadow 150ms ease",
-      }}
+      className={`macro-node macro-node--segment${live ? " macro-node--live" : ""}${
+        failed ? " macro-node--failed" : ""
+      }`}
+      style={{ "--macro-node-accent": ACCENT } as CSSProperties}
     >
-      {live && (
-        <style>{`
-          @keyframes macro-segment-pulse {
-            0%, 100% { box-shadow: 0 0 0 3px ${ACCENT}33, 0 0 14px ${ACCENT}66; }
-            50% { box-shadow: 0 0 0 5px ${ACCENT}55, 0 0 24px ${ACCENT}aa; }
-          }
-        `}</style>
-      )}
-      <Handle
-        type="target"
-        position={Position.Left}
-        style={{ background: ACCENT, width: 8, height: 8, border: "none" }}
-      />
-      <div style={{ fontWeight: 600, marginBottom: 4, color: ACCENT }}>Segment</div>
-      <div style={{ opacity: 0.85 }}>{nodeSummary(node)}</div>
-      <Handle
-        type="source"
-        position={Position.Right}
-        style={{ background: ACCENT, width: 8, height: 8, border: "none" }}
-      />
+      <Handle type="target" position={Position.Left} className="macro-node-handle" />
+      <div className="macro-node-body">
+        <div className="macro-node-head">
+          <div className="macro-node-type">
+            <MousePointer2 aria-hidden="true" />
+            Segment
+          </div>
+          <div className="macro-node-badge" data-state={failed ? "failed" : undefined}>
+            {stateLabel}
+          </div>
+        </div>
+        <div className="macro-node-summary">{nodeSummary(node)}</div>
+        <div className="macro-node-meta">
+          <span className="macro-node-chip">
+            <strong>{node.kind.events.length}</strong> events
+          </span>
+          <span className="macro-node-chip">
+            <strong>{duration}</strong>
+          </span>
+          <span className="macro-node-chip">
+            <strong>{speed}</strong>
+          </span>
+          <span className="macro-node-chip" title={recording}>
+            {recording}
+          </span>
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} className="macro-node-handle" />
     </div>
   );
 }

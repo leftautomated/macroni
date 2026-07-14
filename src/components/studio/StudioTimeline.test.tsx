@@ -172,7 +172,7 @@ describe("StudioTimeline", () => {
     const keysLane = lanes[1] as HTMLElement;
     const tick = keysLane.querySelector('[title*="⇄ →"][title*="×2"]') as HTMLElement;
     expect(tick).toBeTruthy();
-    expect(tick.style.background).toBe("rgb(244, 114, 182)"); // #f472b6
+    expect(tick.style.background).toBe("rgb(213, 81, 129)"); // #d55181
     // Mouse lane must NOT contain it.
     expect((lanes[0] as HTMLElement).querySelector('[title*="⇄"]')).toBeNull();
     expect(screen.getByText("Space")).toBeInTheDocument(); // legend

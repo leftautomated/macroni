@@ -307,7 +307,10 @@ function PermissionGateAction({
     <Button
       size="sm"
       variant={isPrimary ? "default" : "secondary"}
-      className={cn("min-w-24", isPrimary && "bg-blue-600 text-white hover:bg-blue-500")}
+      className={cn(
+        "min-w-24",
+        isPrimary && "bg-primary text-primary-foreground hover:bg-[#e5b853]",
+      )}
       onClick={onAllow}
     >
       Allow

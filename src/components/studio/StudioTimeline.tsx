@@ -34,12 +34,12 @@ function fmt(ms: number): string {
 }
 
 const COLOR = {
-  drag: "#6366f1",
-  scroll: "#14b8a6",
+  drag: "#9085e9",
+  scroll: "#199e70",
   move: "rgba(255,255,255,0.28)",
-  click: "#f59e0b",
-  key: "#34d399",
-  space: "#f472b6",
+  click: "#c98500",
+  key: "#3987e5",
+  space: "#d55181",
 };
 
 const KEY_TYPES = new Set<InputEventType>([
@@ -341,11 +341,11 @@ export function StudioTimeline({
         .tl-span-label { display: block; font-size: 10px; line-height: 16px; color: #fff; padding: 0 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
         .tl-tick { position: absolute; top: 4px; width: 5px; height: 14px; margin-left: -2.5px; border-radius: 2px; opacity: 0.9; }
         .tl-tick:hover { opacity: 1; }
-        .tl-clear { border: 1px solid rgba(99,102,241,0.5); background: rgba(99,102,241,0.18); color: #c7d2fe; border-radius: 5px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
-        .tl-clear:hover { background: rgba(99,102,241,0.3); }
+        .tl-clear { border: 1px solid rgba(240,205,120,0.5); background: rgba(240,205,120,0.16); color: #f4dda4; border-radius: 5px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
+        .tl-clear:hover { background: rgba(240,205,120,0.26); }
         .tl-slider { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.18); cursor: pointer; outline: none; }
-        .tl-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%; background: #a5b4fc; cursor: pointer; }
-        .tl-slider::-webkit-slider-thumb:hover { background: #c7d2fe; }
+        .tl-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%; background: #f0cd78; cursor: pointer; }
+        .tl-slider::-webkit-slider-thumb:hover { background: #f4dda4; }
       `}</style>
 
       <div
@@ -363,7 +363,7 @@ export function StudioTimeline({
             type="range"
             className="tl-slider"
             style={{
-              background: `linear-gradient(to right, #6366f1 ${zoomPos * 100}%, rgba(255,255,255,0.18) ${zoomPos * 100}%)`,
+              background: `linear-gradient(to right, #f0cd78 ${zoomPos * 100}%, rgba(255,255,255,0.18) ${zoomPos * 100}%)`,
             }}
             min={0}
             max={1}
@@ -392,7 +392,7 @@ export function StudioTimeline({
           { c: COLOR.click, l: "Click" },
           { c: COLOR.key, l: "Key" },
           { c: COLOR.space, l: "Space" },
-          ...(perceptionTicks && perceptionTicks.length > 0 ? [{ c: "#38bdf8", l: "Text" }] : []),
+          ...(perceptionTicks && perceptionTicks.length > 0 ? [{ c: "#f4dda4", l: "Text" }] : []),
         ].map(({ c, l }) => (
           <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
             <span style={{ width: 10, height: 8, borderRadius: 2, background: c }} />
@@ -451,7 +451,7 @@ export function StudioTimeline({
                   key={`p${i}`}
                   className="tl-tick"
                   title={t.label}
-                  style={{ left: `${pctOf(t.ms)}%`, background: "#38bdf8", cursor: "pointer" }}
+                  style={{ left: `${pctOf(t.ms)}%`, background: "#f4dda4", cursor: "pointer" }}
                   onClick={(e) => {
                     e.stopPropagation();
                     onSeekSeconds(t.ms / 1000);
@@ -470,8 +470,8 @@ export function StudioTimeline({
                 bottom: 0,
                 left: `${pctOf(loop.a)}%`,
                 width: `${pctOf(loop.b - loop.a)}%`,
-                background: "rgba(99,102,241,0.15)",
-                border: "1px solid rgba(99,102,241,0.5)",
+                background: "rgba(240,205,120,0.15)",
+                border: "1px solid rgba(240,205,120,0.5)",
                 borderRadius: 4,
                 pointerEvents: "none",
               }}

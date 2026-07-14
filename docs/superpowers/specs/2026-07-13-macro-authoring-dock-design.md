@@ -34,7 +34,9 @@ at full canvas width; the sidebar returns to being a forms column.
 
 ```
 ResizablePanelGroup direction=horizontal
-├─ Panel: sidebar          (default ~280px, min 240px, max ~480px)
+├─ Panel: sidebar          (percent-based: default ~22%, min ~15%, max ~35% —
+│                           react-resizable-panels sizes in %, so px targets
+│                           of roughly 280/240/480 are approximations)
 ├─ ResizableHandle (vertical divider)
 └─ Panel:
    ResizablePanelGroup direction=vertical
@@ -60,6 +62,10 @@ Full-width horizontal split inside the dock: `StudioPlayer` (left, ~55%) and
 - **Timeline:** full chrome (zoom, legend, lanes). `videoMs` follows the
   player's time; clicking seeks the player (same wiring as StudioEditor).
   Drag sets the shared segment range.
+- **Range preview for free:** the shared range is also passed to the player's
+  `loopRegion` (video-relative seconds), exactly as StudioEditor does — so a
+  dragged segment range plays back on loop, letting the user *watch* the
+  segment they're about to add.
 - **Copy fix:** `StudioTimeline` gains an optional prop (e.g.
   `rangeLabel: "loop" | "selection"`, default `"loop"`) controlling the hint
   ("drag to loop a range" → "drag to select a range") and the chip label
@@ -97,9 +103,12 @@ range (as today).
   reset-on-clear) stays, driven through props instead of an embedded
   timeline; drag-interaction tests move to the dock test.
 - **AuthoringDock tests (new):** timeline drag → `onRangeChange` with rounded
-  ms; player stub's `onSaveTarget` → WaitFor node path; seek wiring.
-- **MacroEditor tests:** dock appears when a recording is selected,
-  absent otherwise.
+  ms; player stub's `onSaveTarget` → WaitFor node path; seek wiring; range →
+  `loopRegion` unit conversion.
+- **MacroEditor tests:** dock appears when a recording is selected, absent
+  otherwise; the rounding invariant (sidebar summary count === built node's
+  event count for a dock drag) lives here, since it spans dock → shared state
+  → sidebar.
 - **StudioTimeline test:** label-prop rendering (loop vs selection copy).
 - Resizable divider behavior is library-owned (`react-resizable-panels`) and
   not unit-tested.

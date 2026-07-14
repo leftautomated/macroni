@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AddNodePanel } from "@/components/studio/macros/AddNodePanel";
+import { AuthoringDock } from "@/components/studio/macros/AuthoringDock";
 import { MacroCanvas } from "@/components/studio/macros/MacroCanvas";
 import { MacrosMenu } from "@/components/studio/macros/MacrosMenu";
 import { MacroToolbar } from "@/components/studio/macros/MacroToolbar";
+import type { LoopRegion } from "@/components/studio/StudioTimeline";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { useMacros } from "@/hooks/useMacros";
 import { isLinearChain } from "@/lib/macro-chain";
+import { waitNodeFromTarget } from "@/lib/macro-wait";
 import { invoke, logEvent } from "@/lib/observability";
 import type {
   MacroDoc,
@@ -49,6 +53,20 @@ export function MacroEditor({
   const [workingDoc, setWorkingDoc] = useState<MacroDoc>(() => emptyMacro("Untitled Macro"));
   const [dirty, setDirty] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Shared authoring context: which recording the Add Segment / Visual Wait
+  // flows operate on, and the segment range dragged on the dock's timeline
+  // (video-relative ms). Owned here because the sidebar forms and the
+  // AuthoringDock both read and write them.
+  const [authoringRecordingId, setAuthoringRecordingId] = useState("");
+  const [authoringRange, setAuthoringRange] = useState<LoopRegion | null>(null);
+  const authoringRecording =
+    recordings.find((r) => r.id === authoringRecordingId && r.video) ?? null;
+
+  const handleSelectRecording = useCallback((id: string) => {
+    setAuthoringRecordingId(id);
+    setAuthoringRange(null);
+  }, []);
 
   // The editor always opens onto *something* editable — a throwaway blank
   // draft until the saved list arrives. Once it does, hand off from that
@@ -180,6 +198,27 @@ export function MacroEditor({
     [],
   );
 
+  const handleDockSaveTarget = useCallback(
+    async (target: PerceptionTarget, timestampMs: number) => {
+      if (!authoringRecording) return;
+      if (target.kind.type === "TemplateMatch") {
+        const captured = await captureImageWait(authoringRecording.id, target, timestampMs);
+        handleAddNode(waitNodeFromTarget(captured));
+      } else {
+        handleAddNode(waitNodeFromTarget(target));
+      }
+    },
+    [authoringRecording, captureImageWait, handleAddNode],
+  );
+
+  const handleDockSampleColor = useCallback(
+    (region: Region, timestampMs: number): Promise<[number, number, number]> =>
+      authoringRecording
+        ? sampleColor(authoringRecording.id, region, timestampMs)
+        : Promise.resolve<[number, number, number]>([0, 0, 0]),
+    [authoringRecording, sampleColor],
+  );
+
   const handleSave = useCallback(() => {
     save(workingDoc)
       .then((resolved) => {
@@ -249,24 +288,51 @@ export function MacroEditor({
       </div>
 
       <div className="macro-editor-main">
-        <aside className="macro-editor-sidebar">
-          <div className="macro-editor-sidebar-inner">
-            <AddNodePanel
-              recordings={recordings}
-              onAdd={handleAddNode}
-              captureImageWait={captureImageWait}
-              sampleColor={sampleColor}
-            />
-          </div>
-        </aside>
-        <section className="macro-editor-canvas-pane" aria-label="Macro canvas">
-          <MacroCanvas
-            doc={workingDoc}
-            liveNodeId={liveNodeId}
-            failedNodeId={isStoppedRun ? null : (failed?.nodeId ?? null)}
-            onChange={handleCanvasChange}
-          />
-        </section>
+        <ResizablePanelGroup direction="horizontal">
+          <ResizablePanel defaultSize={22} minSize={15} maxSize={35}>
+            <aside className="macro-editor-sidebar">
+              <div className="macro-editor-sidebar-inner">
+                <AddNodePanel
+                  recordings={recordings}
+                  selectedRecordingId={authoringRecordingId}
+                  onSelectRecording={handleSelectRecording}
+                  range={authoringRange}
+                  onRangeChange={setAuthoringRange}
+                  onAdd={handleAddNode}
+                />
+              </div>
+            </aside>
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel defaultSize={78}>
+            <ResizablePanelGroup direction="vertical">
+              <ResizablePanel id="macro-canvas" order={1} defaultSize={60} minSize={30}>
+                <section className="macro-editor-canvas-pane" aria-label="Macro canvas">
+                  <MacroCanvas
+                    doc={workingDoc}
+                    liveNodeId={liveNodeId}
+                    failedNodeId={isStoppedRun ? null : (failed?.nodeId ?? null)}
+                    onChange={handleCanvasChange}
+                  />
+                </section>
+              </ResizablePanel>
+              {authoringRecording && (
+                <>
+                  <ResizableHandle />
+                  <ResizablePanel id="authoring-dock" order={2} defaultSize={40} minSize={20}>
+                    <AuthoringDock
+                      recording={authoringRecording}
+                      range={authoringRange}
+                      onRangeChange={setAuthoringRange}
+                      onSaveTarget={handleDockSaveTarget}
+                      onSampleColor={handleDockSampleColor}
+                    />
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
     </div>
   );

@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { MacroDoc, MacroNode, Recording } from "@/types";
+import {
+  InputEventType,
+  type InputEvent,
+  type MacroDoc,
+  type MacroNode,
+  type Recording,
+} from "@/types";
 
 type Listener = (event: { payload: unknown }) => void | Promise<void>;
 
@@ -45,6 +51,13 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "stop_macro":
         if (fake.rejectStop) throw new Error(fake.rejectStop);
         return undefined;
+      case "save_target": {
+        const target = args?.target as { id: string; kind: Record<string, unknown> };
+        return {
+          id: args?.recordingId,
+          targets: [{ ...target, kind: { ...target.kind, image: "targets/rec-1/t-img.png" } }],
+        };
+      }
       default:
         return undefined;
     }
@@ -85,10 +98,102 @@ vi.mock("@/components/studio/macros/MacroCanvas", () => ({
   ),
 }));
 
+// The real AuthoringDock renders StudioPlayer/StudioTimeline (video, drag
+// math) — covered by its own test file. Here a stub stands in for "the user
+// dragged a range / saved a target in the dock" so the shared-state wiring
+// through MacroEditor is what's under test.
+vi.mock("@/components/studio/macros/AuthoringDock", () => ({
+  AuthoringDock: ({
+    onRangeChange,
+    onSaveTarget,
+  }: {
+    onRangeChange: (r: { a: number; b: number } | null) => void;
+    onSaveTarget: (target: unknown, timestampMs: number) => Promise<void>;
+  }) => (
+    <div data-testid="authoring-dock">
+      <button type="button" onClick={() => onRangeChange({ a: 2000, b: 4000 })}>
+        Simulate dock range
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onSaveTarget(
+            {
+              id: "t-img",
+              name: "Target",
+              modality: "visual",
+              region: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+              kind: { type: "TemplateMatch", image: "", threshold: 0.8, source_px: [0, 0] },
+              created_at: 1,
+            },
+            4200,
+          )
+        }
+      >
+        Simulate dock image save
+      </button>
+    </div>
+  ),
+}));
+
 import { MacroEditor } from "@/components/studio/macros/MacroEditor";
 import { useMacros } from "@/hooks/useMacros";
 
 const recordings: Recording[] = [];
+
+function mkEvent(key: string, timestamp: number): InputEvent {
+  return { type: InputEventType.KeyPress, key, timestamp };
+}
+
+const recordingWithVideo: Recording = {
+  id: "rec-1",
+  name: "Recording One",
+  events: [
+    mkEvent("e0", 1000),
+    mkEvent("e1", 2000),
+    mkEvent("e2", 3000),
+    mkEvent("e3", 4000),
+    mkEvent("e4", 5000),
+  ],
+  created_at: 500,
+  playback_speed: 1,
+  video: {
+    path: "/tmp/rec-1.mp4",
+    start_ms: 1000,
+    duration_ms: 5000,
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    has_audio: false,
+  },
+};
+
+// jsdom never lays out the page, so every element's getBoundingClientRect is
+// zeroed — including the ResizableHandle's. react-resizable-panels turns any
+// pointerdown near a registered handle into a drag (preventDefault +
+// stopImmediatePropagation on the body, in capture phase), and userEvent's
+// synthetic clicks default to (0,0) too, so *every* click in this suite would
+// otherwise be swallowed as "on the handle", silently blocking the focus a
+// subsequent `type()` needs. Pin the real handle element(s) far offscreen so
+// the coordinate collision can't happen — panels/handles still render and
+// drag for real, this only fixes jsdom's missing layout.
+const realGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+Element.prototype.getBoundingClientRect = function (this: Element) {
+  if (this.hasAttribute("data-resize-handle")) {
+    return {
+      x: 99999,
+      y: 99999,
+      width: 1,
+      height: 1,
+      top: 99999,
+      left: 99999,
+      right: 100000,
+      bottom: 100000,
+      toJSON() {},
+    } as DOMRect;
+  }
+  return realGetBoundingClientRect.call(this);
+};
 
 // MacroEditor no longer calls useMacros itself (it's lifted into StudioEditor
 // so a run survives toggling away from the macros view) — it now consumes the
@@ -115,6 +220,42 @@ describe("MacroEditor", () => {
     fake.rejectRun = null;
     state.listeners.clear();
     vi.clearAllMocks();
+  });
+
+  async function selectRecording(name: string | RegExp) {
+    await userEvent.click(screen.getByRole("combobox", { name: /recording/i }));
+    await userEvent.click(await screen.findByRole("option", { name }));
+  }
+
+  it("shows the authoring dock only after a recording with video is selected", async () => {
+    render(<Wrapper recordings={[recordingWithVideo]} />);
+    await screen.findByText(/0 node/i);
+    expect(screen.queryByTestId("authoring-dock")).not.toBeInTheDocument();
+
+    await selectRecording("Recording One");
+    expect(screen.getByTestId("authoring-dock")).toBeInTheDocument();
+  });
+
+  it("a dock range drives the sidebar summary and produces a matching Segment node", async () => {
+    render(<Wrapper recordings={[recordingWithVideo]} />);
+    await screen.findByText(/0 node/i);
+    await selectRecording("Recording One");
+
+    await userEvent.click(screen.getByRole("button", { name: /simulate dock range/i }));
+    // rel [2000,4000] over basis 1000 → e2, e3, e4.
+    expect(screen.getByText(/0:02–0:04 · 3 events/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /add segment/i }));
+    expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
+  });
+
+  it("a dock image save captures via save_target and adds a WaitFor node", async () => {
+    render(<Wrapper recordings={[recordingWithVideo]} />);
+    await screen.findByText(/0 node/i);
+    await selectRecording("Recording One");
+
+    await userEvent.click(screen.getByRole("button", { name: /simulate dock image save/i }));
+    expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
   });
 
   it("starts with an empty draft macro: Run disabled (no nodes yet)", async () => {

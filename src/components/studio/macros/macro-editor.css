@@ -803,6 +803,31 @@
   }
 }
 
+.adock-root {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  border-top: 1px solid var(--macro-line);
+  background: rgb(10 10 10 / 82%);
+}
+
+.adock-player {
+  flex: 0 0 52%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.adock-timeline {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
 @media (max-width: 720px) {
   .macro-editor-header {
     align-items: flex-start;

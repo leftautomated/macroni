@@ -88,6 +88,10 @@ vi.mock("@/components/studio/macros/MacroCanvas", () => ({
     <div>
       <div>canvas: {doc.nodes.length} node(s)</div>
       <div>failed node: {failedNodeId ?? "none"}</div>
+      <div>
+        segment events:{" "}
+        {doc.nodes[0]?.kind?.type === "Segment" ? doc.nodes[0].kind.events.length : "n/a"}
+      </div>
       <button
         type="button"
         onClick={() => onChange({ ...doc, nodes: doc.nodes.map((n) => ({ ...n, x: n.x + 1 })) })}
@@ -247,6 +251,7 @@ describe("MacroEditor", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /add segment/i }));
     expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
+    expect(screen.getByText("segment events: 3")).toBeInTheDocument();
   });
 
   it("a dock image save captures via save_target and adds a WaitFor node", async () => {

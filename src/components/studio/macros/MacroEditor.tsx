@@ -321,6 +321,7 @@ export function MacroEditor({
                   <ResizableHandle />
                   <ResizablePanel id="authoring-dock" order={2} defaultSize={40} minSize={20}>
                     <AuthoringDock
+                      key={authoringRecording.id}
                       recording={authoringRecording}
                       range={authoringRange}
                       onRangeChange={setAuthoringRange}

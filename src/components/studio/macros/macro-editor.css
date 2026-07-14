@@ -510,30 +510,9 @@
   color: var(--macro-dim);
 }
 
-.anp-input {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  border: 1px solid var(--macro-line-strong);
-  border-radius: 7px;
-  padding: 7px 9px;
-  background: rgb(5 5 5 / 62%);
-  color: var(--macro-text);
-  font-size: 12px;
-}
-
-.anp-input::placeholder {
-  color: rgb(255 255 255 / 42%);
-}
-
-.anp-input:focus-visible,
 .mm-input:focus-visible {
   outline: 2px solid var(--macro-focus);
   outline-offset: 2px;
-}
-
-.anp-input option {
-  color: #111;
 }
 
 .anp-add {
@@ -575,13 +554,6 @@
   color: var(--macro-dim);
   font-size: 12px;
   line-height: 1.45;
-}
-
-.anp-video-well {
-  overflow: hidden;
-  border: 1px solid var(--macro-line);
-  border-radius: 9px;
-  background: #050505;
 }
 
 .mm-root {

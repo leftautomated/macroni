@@ -177,4 +177,30 @@ describe("StudioTimeline", () => {
     expect((lanes[0] as HTMLElement).querySelector('[title*="⇄"]')).toBeNull();
     expect(screen.getByText("Space")).toBeInTheDocument(); // legend
   });
+
+  it("swaps loop wording for selection wording when rangeWord='selection'", () => {
+    const { rerender } = render(
+      <StudioTimeline
+        {...base}
+        rangeWord="selection"
+        loop={null}
+        onSeekSeconds={noop}
+        onLoopChange={noop}
+      />,
+    );
+    expect(screen.getByText("drag to select a range")).toBeInTheDocument();
+
+    // base's durationMs is 2000 — keep the loop inside the track.
+    rerender(
+      <StudioTimeline
+        {...base}
+        rangeWord="selection"
+        loop={{ a: 500, b: 1500 }}
+        onSeekSeconds={noop}
+        onLoopChange={noop}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /selection 0:00–0:01/ })).toBeInTheDocument();
+    expect(screen.queryByText(/⟳ loop/)).not.toBeInTheDocument();
+  });
 });

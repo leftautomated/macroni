@@ -26,6 +26,9 @@ interface StudioTimelineProps {
   onLoopChange: (loop: LoopRegion | null) => void;
   /** Perception observations to render as ticks in their own lane, video-relative ms. */
   perceptionTicks?: Array<{ ms: number; label: string }>;
+  /** Word used for the dragged range: the player context loops playback
+   * ("loop"), the macro authoring dock selects a segment ("selection"). */
+  rangeWord?: "loop" | "selection";
 }
 
 function fmt(ms: number): string {
@@ -81,6 +84,7 @@ export function StudioTimeline({
   loop,
   onLoopChange,
   perceptionTicks,
+  rangeWord = "loop",
 }: StudioTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -377,10 +381,12 @@ export function StudioTimeline({
         </span>
         {loop ? (
           <button type="button" className="tl-clear" onClick={() => onLoopChange(null)}>
-            ⟳ loop {fmt(loop.a)}–{fmt(loop.b)} ✕
+            {rangeWord === "selection" ? "selection" : "⟳ loop"} {fmt(loop.a)}–{fmt(loop.b)} ✕
           </button>
         ) : (
-          <span style={{ color: "rgba(255,255,255,0.3)" }}>drag to loop a range</span>
+          <span style={{ color: "rgba(255,255,255,0.3)" }}>
+            drag to {rangeWord === "selection" ? "select" : "loop"} a range
+          </span>
         )}
         <span>{fmt(dur)}</span>
       </div>

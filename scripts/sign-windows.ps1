@@ -7,6 +7,19 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# The tauri bundler swallows this script's stdout/stderr and reports any
+# failure as an opaque "failed to run pwsh" — keep a transcript in a known
+# location so CI can print what actually happened (see release.yml's
+# "Print signing log" step).
+$transcriptPath = if ($env:RUNNER_TEMP) { Join-Path $env:RUNNER_TEMP 'sign-windows.log' } else { $null }
+if ($transcriptPath) { Start-Transcript -Path $transcriptPath -Append | Out-Null }
+
+trap {
+  Write-Host "sign-windows.ps1 FAILED: $_"
+  if ($transcriptPath) { Stop-Transcript | Out-Null }
+  exit 1
+}
+
 function Get-RequiredEnvironmentVariable {
   param(
     [Parameter(Mandatory = $true)]
@@ -56,3 +69,5 @@ if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_RUN_ID)) {
 
 Write-Host "Signing $resolvedFilePath with Azure Artifact Signing"
 Invoke-ArtifactSigning @signingParameters
+Write-Host "Signed $resolvedFilePath"
+if ($transcriptPath) { Stop-Transcript | Out-Null }

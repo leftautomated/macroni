@@ -108,6 +108,26 @@ jobs:
         shell: pwsh
         run: Install-Module -Name ArtifactSigning -RequiredVersion 0.1.8 -Scope CurrentUser -Repository PSGallery -Force
 
+      # Fail fast (before the ~6 min compile) if the pieces the bundler-spawned
+      # sign script needs aren't in place — and with a readable error, unlike
+      # the bundler's opaque "failed to run pwsh".
+      - name: Signing preflight
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+        run: |
+          foreach ($name in 'AZURE_ARTIFACT_SIGNING_ENDPOINT','AZURE_ARTIFACT_SIGNING_ACCOUNT','AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Variable '$name' is empty. Is it set on the 'release' environment, and does the job declare 'environment: release'?"
+            }
+          }
+          Import-Module ArtifactSigning -RequiredVersion 0.1.8 -ErrorAction Stop
+          az account show --output none
+          Write-Host "Signing preflight OK"
+
       - name: Make clang_rt discoverable (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
@@ -160,6 +180,15 @@ jobs:
           releaseDraft: true
           prerelease: true
           args: --target ${{ matrix.target }} ${{ matrix.bundleArgs }} ${{ matrix.signingArgs }}
+
+      # The bundler swallows the sign script's output; the script writes a
+      # transcript to RUNNER_TEMP so failures are diagnosable here.
+      - name: Print signing log
+        if: always() && matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'sign-windows.log'
+          if (Test-Path $log) { Get-Content $log } else { Write-Host 'No signing log was produced.' }
 
       - name: Verify Windows signatures
         if: matrix.platform == 'windows-latest'

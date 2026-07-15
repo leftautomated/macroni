@@ -670,6 +670,50 @@ mod tests {
     }
 
     #[test]
+    fn compile_space_switch_settle_sleeps_sit_between_hops_only() {
+        let compile_hops = |count: u32| {
+            PlaybackPlan::compile(
+                &[InputEvent::SpaceSwitch {
+                    direction: "right".into(),
+                    count,
+                    timestamp: 0,
+                }],
+                1.0,
+            )
+            .unwrap()
+        };
+        let settle_count = |plan: &PlaybackPlan| {
+            plan.steps
+                .iter()
+                .filter(|s| matches!(s, PlannedStep::Sleep { ms: 150 }))
+                .count()
+        };
+
+        // The 150ms settle pause exists only to let a PREVIOUS hop's Space
+        // animation finish — a single hop must not pause at all, and n hops
+        // pause exactly n-1 times. Pins the `hop > 0` guard against >= / ==.
+        assert_eq!(settle_count(&compile_hops(1)), 0, "single hop: no settle");
+        assert_eq!(settle_count(&compile_hops(3)), 2, "settles go between hops");
+    }
+
+    #[test]
+    fn compile_space_switch_count_zero_still_plays_one_hop() {
+        // `count.max(1)`: a degenerate count of 0 replays as a single hop.
+        let events = vec![InputEvent::SpaceSwitch {
+            direction: "right".into(),
+            count: 0,
+            timestamp: 0,
+        }];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        let sims = plan
+            .steps
+            .iter()
+            .filter(|s| matches!(s, PlannedStep::Simulate(_)))
+            .count();
+        assert_eq!(sims, 4, "one hop of 4 key events");
+    }
+
+    #[test]
     fn compile_space_switch_left_uses_left_arrow() {
         use rdev::Key;
         let events = vec![InputEvent::SpaceSwitch {

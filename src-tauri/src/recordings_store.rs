@@ -602,6 +602,13 @@ mod tests {
     }
 
     #[test]
+    fn validate_storage_id_length_limit_is_inclusive_of_128() {
+        // Pins the `len() > 128` boundary: exactly 128 is the longest valid id.
+        assert!(validate_storage_id(&"a".repeat(128)).is_ok());
+        assert!(validate_storage_id(&"a".repeat(129)).is_err());
+    }
+
+    #[test]
     fn sweep_orphan_videos_removes_unknown_mp4s_only() {
         let dir = tempdir().unwrap();
         let store = RecordingsStore::open_at(dir.path().to_path_buf());

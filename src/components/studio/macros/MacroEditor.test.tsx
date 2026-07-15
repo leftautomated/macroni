@@ -110,9 +110,11 @@ vi.mock("@/components/studio/macros/AuthoringDock", () => ({
   AuthoringDock: ({
     onRangeChange,
     onSaveTarget,
+    onAddSegment,
   }: {
     onRangeChange: (r: { a: number; b: number } | null) => void;
     onSaveTarget: (target: unknown, timestampMs: number) => Promise<void>;
+    onAddSegment: () => void;
   }) => (
     <div data-testid="authoring-dock">
       <button type="button" onClick={() => onRangeChange({ a: 2000, b: 4000 })}>
@@ -135,6 +137,9 @@ vi.mock("@/components/studio/macros/AuthoringDock", () => ({
         }
       >
         Simulate dock image save
+      </button>
+      <button type="button" onClick={() => onAddSegment()}>
+        Simulate dock add segment
       </button>
     </div>
   ),
@@ -249,7 +254,7 @@ describe("MacroEditor", () => {
     // rel [2000,4000] over basis 1000 → e2, e3, e4.
     expect(screen.getByText(/0:02–0:04 · 3 events/)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /add segment/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^add segment$/i }));
     expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
     expect(screen.getByText("segment events: 3")).toBeInTheDocument();
   });
@@ -261,6 +266,20 @@ describe("MacroEditor", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /simulate dock image save/i }));
     expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
+  });
+
+  it("the dock's Add Segment builds the same node as the sidebar path", async () => {
+    render(<Wrapper recordings={[recordingWithVideo]} />);
+    await screen.findByText(/0 node/i);
+    await selectRecording("Recording One");
+
+    await userEvent.click(screen.getByRole("button", { name: /simulate dock range/i }));
+    await userEvent.click(screen.getByRole("button", { name: /simulate dock add segment/i }));
+
+    expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
+    // rel [2000,4000] over basis 1000 → e2, e3, e4 (same invariant as the
+    // sidebar-path test; the canvas stub renders the built node's count).
+    expect(screen.getByText("segment events: 3")).toBeInTheDocument();
   });
 
   it("starts with an empty draft macro: Run disabled (no nodes yet)", async () => {

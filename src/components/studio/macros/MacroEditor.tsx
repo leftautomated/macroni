@@ -8,6 +8,7 @@ import type { LoopRegion } from "@/components/studio/StudioTimeline";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { useMacros } from "@/hooks/useMacros";
 import { isLinearChain } from "@/lib/macro-chain";
+import { segmentNodeFromRange } from "@/lib/macro-segment";
 import { waitNodeFromTarget } from "@/lib/macro-wait";
 import { invoke, logEvent } from "@/lib/observability";
 import type {
@@ -219,6 +220,13 @@ export function MacroEditor({
     [authoringRecording, sampleColor],
   );
 
+  // The dock's Enter / "+ Add Segment" — identical node construction to the
+  // sidebar's Add Segment button, so the two paths can never diverge.
+  const handleAddSegmentFromDock = useCallback(() => {
+    if (!authoringRecording || !authoringRange || authoringRange.b <= authoringRange.a) return;
+    handleAddNode(segmentNodeFromRange(authoringRecording, authoringRange.a, authoringRange.b));
+  }, [authoringRecording, authoringRange, handleAddNode]);
+
   const handleSave = useCallback(() => {
     save(workingDoc)
       .then((resolved) => {
@@ -325,6 +333,7 @@ export function MacroEditor({
                       recording={authoringRecording}
                       range={authoringRange}
                       onRangeChange={setAuthoringRange}
+                      onAddSegment={handleAddSegmentFromDock}
                       onSaveTarget={handleDockSaveTarget}
                       onSampleColor={handleDockSampleColor}
                     />

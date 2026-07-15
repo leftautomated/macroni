@@ -172,8 +172,11 @@ export function AddNodePanel({
           <Film aria-hidden="true" />
           Add Segment
         </div>
+        {/* The dock's timeline carries its own "drag to select a range"
+            hint — no need to repeat it here; the chip appears once a range
+            exists. */}
         {selected ? (
-          range ? (
+          range && (
             <div className="anp-chip">
               <span>
                 {fmtS(range.a)}–{fmtS(range.b)} ·{" "}
@@ -188,10 +191,6 @@ export function AddNodePanel({
               >
                 ✕
               </button>
-            </div>
-          ) : (
-            <div className="anp-summary">
-              Drag on the timeline in the dock below to select a range
             </div>
           )
         ) : (
@@ -265,16 +264,9 @@ export function AddNodePanel({
         </button>
       </div>
 
-      <div className="anp-section">
-        <div className="anp-title">
-          <ImagePlus aria-hidden="true" />
-          Add Visual Wait
-        </div>
-        <div className="anp-summary">
-          {selected
-            ? "Drag a box on the video frame in the dock below to add an image or color wait."
-            : "Select a recording to add an image or color wait."}
-        </div>
+      <div className="anp-footnote">
+        <ImagePlus aria-hidden="true" />
+        <span>Image or color waits: drag a box on the video frame in the dock below.</span>
       </div>
     </div>
   );

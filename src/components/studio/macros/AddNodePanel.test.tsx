@@ -211,11 +211,14 @@ describe("AddNodePanel", () => {
     expect(onAdd.mock.calls[0][0].kind.timeout_ms).toBe(10000);
   });
 
-  it("shows the visual-wait hint card pointing at the dock", async () => {
+  it("always shows the visual-wait footnote, and the segment hint only before a selection", async () => {
     render(<Harness recordings={recordings} />);
-    expect(screen.getByText(/select a recording/i)).toBeInTheDocument();
+    // Footnote is unconditional; the segment card hints until a recording is picked.
+    expect(screen.getByText(/drag a box on the video frame/i)).toBeInTheDocument();
+    expect(screen.getByText(/pick a recording above/i)).toBeInTheDocument();
 
     await selectRecording("Recording One");
     expect(screen.getByText(/drag a box on the video frame/i)).toBeInTheDocument();
+    expect(screen.queryByText(/pick a recording above/i)).not.toBeInTheDocument();
   });
 });

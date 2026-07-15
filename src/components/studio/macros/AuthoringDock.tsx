@@ -39,6 +39,10 @@ export function AuthoringDock({
 }: AuthoringDockProps) {
   const playerRef = useRef<StudioPlayerHandle>(null);
   const [videoS, setVideoS] = useState(0);
+  // The player's transport bar renders into the timeline column (same
+  // controlsHost pattern as StudioEditor), so the video fills the left pane
+  // and scrub/transport/timeline stack together on the right.
+  const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
   const { url } = useVideoAssetUrl(recording.video);
 
   return (
@@ -52,6 +56,7 @@ export function AuthoringDock({
           onTimeUpdate={setVideoS}
           onReplay={noop}
           showReplay={false}
+          controlsHost={controlsHost}
           loopRegion={range ? { a: range.a / 1000, b: range.b / 1000 } : null}
           onSaveTarget={onSaveTarget}
           onSampleColor={onSampleColor}
@@ -59,6 +64,7 @@ export function AuthoringDock({
         />
       </div>
       <div className="adock-timeline">
+        <div ref={setControlsHost} className="adock-controls" />
         <StudioTimeline
           events={recording.events}
           startMs={segmentBasis(recording)}

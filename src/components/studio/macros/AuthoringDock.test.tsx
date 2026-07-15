@@ -4,9 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { InputEventType, type InputEvent, type PerceptionTarget, type Recording } from "@/types";
 
 // The dock's unit under test is its wiring: range→loopRegion conversion,
-// drag→rounded onRangeChange, and passthrough of the target-authoring hooks.
-// StudioPlayer itself (video element, popover) is stubbed to expose those
-// props; StudioTimeline renders for real so the drag math is exercised.
+// drag→rounded onRangeChange, In/Out marking from the playhead, and
+// passthrough of the target-authoring hooks. StudioPlayer is stubbed to
+// expose those props (including onTimeUpdate so tests can move the
+// playhead); StudioTimeline renders for real so drag math is exercised.
 const fixtures = vi.hoisted(() => ({
   target: {
     id: "t1",
@@ -22,9 +23,11 @@ vi.mock("@/components/studio/StudioPlayer", () => ({
   StudioPlayer: ({
     loopRegion,
     onSaveTarget,
+    onTimeUpdate,
   }: {
     loopRegion?: { a: number; b: number } | null;
     onSaveTarget?: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
+    onTimeUpdate: (seconds: number) => void;
   }) => (
     <div data-testid="player-stub">
       <div>loop: {loopRegion ? `${loopRegion.a}-${loopRegion.b}` : "none"}</div>
@@ -33,6 +36,15 @@ vi.mock("@/components/studio/StudioPlayer", () => ({
         onClick={() => onSaveTarget?.(fixtures.target as PerceptionTarget, 4200)}
       >
         Simulate save
+      </button>
+      <button type="button" onClick={() => onTimeUpdate(1)}>
+        Seek 1s
+      </button>
+      <button type="button" onClick={() => onTimeUpdate(3)}>
+        Seek 3s
+      </button>
+      <button type="button" onClick={() => onTimeUpdate(5)}>
+        Seek 5s
       </button>
     </div>
   ),
@@ -88,6 +100,7 @@ const baseProps = {
   recording,
   range: null,
   onRangeChange: () => {},
+  onAddSegment: () => {},
   onSaveTarget: async () => {},
   onSampleColor: async (): Promise<[number, number, number]> => [0, 0, 0],
 };
@@ -121,5 +134,149 @@ describe("AuthoringDock", () => {
     render(<AuthoringDock {...baseProps} onSaveTarget={onSaveTarget} />);
     await userEvent.click(screen.getByRole("button", { name: /simulate save/i }));
     expect(onSaveTarget).toHaveBeenCalledWith(fixtures.target, 4200);
+  });
+
+  describe("In/Out marking", () => {
+    it("I with no range marks playhead→end; O with no range marks start→playhead", async () => {
+      const onRangeChange = vi.fn();
+      render(<AuthoringDock {...baseProps} onRangeChange={onRangeChange} />);
+
+      await userEvent.click(screen.getByRole("button", { name: "Seek 1s" }));
+      fireEvent.keyDown(window, { key: "i" });
+      expect(onRangeChange).toHaveBeenLastCalledWith({ a: 1000, b: 5000 });
+
+      fireEvent.keyDown(window, { key: "o" });
+      expect(onRangeChange).toHaveBeenLastCalledWith({ a: 0, b: 1000 });
+    });
+
+    it("In keeps a later Out, and re-anchors to the end past it", async () => {
+      const onRangeChange = vi.fn();
+      const { rerender } = render(
+        <AuthoringDock {...baseProps} range={{ a: 2000, b: 4000 }} onRangeChange={onRangeChange} />,
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Seek 1s" }));
+      fireEvent.keyDown(window, { key: "i" });
+      expect(onRangeChange).toHaveBeenLastCalledWith({ a: 1000, b: 4000 });
+
+      // Existing Out (500ms) is before the playhead → In extends to the end.
+      rerender(
+        <AuthoringDock {...baseProps} range={{ a: 0, b: 500 }} onRangeChange={onRangeChange} />,
+      );
+      fireEvent.keyDown(window, { key: "i" });
+      expect(onRangeChange).toHaveBeenLastCalledWith({ a: 1000, b: 5000 });
+    });
+
+    it("Out keeps an earlier In, and re-anchors to 0 before it", async () => {
+      const onRangeChange = vi.fn();
+      render(
+        <AuthoringDock {...baseProps} range={{ a: 2000, b: 4000 }} onRangeChange={onRangeChange} />,
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Seek 3s" }));
+      fireEvent.keyDown(window, { key: "o" });
+      expect(onRangeChange).toHaveBeenLastCalledWith({ a: 2000, b: 3000 });
+
+      // Playhead (1s) is before the existing In (2s) → Out re-anchors to 0.
+      await userEvent.click(screen.getByRole("button", { name: "Seek 1s" }));
+      fireEvent.keyDown(window, { key: "o" });
+      expect(onRangeChange).toHaveBeenLastCalledWith({ a: 0, b: 1000 });
+    });
+
+    it("marks that would produce an empty range no-op", async () => {
+      const onRangeChange = vi.fn();
+      render(<AuthoringDock {...baseProps} onRangeChange={onRangeChange} />);
+
+      // Out at playhead 0 → b == a == 0.
+      fireEvent.keyDown(window, { key: "o" });
+      // In at the end of the video → a == b == duration.
+      await userEvent.click(screen.getByRole("button", { name: "Seek 5s" }));
+      fireEvent.keyDown(window, { key: "i" });
+
+      expect(onRangeChange).not.toHaveBeenCalled();
+    });
+
+    it("ignores keys typed into form fields and modifier chords", async () => {
+      const onRangeChange = vi.fn();
+      render(
+        <>
+          <AuthoringDock {...baseProps} onRangeChange={onRangeChange} />
+          <input aria-label="Some sidebar field" />
+        </>,
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Seek 1s" }));
+
+      fireEvent.keyDown(screen.getByLabelText("Some sidebar field"), { key: "i" });
+      fireEvent.keyDown(window, { key: "i", metaKey: true });
+      fireEvent.keyDown(window, { key: "o", ctrlKey: true });
+
+      expect(onRangeChange).not.toHaveBeenCalled();
+    });
+
+    it("the In/Out buttons mark exactly like the keys", async () => {
+      const onRangeChange = vi.fn();
+      render(<AuthoringDock {...baseProps} onRangeChange={onRangeChange} />);
+      await userEvent.click(screen.getByRole("button", { name: "Seek 1s" }));
+
+      await userEvent.click(screen.getByRole("button", { name: /mark in/i }));
+      expect(onRangeChange).toHaveBeenLastCalledWith({ a: 1000, b: 5000 });
+
+      await userEvent.click(screen.getByRole("button", { name: /mark out/i }));
+      expect(onRangeChange).toHaveBeenLastCalledWith({ a: 0, b: 1000 });
+    });
+  });
+
+  describe("clip row", () => {
+    it("Enter adds only when a range exists; Escape clears it", () => {
+      const onAddSegment = vi.fn();
+      const onRangeChange = vi.fn();
+      const { rerender } = render(
+        <AuthoringDock {...baseProps} onAddSegment={onAddSegment} onRangeChange={onRangeChange} />,
+      );
+
+      fireEvent.keyDown(window, { key: "Enter" });
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onAddSegment).not.toHaveBeenCalled();
+      expect(onRangeChange).not.toHaveBeenCalled();
+
+      rerender(
+        <AuthoringDock
+          {...baseProps}
+          range={{ a: 0, b: 2000 }}
+          onAddSegment={onAddSegment}
+          onRangeChange={onRangeChange}
+        />,
+      );
+      fireEvent.keyDown(window, { key: "Enter" });
+      expect(onAddSegment).toHaveBeenCalledTimes(1);
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onRangeChange).toHaveBeenCalledWith(null);
+    });
+
+    it("renders the chip with the event count, a clear button, and Add Segment", async () => {
+      const onAddSegment = vi.fn();
+      const onRangeChange = vi.fn();
+      render(
+        <AuthoringDock
+          {...baseProps}
+          range={{ a: 0, b: 2000 }}
+          onAddSegment={onAddSegment}
+          onRangeChange={onRangeChange}
+        />,
+      );
+
+      // Events at rel 100 and 292 are both inside [0, 2000].
+      expect(screen.getByText(/0:00–0:02 · 2 events/)).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: /add segment/i }));
+      expect(onAddSegment).toHaveBeenCalledTimes(1);
+
+      await userEvent.click(screen.getByRole("button", { name: /clear range/i }));
+      expect(onRangeChange).toHaveBeenCalledWith(null);
+    });
+
+    it("shows no chip or Add button without a range", () => {
+      render(<AuthoringDock {...baseProps} />);
+      expect(screen.queryByRole("button", { name: /add segment/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/events/)).not.toBeInTheDocument();
+    });
   });
 });

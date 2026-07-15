@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { eventsInRange, segmentBasis, segmentNodeFromRange } from "@/lib/macro-segment";
+import { fmtMmSs } from "@/lib/time-format";
 import { waitNodeFromTarget } from "@/lib/macro-wait";
 import type { MacroNode, PerceptionTarget, Recording } from "@/types";
 
@@ -26,11 +27,6 @@ export interface AddNodePanelProps {
   range: LoopRegion | null;
   onRangeChange: (range: LoopRegion | null) => void;
   onAdd: (node: MacroNode) => void;
-}
-
-function fmtS(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 function sameRange(x: LoopRegion | null, y: LoopRegion | null): boolean {
@@ -179,7 +175,7 @@ export function AddNodePanel({
           range && (
             <div className="anp-chip">
               <span>
-                {fmtS(range.a)}–{fmtS(range.b)} ·{" "}
+                {fmtMmSs(range.a)}–{fmtMmSs(range.b)} ·{" "}
                 {eventsInRange(selected.events, segmentBasis(selected), range.a, range.b).length}{" "}
                 events
               </span>

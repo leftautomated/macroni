@@ -223,43 +223,6 @@
   filter: drop-shadow(0 0 8px rgb(240 205 120 / 55%));
 }
 
-.macro-canvas-flow .react-flow__controls {
-  border: 1px solid var(--macro-line);
-  border-radius: 8px;
-  overflow: hidden;
-  background: rgb(17 17 17 / 84%);
-  box-shadow: 0 16px 34px rgb(0 0 0 / 24%);
-  backdrop-filter: blur(18px);
-}
-
-.macro-canvas-flow .react-flow__controls-button {
-  width: 30px;
-  height: 30px;
-  border-bottom: 1px solid var(--macro-line);
-  background: transparent;
-  color: var(--macro-muted);
-}
-
-.macro-canvas-flow .react-flow__controls-button:hover {
-  background: rgb(255 255 255 / 8%);
-  color: var(--macro-text);
-}
-
-.react-flow__controls-button svg {
-  width: 14px;
-  height: 14px;
-  fill: currentColor;
-}
-
-.macro-canvas-flow .react-flow__minimap {
-  border: 1px solid var(--macro-line);
-  border-radius: 8px;
-  overflow: hidden;
-  background: rgb(5 5 5 / 88%);
-  box-shadow: 0 16px 34px rgb(0 0 0 / 24%);
-  backdrop-filter: blur(18px);
-}
-
 .macro-canvas-flow .react-flow__attribution {
   display: none;
 }
@@ -854,9 +817,5 @@
 
   .mt-root {
     width: 100%;
-  }
-
-  .macro-canvas-flow .react-flow__minimap {
-    display: none;
   }
 }

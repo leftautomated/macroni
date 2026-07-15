@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Background,
   BackgroundVariant,
-  Controls,
   MarkerType,
-  MiniMap,
   Panel,
   ReactFlow,
   ReactFlowProvider,
@@ -228,15 +226,6 @@ export function MacroCanvas({
               {doc.edges.length === 1 ? "" : "s"}
             </span>
           </Panel>
-          <MiniMap
-            position="bottom-right"
-            pannable
-            zoomable
-            nodeBorderRadius={8}
-            nodeColor={(node) => (node.type === "wait" ? "#f4dda4" : "#f0cd78")}
-            maskColor="rgba(0,0,0,0.62)"
-          />
-          <Controls position="bottom-left" showInteractive={false} />
         </ReactFlow>
       </div>
     </ReactFlowProvider>

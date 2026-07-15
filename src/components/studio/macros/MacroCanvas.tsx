@@ -193,7 +193,7 @@ export function MacroCanvas({
           <div className="macro-canvas-empty" aria-hidden="true">
             <div className="macro-canvas-empty-title">No nodes on this macro</div>
             <div className="macro-canvas-empty-copy">
-              Create a segment or wait node from the build rail.
+              Create a segment or wait node from the sidebar.
             </div>
           </div>
         )}

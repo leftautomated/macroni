@@ -76,12 +76,29 @@
   display: flex;
 }
 
+/* No border-right here — the resize handle between the panels IS the
+   divider (a themed 1px line); a border would double it. */
 .macro-editor-sidebar {
   height: 100%;
   min-height: 0;
   overflow-y: auto;
-  border-right: 1px solid var(--macro-line);
   background: linear-gradient(180deg, rgb(17 17 17 / 88%), rgb(0 0 0 / 92%)), var(--macro-panel);
+}
+
+/* Theme the resize handles: 1px line in the panel seam, brightening on
+   hover and gold while dragging so the affordance is discoverable. The
+   4px-wide invisible hit area comes from the shadcn handle's ::after. */
+.macro-editor-main [data-panel-resize-handle-id] {
+  background: var(--macro-line);
+  transition: background 120ms ease;
+}
+
+.macro-editor-main [data-panel-resize-handle-id][data-resize-handle-state="hover"] {
+  background: var(--macro-line-strong);
+}
+
+.macro-editor-main [data-panel-resize-handle-id][data-resize-handle-state="drag"] {
+  background: rgb(240 205 120 / 55%);
 }
 
 .macro-editor-sidebar-inner {
@@ -803,6 +820,8 @@
   color: var(--macro-text);
 }
 
+/* No border-top — the horizontal resize handle above the dock is the
+   divider. */
 .adock-root {
   display: flex;
   gap: 16px;
@@ -810,7 +829,6 @@
   min-height: 0;
   box-sizing: border-box;
   padding: 12px 16px;
-  border-top: 1px solid var(--macro-line);
   background: rgb(10 10 10 / 82%);
 }
 

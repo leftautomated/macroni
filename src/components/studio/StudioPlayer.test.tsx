@@ -43,6 +43,21 @@ describe("StudioPlayer", () => {
     expect(onReplay).toHaveBeenCalledWith(true);
   });
 
+  it("hides the Replay macro button when showReplay is false", () => {
+    render(
+      <StudioPlayer
+        src="asset://clip.mp4"
+        fps={30}
+        onTimeUpdate={noop}
+        onReplay={noop}
+        showReplay={false}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /replay macro/i })).not.toBeInTheDocument();
+    // The rest of the transport must be unaffected.
+    expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
+  });
+
   it("passes the current loop toggle state to Replay macro", async () => {
     const onReplay = vi.fn();
     render(

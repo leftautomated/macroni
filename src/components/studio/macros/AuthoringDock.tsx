@@ -51,6 +51,7 @@ export function AuthoringDock({
           fps={recording.video?.fps ?? 30}
           onTimeUpdate={setVideoS}
           onReplay={noop}
+          showReplay={false}
           loopRegion={range ? { a: range.a / 1000, b: range.b / 1000 } : null}
           onSaveTarget={onSaveTarget}
           onSampleColor={onSampleColor}

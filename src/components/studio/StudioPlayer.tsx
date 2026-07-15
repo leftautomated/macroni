@@ -21,6 +21,10 @@ interface StudioPlayerProps {
   loopRegion?: { a: number; b: number } | null;
   /** Where to render the transport controls. Defaults to inline below the video. */
   controlsHost?: HTMLElement | null;
+  /** Show the "Replay macro" button (OS-level replay of the recording).
+   * Contexts where replay is meaningless — the macro authoring dock — pass
+   * false. Defaults to true. */
+  showReplay?: boolean;
   /** Perception targets to draw as labeled boxes over the video. */
   targets?: PerceptionTarget[];
   /** OCR text spans to draw as thin boxes over the video. */
@@ -118,6 +122,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     onReplay,
     loopRegion,
     controlsHost,
+    showReplay = true,
     targets,
     spans,
     hasObservations,
@@ -407,16 +412,19 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
         <span className="sp-time">{fmtTime(duration)}</span>
       </div>
 
-      {/* Right: replay */}
+      {/* Right: replay (kept as an empty cell when hidden so the center
+          cluster stays centered in the 1fr auto 1fr grid) */}
       <div style={{ display: "flex", alignItems: "center", justifySelf: "end" }}>
-        <button
-          type="button"
-          className="sp-replay"
-          title="Replay this macro in the control bar"
-          onClick={() => onReplay(loop)}
-        >
-          <Play size={14} /> Replay macro
-        </button>
+        {showReplay && (
+          <button
+            type="button"
+            className="sp-replay"
+            title="Replay this macro in the control bar"
+            onClick={() => onReplay(loop)}
+          >
+            <Play size={14} /> Replay macro
+          </button>
+        )}
       </div>
     </div>
   );

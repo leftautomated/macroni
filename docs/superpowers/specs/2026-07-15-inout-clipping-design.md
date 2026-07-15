@@ -51,12 +51,19 @@ While the dock is mounted (a recording with video is selected):
   — the handler no-ops in that case rather than emitting an invalid range.
 
 **Keyboard scope:** a `window` keydown listener registered while
-AuthoringDock is mounted (cleaned up on unmount). Events are ignored when
-`event.target` is an `<input>`, `<textarea>`, `<select>`, or
-`contentEditable` element, and when any modifier (meta/ctrl/alt) is held —
-so typing in the sidebar forms or using app shortcuts never marks. `Enter`
-and `Escape` are only claimed (preventDefault) when they act — Enter with
-no valid range and Escape with no range fall through untouched.
+AuthoringDock is mounted (cleaned up on unmount). Events that are already
+`defaultPrevented` or are auto-repeats (`event.repeat`) are ignored
+outright. Events are also ignored when `event.target` is an `<input>`,
+`<textarea>`, `<select>`, or `contentEditable` element, and when any
+modifier (meta/ctrl/alt) is held — so typing in the sidebar forms or using
+app shortcuts never marks. `Enter` and `Escape` additionally yield to a
+focused `<button>` or `[role="option"]` target (native activation wins,
+e.g. a Radix Select option or a sidebar/popover/transport button), and
+`Enter` acts only on a range with `b > a` — a zero-width range (e.g. from a
+return-to-origin timeline drag) falls through untouched, same as no range
+at all. `Enter` and `Escape` are only claimed (preventDefault) when they
+act — Enter with no valid range and Escape with no range fall through
+untouched.
 
 ## Dock UI
 

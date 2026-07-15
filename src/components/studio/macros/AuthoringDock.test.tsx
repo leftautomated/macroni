@@ -251,6 +251,42 @@ describe("AuthoringDock", () => {
       expect(onRangeChange).toHaveBeenCalledWith(null);
     });
 
+    it("Enter yields to focused buttons and role=option targets", () => {
+      const onAddSegment = vi.fn();
+      render(
+        <>
+          <AuthoringDock {...baseProps} range={{ a: 0, b: 2000 }} onAddSegment={onAddSegment} />
+          <button type="button">Sidebar action</button>
+          <div role="option" aria-selected="false" tabIndex={0}>
+            Recording One
+          </div>
+        </>,
+      );
+
+      fireEvent.keyDown(screen.getByRole("button", { name: "Sidebar action" }), { key: "Enter" });
+      fireEvent.keyDown(screen.getByRole("option"), { key: "Enter" });
+      expect(onAddSegment).not.toHaveBeenCalled();
+    });
+
+    it("Enter ignores repeats, already-handled events, and zero-width ranges", () => {
+      const onAddSegment = vi.fn();
+      const { rerender } = render(
+        <AuthoringDock {...baseProps} range={{ a: 0, b: 2000 }} onAddSegment={onAddSegment} />,
+      );
+
+      fireEvent.keyDown(window, { key: "Enter", repeat: true });
+      expect(onAddSegment).not.toHaveBeenCalled();
+
+      // Zero-width range (timeline can emit {a: x, b: x} on a return-to-origin
+      // drag): Enter must fall through, and no Add button is offered.
+      rerender(
+        <AuthoringDock {...baseProps} range={{ a: 1000, b: 1000 }} onAddSegment={onAddSegment} />,
+      );
+      fireEvent.keyDown(window, { key: "Enter" });
+      expect(onAddSegment).not.toHaveBeenCalled();
+      expect(screen.queryByRole("button", { name: /add segment/i })).not.toBeInTheDocument();
+    });
+
     it("renders the chip with the event count, a clear button, and Add Segment", async () => {
       const onAddSegment = vi.fn();
       const onRangeChange = vi.fn();

@@ -74,6 +74,7 @@ export function AuthoringDock({
   // Enter/Escape are only claimed when they act.
   const keyHandler = useRef<(e: KeyboardEvent) => void>(noop);
   keyHandler.current = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || e.repeat) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target;
     if (
@@ -89,12 +90,19 @@ export function AuthoringDock({
       markIn();
     } else if (e.key === "o" || e.key === "O") {
       markOut();
-    } else if (e.key === "Enter" && range) {
-      e.preventDefault();
-      onAddSegment();
-    } else if (e.key === "Escape" && range) {
-      e.preventDefault();
-      onRangeChange(null);
+    } else if (e.key === "Enter" || e.key === "Escape") {
+      // Enter/Escape must never steal activation from a focused control —
+      // a focused button keeps its native Enter, an open Radix listbox
+      // keeps its option selection. I/O marking deliberately still works
+      // with a button focused (mark, then keep marking).
+      if (t instanceof HTMLElement && t.closest("button, [role='option']")) return;
+      if (e.key === "Enter" && range && range.b > range.a) {
+        e.preventDefault();
+        onAddSegment();
+      } else if (e.key === "Escape" && range) {
+        e.preventDefault();
+        onRangeChange(null);
+      }
     }
   };
   useEffect(() => {
@@ -142,7 +150,7 @@ export function AuthoringDock({
           >
             ⌋ Out
           </button>
-          {range && (
+          {range && range.b > range.a && (
             <>
               <div className="anp-chip adock-chip">
                 <span>
@@ -176,7 +184,7 @@ export function AuthoringDock({
         <StudioTimeline
           events={recording.events}
           startMs={segmentBasis(recording)}
-          durationMs={recording.video?.duration_ms ?? 0}
+          durationMs={durationMs}
           videoMs={videoS * 1000}
           onSeekSeconds={(s) => playerRef.current?.seek(s)}
           loop={range}

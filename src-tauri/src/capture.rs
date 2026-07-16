@@ -413,20 +413,17 @@ fn next_bgra_frame(capturer: &PlatformCapturer) -> Result<Option<(u32, u32, Vec<
     }
 }
 
-/// Poll one BGRA frame from Windows.Graphics.Capture. Non-blocking polling is
-/// important because Windows can stop delivering frames when the desktop is
-/// static; the acquisition thread must still observe the stop flag promptly.
+/// Wait briefly for one BGRA frame from Windows.Graphics.Capture. Windows can
+/// stop delivering frames while the desktop is static, so the adapter uses a
+/// bounded receive that still lets this loop observe the stop flag promptly.
 #[cfg(target_os = "windows")]
 fn next_bgra_frame(capturer: &PlatformCapturer) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
-    match capturer.try_next_frame() {
+    match capturer.next_frame() {
         Ok(Some(frame)) if frame.width > 0 && frame.height > 0 && !frame.data.is_empty() => {
             Ok(Some((frame.width, frame.height, frame.data)))
         }
         Ok(Some(_)) => Ok(None),
-        Ok(None) => {
-            std::thread::sleep(Duration::from_millis(2));
-            Ok(None)
-        }
+        Ok(None) => Ok(None),
         Err(error) => Err(format!("{error:?}")),
     }
 }

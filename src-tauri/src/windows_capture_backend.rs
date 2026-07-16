@@ -2,7 +2,8 @@
 //! Keeping this boundary local avoids relying on wrappers that lag behind the
 //! `windows-capture` frame API.
 
-use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
+use std::time::Duration;
 use windows_capture::capture::{CaptureControl, Context, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::{GraphicsCaptureApi, InternalCaptureControl};
@@ -93,11 +94,15 @@ impl Capturer {
         })
     }
 
-    pub fn try_next_frame(&self) -> Result<Option<BgraFrame>, String> {
-        match self.frame_rx.try_recv() {
+    pub fn next_frame(&self) -> Result<Option<BgraFrame>, String> {
+        // `windows-capture` delivers frames from its own callback thread. Wait
+        // briefly for that callback instead of polling the channel hundreds of
+        // times per second while the desktop is static. The timeout keeps the
+        // recorder's stop flag responsive.
+        match self.frame_rx.recv_timeout(Duration::from_millis(25)) {
             Ok(frame) => Ok(Some(frame)),
-            Err(TryRecvError::Empty) => Ok(None),
-            Err(TryRecvError::Disconnected) => {
+            Err(RecvTimeoutError::Timeout) => Ok(None),
+            Err(RecvTimeoutError::Disconnected) => {
                 Err("Windows screen capture ended unexpectedly".to_string())
             }
         }

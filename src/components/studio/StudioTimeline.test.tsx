@@ -85,7 +85,7 @@ describe("StudioTimeline", () => {
     );
     // Two raw events collapse to one tick (no separate press/release ticks).
     expect(container.querySelectorAll(".tl-tick")).toHaveLength(1);
-    expect(container.querySelector('[title*="Key a"]')).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Keystroke, a/ })).toBeInTheDocument();
   });
 
   it("seeks to the clicked time on a plain click", () => {
@@ -124,7 +124,7 @@ describe("StudioTimeline", () => {
         perceptionTicks={[{ ms: 500, label: "Submit" }]}
       />,
     );
-    const tick = screen.getByTitle("Submit");
+    const tick = screen.getByRole("button", { name: /Text snapshot, Submit/ });
     // A real click is pointerdown → pointerup → click. The tick stops
     // pointerdown, so the track's own click-seek never arms — otherwise the
     // track would derive 1.0s from clientX 50 over the 100px/2000ms track and
@@ -160,7 +160,7 @@ describe("StudioTimeline", () => {
     expect(scroller.scrollLeft).toBe(50);
   });
 
-  it("renders a space-switch tick on the keys lane with direction tooltip", () => {
+  it("renders a space-switch tick on the keys lane with a detailed tooltip", async () => {
     const evs: InputEvent[] = [
       { type: InputEventType.SpaceSwitch, direction: "right", count: 2, timestamp: 1500 },
     ];
@@ -169,13 +169,35 @@ describe("StudioTimeline", () => {
     );
     const lanes = container.querySelectorAll(".tl-lane");
     // Lane order in the DOM: mouse lane first, keys lane second.
-    const keysLane = lanes[1] as HTMLElement;
-    const tick = keysLane.querySelector('[title*="⇄ →"][title*="×2"]') as HTMLElement;
+    const tick = screen.getByRole("button", { name: /Space Switch, ⇄ → ×2/ });
+    expect((lanes[1] as HTMLElement).contains(tick)).toBe(true);
     expect(tick).toBeTruthy();
     expect(tick.style.background).toBe("rgb(213, 81, 129)"); // #d55181
     // Mouse lane must NOT contain it.
-    expect((lanes[0] as HTMLElement).querySelector('[title*="⇄"]')).toBeNull();
+    expect((lanes[0] as HTMLElement).querySelector('[aria-label*="⇄"]')).toBeNull();
     expect(screen.getByText("Space")).toBeInTheDocument(); // legend
+
+    fireEvent.focus(tick);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("Space Switch");
+    expect(tooltip).toHaveTextContent("0:00.50");
+    expect(tooltip).toHaveTextContent("⇄ → ×2");
+  });
+
+  it("hides inline span labels until the full word has enough room", () => {
+    const { container } = render(
+      <StudioTimeline {...base} onSeekSeconds={noop} onLoopChange={noop} />,
+    );
+    const span = container.querySelector(".tl-span") as HTMLElement;
+    const label = span.querySelector(".tl-span-label") as HTMLElement;
+    const styles = Array.from(container.querySelectorAll("style"))
+      .map((style) => style.textContent)
+      .join("\n");
+
+    expect(label).toHaveTextContent("Drag");
+    expect(styles).toContain("@container (min-width: 52px)");
+    expect(styles).toContain(".tl-span-label { display: none;");
+    expect(span.getAttribute("aria-label")).toContain("Drag");
   });
 
   it("swaps loop wording for selection wording when rangeWord='selection'", () => {

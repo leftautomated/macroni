@@ -1,5 +1,6 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   type EventRow,
   getEventDetails,
@@ -34,6 +35,43 @@ interface StudioTimelineProps {
 function fmt(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function fmtPrecise(ms: number): string {
+  const safeMs = Math.max(0, Math.floor(ms));
+  const seconds = Math.floor(safeMs / 1000);
+  const centiseconds = Math.floor((safeMs % 1000) / 10);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
+}
+
+interface TimelineTooltipProps {
+  children: React.ReactNode;
+  color: string;
+  detail?: string;
+  label: string;
+  time: string;
+  value?: string;
+}
+
+function TimelineTooltip({ children, color, detail, label, time, value }: TimelineTooltipProps) {
+  const accessibleLabel = [time, label, value, detail].filter(Boolean).join(", ");
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild aria-label={accessibleLabel}>
+        {children}
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={8} collisionPadding={12} className="tl-event-tooltip">
+        <div className="tl-tooltip-heading">
+          <span className="tl-tooltip-swatch" style={{ background: color }} />
+          <span className="tl-tooltip-label">{label}</span>
+          <time className="tl-tooltip-time">{time}</time>
+        </div>
+        {value && <div className="tl-tooltip-value">{value}</div>}
+        {detail && <div className="tl-tooltip-detail">{detail}</div>}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 const COLOR = {
@@ -260,67 +298,101 @@ export function StudioTimeline({
             ? COLOR.key
             : COLOR.click;
       return (
-        <div
+        <TimelineTooltip
           key={`e${row.index}`}
-          className="tl-tick"
-          title={`${fmt(start)}  ${d.action}${d.value ? ` ${d.value}` : ""}`}
-          style={{ left: `${pctOf(start)}%`, background: color }}
-        />
+          color={color}
+          label={d.action}
+          value={d.value}
+          detail={d.detail}
+          time={fmtPrecise(start)}
+        >
+          <button
+            type="button"
+            className="tl-marker tl-tick"
+            style={{ left: `${pctOf(start)}%`, background: color }}
+          />
+        </TimelineTooltip>
       );
     }
     const start = rel(events[row.startIndex].timestamp);
     if (row.kind === "click") {
       return (
-        <div
+        <TimelineTooltip
           key={`c${row.startIndex}`}
-          className="tl-tick"
-          title={`${fmt(start)}  Click ${row.button}`}
-          style={{ left: `${pctOf(start)}%`, background: COLOR.click }}
-        />
+          color={COLOR.click}
+          label="Click"
+          value={`${row.button} button`}
+          detail={`(${Math.round(row.x)}, ${Math.round(row.y)})`}
+          time={fmtPrecise(start)}
+        >
+          <button
+            type="button"
+            className="tl-marker tl-tick"
+            style={{ left: `${pctOf(start)}%`, background: COLOR.click }}
+          />
+        </TimelineTooltip>
       );
     }
     if (row.kind === "keystroke") {
       return (
-        <div
+        <TimelineTooltip
           key={`k${row.startIndex}`}
-          className="tl-tick"
-          title={`${fmt(start)}  Key ${row.key}`}
-          style={{ left: `${pctOf(start)}%`, background: COLOR.key }}
-        />
+          color={COLOR.key}
+          label="Keystroke"
+          value={row.key}
+          time={fmtPrecise(start)}
+        >
+          <button
+            type="button"
+            className="tl-marker tl-tick"
+            style={{ left: `${pctOf(start)}%`, background: COLOR.key }}
+          />
+        </TimelineTooltip>
       );
     }
     const end = rel(events[row.endIndex].timestamp);
     const width = `max(3px, ${pctOf(end - start)}%)`;
-    let info: string;
     let label: string;
+    let value: string | undefined;
+    let detail: string | undefined;
     if (row.kind === "drag") {
-      info = `Drag ${row.button} → (${Math.round(row.x2)}, ${Math.round(row.y2)})`;
       label = "Drag";
+      value = `${row.button} button`;
+      detail = `(${Math.round(row.x1)}, ${Math.round(row.y1)}) → (${Math.round(row.x2)}, ${Math.round(row.y2)})`;
     } else if (row.kind === "scroll") {
       const sw = swipeLabel(row);
       label = sw ?? "Scroll";
-      info = sw
-        ? `${sw} (${scrollSummary(row.deltaX, row.deltaY)})`
-        : `Scroll ${scrollSummary(row.deltaX, row.deltaY)}`;
+      value = scrollSummary(row.deltaX, row.deltaY);
+      detail = `${row.count} input ${row.count === 1 ? "sample" : "samples"}`;
     } else {
-      info = "Mouse move";
       label = "Move";
+      value = `(${Math.round(row.x)}, ${Math.round(row.y)})`;
+      detail = `${row.count} input ${row.count === 1 ? "sample" : "samples"}`;
     }
     return (
-      <div
+      <TimelineTooltip
         key={`g${row.startIndex}`}
-        className="tl-span"
-        title={`${fmt(start)}  ${info}`}
-        style={{ left: `${pctOf(start)}%`, width, background: COLOR[row.kind] }}
+        color={COLOR[row.kind]}
+        label={label}
+        value={value}
+        detail={detail}
+        time={`${fmtPrecise(start)}–${fmtPrecise(end)}`}
       >
-        <span className="tl-span-label">{label}</span>
-      </div>
+        <button
+          type="button"
+          className="tl-marker tl-span"
+          style={{ left: `${pctOf(start)}%`, width, background: COLOR[row.kind] }}
+        >
+          <span className="tl-span-label">{label}</span>
+        </button>
+      </TimelineTooltip>
     );
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <style>{`
+    <TooltipProvider delayDuration={180} skipDelayDuration={80}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <style>{`
         /* Headroom for the ruler labels, which sit just above the tick marks at
            the very top of the track; without it, overflow-y:hidden clips their tops.
            The native horizontal scrollbar is hidden — the .tl-hscroll strip below
@@ -340,11 +412,24 @@ export function StudioTimeline({
         .tl-rlabel { position: absolute; bottom: 8px; left: 0; transform: translateX(-50%); font-size: 10px; color: rgba(255,255,255,0.5); white-space: nowrap; font-variant-numeric: tabular-nums; }
         .tl-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.05); pointer-events: none; }
         .tl-lane { position: relative; height: 22px; border-radius: 4px; background: rgba(255,255,255,0.04); }
-        .tl-span { position: absolute; top: 3px; height: 16px; border-radius: 3px; opacity: 0.85; overflow: hidden; }
-        .tl-span:hover { opacity: 1; }
-        .tl-span-label { display: block; font-size: 10px; line-height: 16px; color: #fff; padding: 0 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+        .tl-marker { appearance: none; border: 0; padding: 0; cursor: default; font: inherit; }
+        .tl-marker:focus-visible { outline: 1px solid #f4dda4; outline-offset: 2px; }
+        .tl-span { position: absolute; top: 3px; height: 16px; border-radius: 3px; opacity: 0.85; overflow: hidden; container-type: inline-size; }
+        .tl-span:hover, .tl-span:focus-visible { opacity: 1; }
+        .tl-span-label { display: none; font-size: 10px; line-height: 16px; color: #fff; padding: 0 5px; white-space: nowrap; pointer-events: none; }
+        @container (min-width: 52px) { .tl-span-label { display: block; } }
         .tl-tick { position: absolute; top: 4px; width: 5px; height: 14px; margin-left: -2.5px; border-radius: 2px; opacity: 0.9; }
-        .tl-tick:hover { opacity: 1; }
+        .tl-tick:hover, .tl-tick:focus-visible { opacity: 1; transform: scaleX(1.35); }
+        .tl-event-tooltip { pointer-events: none; min-width: 168px; max-width: 260px; border-color: rgba(255,255,255,0.14); border-radius: 8px; background: #18171c; padding: 9px 10px 10px; color: rgba(255,255,255,0.92); box-shadow: 0 10px 28px rgba(0,0,0,0.42), 0 1px 0 rgba(255,255,255,0.06) inset; animation: tl-tooltip-in 120ms cubic-bezier(0.22, 1, 0.36, 1); }
+        .tl-event-tooltip > svg { fill: #18171c; }
+        .tl-tooltip-heading { display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; align-items: center; gap: 7px; }
+        .tl-tooltip-swatch { width: 7px; height: 7px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255,255,255,0.16) inset; }
+        .tl-tooltip-label { overflow: hidden; color: rgba(255,255,255,0.66); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; line-height: 1.2; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+        .tl-tooltip-time { color: rgba(255,255,255,0.45); font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+        .tl-tooltip-value { margin-top: 6px; overflow-wrap: anywhere; color: rgba(255,255,255,0.96); font-size: 12px; font-weight: 540; line-height: 1.25; }
+        .tl-tooltip-detail { margin-top: 3px; color: rgba(255,255,255,0.52); font-size: 10px; font-variant-numeric: tabular-nums; line-height: 1.3; }
+        @keyframes tl-tooltip-in { from { opacity: 0; transform: translateY(2px) scale(0.985); } }
+        @media (prefers-reduced-motion: reduce) { .tl-event-tooltip { animation: none; } }
         .tl-clear { border: 1px solid rgba(240,205,120,0.5); background: rgba(240,205,120,0.16); color: #f4dda4; border-radius: 5px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
         .tl-clear:hover { background: rgba(240,205,120,0.26); }
         .tl-slider { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.18); cursor: pointer; outline: none; }
@@ -352,165 +437,175 @@ export function StudioTimeline({
         .tl-slider::-webkit-slider-thumb:hover { background: #f4dda4; }
       `}</style>
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          fontSize: 11,
-          color: "rgba(255,255,255,0.45)",
-          fontVariantNumeric: "tabular-nums",
-        }}
-      >
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-          <input
-            type="range"
-            className="tl-slider"
-            style={{
-              background: `linear-gradient(to right, #f0cd78 ${zoomPos * 100}%, rgba(255,255,255,0.18) ${zoomPos * 100}%)`,
-            }}
-            min={0}
-            max={1}
-            step={0.001}
-            value={zoomPos}
-            onChange={(e) => setZoomFromPos(Number(e.target.value))}
-            title="Zoom"
-            aria-label="Zoom"
-          />
-          <span style={{ minWidth: 26, textAlign: "right" }}>{Math.round(secondsVisible)}s</span>
-        </span>
-        {loop ? (
-          <button type="button" className="tl-clear" onClick={() => onLoopChange(null)}>
-            {rangeWord === "selection" ? "selection" : "⟳ loop"} {fmt(loop.a)}–{fmt(loop.b)} ✕
-          </button>
-        ) : (
-          <span style={{ color: "rgba(255,255,255,0.3)" }}>
-            drag to {rangeWord === "selection" ? "select" : "loop"} a range
-          </span>
-        )}
-        <span>{fmt(dur)}</span>
-      </div>
-
-      <div style={{ display: "flex", gap: 12, fontSize: 10, color: "rgba(255,255,255,0.5)" }}>
-        {[
-          { c: COLOR.drag, l: "Drag" },
-          { c: COLOR.scroll, l: "Scroll" },
-          { c: COLOR.click, l: "Click" },
-          { c: COLOR.key, l: "Key" },
-          { c: COLOR.space, l: "Space" },
-          ...(perceptionTicks && perceptionTicks.length > 0 ? [{ c: "#f4dda4", l: "Text" }] : []),
-        ].map(({ c, l }) => (
-          <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-            <span style={{ width: 10, height: 8, borderRadius: 2, background: c }} />
-            {l}
-          </span>
-        ))}
-      </div>
-
-      <div
-        className="tl-scroll"
-        ref={scrollRef}
-        onWheel={() => {
-          // The user is navigating the timeline — stop pulling the view back to
-          // the playhead until they click/seek again.
-          follow.current = false;
-        }}
-      >
         <div
-          ref={trackRef}
-          className="tl-track"
-          style={{ width: `${trackWidthPct}%` }}
-          onPointerDown={onDown}
-          onPointerMove={onMove}
-          onPointerUp={onUp}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            fontSize: 11,
+            color: "rgba(255,255,255,0.45)",
+            fontVariantNumeric: "tabular-nums",
+          }}
         >
-          {majorSecs.map((t) => (
-            <div key={`grid${t}`} className="tl-grid" style={{ left: `${pctOf(t * 1000)}%` }} />
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="range"
+              className="tl-slider"
+              style={{
+                background: `linear-gradient(to right, #f0cd78 ${zoomPos * 100}%, rgba(255,255,255,0.18) ${zoomPos * 100}%)`,
+              }}
+              min={0}
+              max={1}
+              step={0.001}
+              value={zoomPos}
+              onChange={(e) => setZoomFromPos(Number(e.target.value))}
+              title="Zoom"
+              aria-label="Zoom"
+            />
+            <span style={{ minWidth: 26, textAlign: "right" }}>{Math.round(secondsVisible)}s</span>
+          </span>
+          {loop ? (
+            <button type="button" className="tl-clear" onClick={() => onLoopChange(null)}>
+              {rangeWord === "selection" ? "selection" : "⟳ loop"} {fmt(loop.a)}–{fmt(loop.b)} ✕
+            </button>
+          ) : (
+            <span style={{ color: "rgba(255,255,255,0.3)" }}>
+              drag to {rangeWord === "selection" ? "select" : "loop"} a range
+            </span>
+          )}
+          <span>{fmt(dur)}</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 12, fontSize: 10, color: "rgba(255,255,255,0.5)" }}>
+          {[
+            { c: COLOR.drag, l: "Drag" },
+            { c: COLOR.scroll, l: "Scroll" },
+            { c: COLOR.click, l: "Click" },
+            { c: COLOR.key, l: "Key" },
+            { c: COLOR.space, l: "Space" },
+            ...(perceptionTicks && perceptionTicks.length > 0 ? [{ c: "#f4dda4", l: "Text" }] : []),
+          ].map(({ c, l }) => (
+            <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 10, height: 8, borderRadius: 2, background: c }} />
+              {l}
+            </span>
           ))}
+        </div>
 
-          <div className="tl-ruler">
-            {minorSecs.map((t) => (
-              <div
-                key={`min${t}`}
-                className="tl-tickmark minor"
-                style={{ left: `${pctOf(t * 1000)}%` }}
-              />
-            ))}
+        <div
+          className="tl-scroll"
+          ref={scrollRef}
+          onWheel={() => {
+            // The user is navigating the timeline — stop pulling the view back to
+            // the playhead until they click/seek again.
+            follow.current = false;
+          }}
+        >
+          <div
+            ref={trackRef}
+            className="tl-track"
+            style={{ width: `${trackWidthPct}%` }}
+            onPointerDown={onDown}
+            onPointerMove={onMove}
+            onPointerUp={onUp}
+          >
             {majorSecs.map((t) => (
-              <div
-                key={`maj${t}`}
-                className="tl-tickmark major"
-                style={{ left: `${pctOf(t * 1000)}%` }}
-              >
-                <span className="tl-rlabel">{fmt(t * 1000)}</span>
-              </div>
+              <div key={`grid${t}`} className="tl-grid" style={{ left: `${pctOf(t * 1000)}%` }} />
             ))}
-          </div>
 
-          <div className="tl-lane">{mouseRows.map((r) => renderRow(r, "mouse"))}</div>
-          <div className="tl-lane">{keyRows.map((r) => renderRow(r, "keys"))}</div>
-
-          {perceptionTicks && perceptionTicks.length > 0 && (
-            <div className="tl-lane">
-              {perceptionTicks.map((t, i) => (
+            <div className="tl-ruler">
+              {minorSecs.map((t) => (
                 <div
-                  key={`p${i}`}
-                  className="tl-tick"
-                  title={t.label}
-                  style={{ left: `${pctOf(t.ms)}%`, background: "#f4dda4", cursor: "pointer" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSeekSeconds(t.ms / 1000);
-                  }}
-                  onPointerDown={(e) => e.stopPropagation()}
+                  key={`min${t}`}
+                  className="tl-tickmark minor"
+                  style={{ left: `${pctOf(t * 1000)}%` }}
                 />
               ))}
+              {majorSecs.map((t) => (
+                <div
+                  key={`maj${t}`}
+                  className="tl-tickmark major"
+                  style={{ left: `${pctOf(t * 1000)}%` }}
+                >
+                  <span className="tl-rlabel">{fmt(t * 1000)}</span>
+                </div>
+              ))}
             </div>
-          )}
 
-          {loop && (
+            <div className="tl-lane">{mouseRows.map((r) => renderRow(r, "mouse"))}</div>
+            <div className="tl-lane">{keyRows.map((r) => renderRow(r, "keys"))}</div>
+
+            {perceptionTicks && perceptionTicks.length > 0 && (
+              <div className="tl-lane">
+                {perceptionTicks.map((t, i) => (
+                  <TimelineTooltip
+                    key={`p${i}`}
+                    color="#f4dda4"
+                    label="Text snapshot"
+                    value={t.label}
+                    time={fmtPrecise(t.ms)}
+                  >
+                    <button
+                      type="button"
+                      className="tl-marker tl-tick"
+                      style={{ left: `${pctOf(t.ms)}%`, background: "#f4dda4", cursor: "pointer" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSeekSeconds(t.ms / 1000);
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    />
+                  </TimelineTooltip>
+                ))}
+              </div>
+            )}
+
+            {loop && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: `${pctOf(loop.a)}%`,
+                  width: `${pctOf(loop.b - loop.a)}%`,
+                  background: "rgba(240,205,120,0.15)",
+                  border: "1px solid rgba(240,205,120,0.5)",
+                  borderRadius: 4,
+                  pointerEvents: "none",
+                }}
+              />
+            )}
             <div
               style={{
                 position: "absolute",
                 top: 0,
                 bottom: 0,
-                left: `${pctOf(loop.a)}%`,
-                width: `${pctOf(loop.b - loop.a)}%`,
-                background: "rgba(240,205,120,0.15)",
-                border: "1px solid rgba(240,205,120,0.5)",
-                borderRadius: 4,
+                left: `${pctOf(playMs)}%`,
+                width: 2,
+                marginLeft: -1,
+                background: "#fff",
+                boxShadow: "0 0 4px rgba(0,0,0,0.6)",
                 pointerEvents: "none",
               }}
             />
+          </div>
+        </div>
+
+        {/* Always mounted at fixed height so appearing/disappearing (zooming
+          across the fits-the-viewport threshold) causes no layout shift. */}
+        <div
+          ref={hTrackRef}
+          className="tl-hscroll"
+          style={hThumb ? undefined : { opacity: 0, pointerEvents: "none" }}
+          onPointerDown={hDown}
+          onPointerMove={hMove}
+          onPointerUp={hUp}
+        >
+          {hThumb && (
+            <div className="tl-hthumb" style={{ left: hThumb.left, width: hThumb.width }} />
           )}
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              bottom: 0,
-              left: `${pctOf(playMs)}%`,
-              width: 2,
-              marginLeft: -1,
-              background: "#fff",
-              boxShadow: "0 0 4px rgba(0,0,0,0.6)",
-              pointerEvents: "none",
-            }}
-          />
         </div>
       </div>
-
-      {/* Always mounted at fixed height so appearing/disappearing (zooming
-          across the fits-the-viewport threshold) causes no layout shift. */}
-      <div
-        ref={hTrackRef}
-        className="tl-hscroll"
-        style={hThumb ? undefined : { opacity: 0, pointerEvents: "none" }}
-        onPointerDown={hDown}
-        onPointerMove={hMove}
-        onPointerUp={hUp}
-      >
-        {hThumb && <div className="tl-hthumb" style={{ left: hThumb.left, width: hThumb.width }} />}
-      </div>
-    </div>
+    </TooltipProvider>
   );
 }

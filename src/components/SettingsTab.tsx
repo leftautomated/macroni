@@ -127,9 +127,10 @@ export const SettingsTab = () => {
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
           font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.82);
           background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.09);
-          border-bottom-color: rgba(0,0,0,0.32);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-bottom-color: rgba(255,255,255,0.16);
           border-radius: 5px;
+          box-shadow: inset 0 -1px 0 rgba(0,0,0,0.24), 0 1px 1px rgba(0,0,0,0.28);
         }
         .st-kbd-plus { color: rgba(255,255,255,0.3); font-size: 11px; }
 

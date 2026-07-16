@@ -63,7 +63,10 @@ mod tests {
     #[test]
     fn default_settings_have_sensible_values() {
         let s = AppSettings::default();
-        assert_eq!(s.capture.video, cfg!(target_os = "macos"));
+        assert_eq!(
+            s.capture.video,
+            cfg!(any(target_os = "macos", target_os = "windows"))
+        );
         assert_eq!(s.capture.fps, 30);
         assert!(matches!(s.capture.quality, CaptureQuality::Med));
         assert!(s.capture.audio);
@@ -81,14 +84,20 @@ mod tests {
     fn missing_fields_deserialize_to_defaults() {
         let json = "{}";
         let s: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(s.capture.video, cfg!(target_os = "macos"));
+        assert_eq!(
+            s.capture.video,
+            cfg!(any(target_os = "macos", target_os = "windows"))
+        );
         assert_eq!(s.capture.fps, 30);
     }
 
     #[test]
     fn missing_capture_fields_deserialize_to_defaults() {
         let s: AppSettings = serde_json::from_str(r#"{"capture":{"fps":15}}"#).unwrap();
-        assert_eq!(s.capture.video, cfg!(target_os = "macos"));
+        assert_eq!(
+            s.capture.video,
+            cfg!(any(target_os = "macos", target_os = "windows"))
+        );
         assert_eq!(s.capture.fps, 15);
         assert!(matches!(s.capture.quality, CaptureQuality::Med));
         assert!(s.capture.audio);

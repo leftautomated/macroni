@@ -64,7 +64,7 @@ no other shared mutable state.
 
 ## Platform notes
 
-- **Windows**: `ScreenCaptureSession::start` returns `Err("windows-capture-unsupported")` because scap 0.1.0-beta.1 doesn't compile against the current `windows-capture` dep. Event recording still works; video capture is skipped. Revisit when upstream scap fixes it.
+- **Windows**: screen capture uses `sc-cap` 0.2 backed by `Windows.Graphics.Capture`; frames feed the same software H.264/MP4 encoder used on macOS. Windows 10 version 1903 or newer is required by the native capture API.
 - **macOS**: requires Screen Recording (for capture) and Accessibility (for `rdev::listen`) permissions. Both are surfaced through Tauri events (`permission-needed`, `capture-failed`).
 
 ## Frontend ↔ Backend events

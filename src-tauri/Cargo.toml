@@ -53,10 +53,9 @@ png = "0.17"
 tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# Video capture: scap depends on native platform capture stacks. The maintained
-# fork fixes macOS frame delivery, but its Linux PipeWire stack requires newer
-# libspa headers than Ubuntu 22.04 ships. Keep live screen capture macOS-only
-# for now; Linux/Windows run event-only until we add a compatible backend.
+# Video capture: the maintained open-gpui fork fixes macOS frame delivery.
+# Linux remains event-only because its PipeWire stack requires newer libspa
+# headers than Ubuntu 22.04 ships. Windows uses sc-cap below.
 openh264 = { version = "0.6", default-features = false, features = ["source"] }
 mp4 = "0.14"
 # Data-parallelism for the per-frame BGRA->I420 conversion (real-time encode).
@@ -82,3 +81,11 @@ objc2-quartz-core = { version = "0.3", features = ["CALayer", "CAMediaTimingFunc
 # Perception (Task 7): macOS Vision framework for on-device text recognition (OCR).
 objc2-vision = { version = "0.3", features = ["VNRequest", "VNRequestHandler", "VNRecognizeTextRequest", "VNObservation", "VNTypes", "objc2-core-foundation"] }
 pollster = "0.3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# sc-cap 0.2 uses Windows.Graphics.Capture and exposes the same capturer shape
+# as the macOS backend, while compiling against the current windows-capture API.
+scap = { package = "sc-cap", version = "0.2.0" }
+openh264 = { version = "0.6", default-features = false, features = ["source"] }
+mp4 = "0.14"
+rayon = "1"

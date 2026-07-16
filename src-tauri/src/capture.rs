@@ -88,7 +88,7 @@ pub struct CaptureConfig {
 
 /// A raw frame handed from the acquisition thread to the encoder thread. Holds
 /// native-resolution BGRA; the resize/encode happens on the encoder side.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 struct CapturedFrame {
     width: u32,
     height: u32,
@@ -107,15 +107,15 @@ pub struct ScreenCaptureSession {
 impl ScreenCaptureSession {
     /// Start a screen capture session.
     ///
-    /// Non-macOS builds currently run event-only: the caller treats this as
+    /// Linux builds currently run event-only: the caller treats this as
     /// "no video, keep recording events" so the app still works without the
     /// video half of the preview feature.
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     pub fn start(_config: CaptureConfig) -> Result<Self, String> {
         Err("video-capture-unsupported-on-this-platform".to_string())
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub fn start(config: CaptureConfig) -> Result<Self, String> {
         if !scap::is_supported() {
             return Err("Screen capture is not supported on this platform".to_string());
@@ -145,9 +145,7 @@ impl ScreenCaptureSession {
             let fps = settings.fps;
             std::thread::spawn(move || {
                 use scap::capturer::{Capturer, Options};
-                // In open-gpui-scap, `Frame` is an alias for `VideoFrame`, so BGRA
-                // frames are matched as `ScapFrame::BGRA(_)` (no `Video` wrapper).
-                use scap::frame::{Frame as ScapFrame, FrameType};
+                use scap::frame::FrameType;
 
                 let opts = Options {
                     fps,
@@ -178,9 +176,10 @@ impl ScreenCaptureSession {
                 );
 
                 while running.load(Ordering::Relaxed) {
-                    match capturer.get_next_frame() {
-                        // scap emits empty 0x0 BGRA frames for SCK `.idle` status; skip.
-                        Ok(ScapFrame::BGRA(f)) if f.width > 0 && !f.data.is_empty() => {
+                    match next_bgra_frame(&capturer) {
+                        // The macOS backend emits empty 0x0 frames for SCK
+                        // `.idle` status; both backends skip empty buffers.
+                        Ok(Some((width, height, data))) => {
                             let ts = Utc::now().timestamp_millis();
                             // Tee a sampled copy to the perception worker BEFORE the
                             // encoder send. Gate first so we clone the 25–50 MB retina
@@ -189,17 +188,17 @@ impl ScreenCaptureSession {
                             if let Some(tee) = &tee {
                                 if gate.due(ts) {
                                     let _ = tee.try_send(Frame {
-                                        width: f.width as u32,
-                                        height: f.height as u32,
-                                        data: f.data.clone(),
+                                        width,
+                                        height,
+                                        data: data.clone(),
                                         timestamp_ms: ts,
                                     });
                                 }
                             }
                             let frame = CapturedFrame {
-                                width: f.width as u32,
-                                height: f.height as u32,
-                                data: f.data,
+                                width,
+                                height,
+                                data,
                                 ts,
                             };
                             match frame_tx.try_send(frame) {
@@ -209,14 +208,9 @@ impl ScreenCaptureSession {
                                 Err(mpsc::TrySendError::Disconnected(_)) => break,
                             }
                         }
-                        Ok(_) => continue, // audio / idle frame
+                        Ok(None) => continue, // audio / idle / no frame ready
                         Err(e) => {
-                            crate::observability::log_error(
-                                "capture",
-                                "frame_error",
-                                &format!("{e:?}"),
-                                None,
-                            );
+                            crate::observability::log_error("capture", "frame_error", &e, None);
                             break;
                         }
                     }
@@ -356,6 +350,47 @@ impl ScreenCaptureSession {
     }
 }
 
+/// Pull one BGRA frame from the macOS fork. Its `Frame` type is an alias for
+/// `VideoFrame`, so there is no outer `Video` variant.
+#[cfg(target_os = "macos")]
+fn next_bgra_frame(
+    capturer: &scap::capturer::Capturer,
+) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
+    use scap::frame::Frame as ScapFrame;
+
+    match capturer.get_next_frame() {
+        Ok(ScapFrame::BGRA(frame)) if frame.width > 0 && !frame.data.is_empty() => {
+            Ok(Some((frame.width as u32, frame.height as u32, frame.data)))
+        }
+        Ok(_) => Ok(None),
+        Err(error) => Err(format!("{error:?}")),
+    }
+}
+
+/// Poll one BGRA frame from Windows.Graphics.Capture. Non-blocking polling is
+/// important because Windows can stop delivering frames when the desktop is
+/// static; the acquisition thread must still observe the stop flag promptly.
+#[cfg(target_os = "windows")]
+fn next_bgra_frame(
+    capturer: &scap::capturer::Capturer,
+) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
+    use scap::frame::{Frame as ScapFrame, VideoFrame};
+
+    match capturer.try_get_next_frame() {
+        Ok(Some(ScapFrame::Video(VideoFrame::BGRA(frame))))
+            if frame.width > 0 && frame.height > 0 && !frame.data.is_empty() =>
+        {
+            Ok(Some((frame.width as u32, frame.height as u32, frame.data)))
+        }
+        Ok(Some(_)) => Ok(None),
+        Ok(None) => {
+            std::thread::sleep(Duration::from_millis(2));
+            Ok(None)
+        }
+        Err(error) => Err(format!("{error:?}")),
+    }
+}
+
 /// Locks the encoder's emitted-sample count to the wall clock: exactly one
 /// sample per `interval_ms` slot since the first frame. The muxer assigns
 /// every sample a fixed 1/fps duration, so the sample count IS the video
@@ -365,7 +400,7 @@ impl ScreenCaptureSession {
 ///
 /// Slot k covers `[base + k·interval, base + (k+1)·interval)`. Slot 0 is the
 /// first real frame, written by the caller before constructing the pacer.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // encoder loop is macOS-only
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 struct FramePacer {
     base_ts: i64,
     interval_ms: i64,
@@ -373,7 +408,7 @@ struct FramePacer {
     emitted: i64,
 }
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // encoder loop is macOS-only
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 impl FramePacer {
     fn new(first_frame_ts: i64, interval_ms: i64) -> Self {
         Self {
@@ -428,7 +463,7 @@ impl FramePacer {
 /// dimensions (I420 requirement). This is well within openh264's 4K hard limit
 /// AND keeps software encode real-time — encoding native 4K/5K on the CPU only
 /// manages a few fps, whereas 1080p is plenty to review a macro recording.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn encode_target(w: u32, h: u32) -> (u32, u32) {
     const MAX_LONG: f64 = 1920.0;
     const MAX_SHORT: f64 = 1080.0;

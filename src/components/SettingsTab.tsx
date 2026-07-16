@@ -19,7 +19,6 @@ import { usePermissionStatus } from "@/hooks/usePermissionStatus";
 import type { CaptureQuality, CaptureSettings } from "@/types";
 
 const isMac = navigator.userAgent.includes("Mac");
-const isWindows = navigator.userAgent.includes("Win");
 const mod = isMac ? "⌘" : "Ctrl";
 
 const SHORTCUTS = [
@@ -155,12 +154,6 @@ export const SettingsTab = () => {
 
       {/* Capture */}
       <Section icon={<Video />} label="Capture">
-        {isWindows && (
-          <p className="st-note">
-            Video capture is temporarily unavailable on Windows (upstream library issue). Event
-            recording still works — these settings apply once video support ships.
-          </p>
-        )}
         <div className="st-panel">
           {settings ? (
             <>

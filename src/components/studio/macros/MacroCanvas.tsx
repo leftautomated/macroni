@@ -181,8 +181,14 @@ export function MacroCanvas({
     () => withRunState(nodes, liveNodeId, failedNodeId),
     [nodes, liveNodeId, failedNodeId],
   );
-  const canvasState = failedNodeId ? "failed" : liveNodeId ? "running" : "ready";
-  const canvasStateLabel = failedNodeId ? "Failed" : liveNodeId ? "Running" : "Ready";
+  // Only an abnormal run state earns chrome. "Ready" plus node/link counts
+  // restated what the canvas already shows; a run in progress or a failure
+  // is worth naming, since the node highlight alone doesn't say which.
+  const runState: "failed" | "running" | null = failedNodeId
+    ? "failed"
+    : liveNodeId
+      ? "running"
+      : null;
 
   return (
     <ReactFlowProvider>
@@ -218,14 +224,14 @@ export function MacroCanvas({
             size={1.25}
             color="rgba(255,255,255,0.16)"
           />
-          <Panel className="macro-canvas-panel" position="top-left">
-            <span className="macro-canvas-panel-dot" data-state={canvasState} aria-hidden="true" />
-            <span className="macro-canvas-panel-strong">{canvasStateLabel}</span>
-            <span>
-              {doc.nodes.length} node{doc.nodes.length === 1 ? "" : "s"} / {doc.edges.length} link
-              {doc.edges.length === 1 ? "" : "s"}
-            </span>
-          </Panel>
+          {runState && (
+            <Panel className="macro-canvas-panel" position="top-left">
+              <span className="macro-canvas-panel-dot" data-state={runState} aria-hidden="true" />
+              <span className="macro-canvas-panel-strong">
+                {runState === "failed" ? "Failed" : "Running"}
+              </span>
+            </Panel>
+          )}
         </ReactFlow>
       </div>
     </ReactFlowProvider>

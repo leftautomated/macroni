@@ -117,12 +117,7 @@ impl ScreenCaptureSession {
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub fn start(config: CaptureConfig) -> Result<Self, String> {
-        if !scap::is_supported() {
-            return Err("Screen capture is not supported on this platform".to_string());
-        }
-        if !scap::has_permission() {
-            return Err("permission-denied".to_string());
-        }
+        check_capture_support()?;
 
         let start_ms = Utc::now().timestamp_millis();
         let running = Arc::new(AtomicBool::new(true));
@@ -142,32 +137,19 @@ impl ScreenCaptureSession {
         // ── Acquisition thread: drain scap as fast as possible. ──────────────
         {
             let running = Arc::clone(&running);
-            let fps = settings.fps;
             std::thread::spawn(move || {
-                use scap::capturer::{Capturer, Options};
-                use scap::frame::FrameType;
-
-                let opts = Options {
-                    fps,
-                    show_cursor: true,
-                    show_highlight: false,
-                    output_type: FrameType::BGRAFrame,
-                    output_resolution: scap::capturer::Resolution::Captured,
-                    ..Default::default()
-                };
-                let mut capturer = match Capturer::build(opts) {
+                let capturer = match start_platform_capture(settings.fps) {
                     Ok(c) => c,
                     Err(e) => {
                         crate::observability::log_error(
                             "capture",
                             "capturer_build_failed",
-                            &format!("{e:?}"),
+                            &e,
                             None,
                         );
                         return; // frame_tx drops -> encoder finishes with "no frames"
                     }
                 };
-                capturer.start_capture();
 
                 // Rate limiter for the perception tee: keeps the worker at ~1–2
                 // fps regardless of capture fps. Only consulted when `tee` is Some.
@@ -215,7 +197,9 @@ impl ScreenCaptureSession {
                         }
                     }
                 }
-                capturer.stop_capture();
+                if let Err(error) = stop_platform_capture(capturer) {
+                    crate::observability::log_warn("capture", "capturer_stop_failed", &error, None);
+                }
                 // frame_tx dropped here -> encoder sees Disconnected.
             });
         }
@@ -350,12 +334,74 @@ impl ScreenCaptureSession {
     }
 }
 
+#[cfg(target_os = "macos")]
+type PlatformCapturer = scap::capturer::Capturer;
+
+#[cfg(target_os = "windows")]
+type PlatformCapturer = crate::windows_capture_backend::Capturer;
+
+#[cfg(target_os = "macos")]
+fn check_capture_support() -> Result<(), String> {
+    if !scap::is_supported() {
+        return Err("Screen capture is not supported on this platform".to_string());
+    }
+    if !scap::has_permission() {
+        return Err("permission-denied".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn check_capture_support() -> Result<(), String> {
+    use windows_capture::graphics_capture_api::GraphicsCaptureApi;
+
+    match GraphicsCaptureApi::is_supported() {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("Screen capture requires Windows 10 version 1903 or newer".to_string()),
+        Err(error) => Err(format!(
+            "Failed to check Windows screen capture support: {error}"
+        )),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn start_platform_capture(fps: u32) -> Result<PlatformCapturer, String> {
+    use scap::capturer::{Capturer, Options};
+    use scap::frame::FrameType;
+
+    let options = Options {
+        fps,
+        show_cursor: true,
+        show_highlight: false,
+        output_type: FrameType::BGRAFrame,
+        output_resolution: scap::capturer::Resolution::Captured,
+        ..Default::default()
+    };
+    let mut capturer = Capturer::build(options).map_err(|error| format!("{error:?}"))?;
+    capturer.start_capture();
+    Ok(capturer)
+}
+
+#[cfg(target_os = "windows")]
+fn start_platform_capture(_fps: u32) -> Result<PlatformCapturer, String> {
+    crate::windows_capture_backend::Capturer::start()
+}
+
+#[cfg(target_os = "macos")]
+fn stop_platform_capture(mut capturer: PlatformCapturer) -> Result<(), String> {
+    capturer.stop_capture();
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn stop_platform_capture(capturer: PlatformCapturer) -> Result<(), String> {
+    capturer.stop()
+}
+
 /// Pull one BGRA frame from the macOS fork. Its `Frame` type is an alias for
 /// `VideoFrame`, so there is no outer `Video` variant.
 #[cfg(target_os = "macos")]
-fn next_bgra_frame(
-    capturer: &scap::capturer::Capturer,
-) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
+fn next_bgra_frame(capturer: &PlatformCapturer) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
     use scap::frame::Frame as ScapFrame;
 
     match capturer.get_next_frame() {
@@ -371,16 +417,10 @@ fn next_bgra_frame(
 /// important because Windows can stop delivering frames when the desktop is
 /// static; the acquisition thread must still observe the stop flag promptly.
 #[cfg(target_os = "windows")]
-fn next_bgra_frame(
-    capturer: &scap::capturer::Capturer,
-) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
-    use scap::frame::{Frame as ScapFrame, VideoFrame};
-
-    match capturer.try_get_next_frame() {
-        Ok(Some(ScapFrame::Video(VideoFrame::BGRA(frame))))
-            if frame.width > 0 && frame.height > 0 && !frame.data.is_empty() =>
-        {
-            Ok(Some((frame.width as u32, frame.height as u32, frame.data)))
+fn next_bgra_frame(capturer: &PlatformCapturer) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
+    match capturer.try_next_frame() {
+        Ok(Some(frame)) if frame.width > 0 && frame.height > 0 && !frame.data.is_empty() => {
+            Ok(Some((frame.width, frame.height, frame.data)))
         }
         Ok(Some(_)) => Ok(None),
         Ok(None) => {

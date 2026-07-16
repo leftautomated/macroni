@@ -25,6 +25,8 @@ mod space_switch;
 mod space_watch;
 mod studio_export;
 mod types;
+#[cfg(target_os = "windows")]
+mod windows_capture_backend;
 
 use types::*;
 

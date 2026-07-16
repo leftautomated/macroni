@@ -173,7 +173,7 @@ impl CaptureSink for Mp4EncoderSink {
         self.encode_yuv(yuv)
     }
 
-    fn finalize(self: Box<Self>) -> Result<VideoMetadata, String> {
+    fn finalize(mut self: Box<Self>) -> Result<VideoMetadata, String> {
         use mp4::{AvcConfig, MediaConfig, Mp4Config, Mp4Writer, TrackConfig, TrackType};
 
         if self.sps.is_empty() || self.pps.is_empty() {
@@ -209,13 +209,16 @@ impl CaptureSink for Mp4EncoderSink {
         // spaced), which made playback stutter under variable-duration muxing;
         // the steady-rate encoder already emits ~one frame per interval, so a
         // fixed cadence preserves the right length and plays back smoothly.
-        for (idx, ef) in self.encoded_frames.iter().enumerate() {
+        // Consume each access unit as it is muxed. Cloning here temporarily
+        // doubled the buffered video memory at stop time, which is especially
+        // painful on Windows after longer/high-resolution recordings.
+        for (idx, ef) in self.encoded_frames.drain(..).enumerate() {
             let sample = mp4::Mp4Sample {
                 start_time: idx as u64 * frame_duration as u64,
                 duration: frame_duration,
                 rendering_offset: 0,
                 is_sync: ef.is_keyframe,
-                bytes: ef.data.clone().into(),
+                bytes: ef.data.into(),
             };
             writer.write_sample(1, &sample).map_err(|e| e.to_string())?;
         }

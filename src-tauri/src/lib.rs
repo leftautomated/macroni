@@ -164,14 +164,20 @@ struct StopResult {
 }
 
 #[tauri::command]
-fn stop_recording(
-    app: AppHandle,
-    state: State<RecordingState>,
-    trace_id: Option<String>,
-) -> Result<StopResult, String> {
-    observability::trace_command("stop_recording", trace_id, None, || {
-        finish_recording(&app, &state)
+async fn stop_recording(app: AppHandle, trace_id: Option<String>) -> Result<StopResult, String> {
+    // Finalization joins the encoder and muxes every buffered frame into the
+    // MP4. A synchronous Tauri command runs on the native message-loop thread;
+    // on Windows that makes both windows appear "Not Responding" until the
+    // recording is finalized. Keep the command async and move all blocking
+    // stop/finalize work onto the runtime's blocking pool.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<RecordingState>();
+        observability::trace_command("stop_recording", trace_id, None, || {
+            finish_recording(&app, &state)
+        })
     })
+    .await
+    .map_err(|e| format!("recording finalization task failed: {e}"))?
 }
 
 /// Stop the active session, finalize capture, and flush observations. Shared

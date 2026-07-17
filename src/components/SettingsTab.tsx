@@ -1,11 +1,14 @@
 import {
+  AlertCircle,
   CheckCircle2,
+  Download,
   Eye,
   ExternalLink,
   Keyboard,
   Monitor,
   Moon,
   Palette,
+  RefreshCw,
   Shield,
   Sun,
   Video,
@@ -15,6 +18,7 @@ import type { ReactNode } from "react";
 import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
 import { useTheme } from "@/components/theme-provider";
 import { useAppSettings } from "@/hooks/useAppSettings";
+import { useAppUpdater } from "@/hooks/useAppUpdater";
 import { usePermissionStatus } from "@/hooks/usePermissionStatus";
 import type { CaptureQuality, CaptureSettings } from "@/types";
 
@@ -34,6 +38,7 @@ const QUALITY_LABELS: Record<CaptureQuality, string> = { low: "Low", med: "Med",
 export const SettingsTab = () => {
   const { setTheme, theme } = useTheme();
   const { settings, update } = useAppSettings();
+  const updater = useAppUpdater();
   const perms = usePermissionStatus();
 
   const setCapture = (partial: Partial<CaptureSettings>) => {
@@ -151,6 +156,32 @@ export const SettingsTab = () => {
         .st-btn svg { width: 13px; height: 13px; }
         .st-btn:hover { background: rgba(240,205,120,0.12); color: #f0cd78; border-color: rgba(240,205,120,0.3); }
         .st-btn:disabled { opacity: 0.5; cursor: default; }
+
+        .st-update { align-items: flex-start; }
+        .st-update-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        .st-update-version { color: rgba(255,255,255,0.9); font-weight: 600; }
+        .st-update-status { display: inline-flex; align-items: center; gap: 6px; }
+        .st-update-status svg { width: 13px; height: 13px; flex-shrink: 0; }
+        .st-update-status.ok { color: #34d399; }
+        .st-update-status.error { color: #f87171; }
+        .st-update-notes {
+          max-width: 540px; margin: 3px 0 0; white-space: pre-wrap;
+          font-size: 11.5px; line-height: 1.5; color: rgba(255,255,255,0.5);
+        }
+        .st-update-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .st-btn.primary { color: #17130a; background: #f0cd78; border-color: #f0cd78; }
+        .st-btn.primary:hover { color: #000; background: #f6d98e; border-color: #f6d98e; }
+        .st-btn.busy svg { animation: st-spin 900ms linear infinite; }
+        .st-progress {
+          width: 100%; height: 4px; margin-top: 5px; overflow: hidden;
+          border-radius: 999px; background: rgba(255,255,255,0.08);
+        }
+        .st-progress-fill { height: 100%; border-radius: inherit; background: #f0cd78; transition: width 160ms ease; }
+        .st-progress.indeterminate .st-progress-fill {
+          width: 35%; animation: st-progress 1.1s ease-in-out infinite;
+        }
+        @keyframes st-spin { to { transform: rotate(360deg); } }
+        @keyframes st-progress { from { transform: translateX(-120%); } to { transform: translateX(320%); } }
       `}</style>
 
       {/* Capture */}
@@ -300,6 +331,38 @@ export const SettingsTab = () => {
         </div>
       </Section>
 
+      {/* Software update */}
+      <Section icon={<RefreshCw />} label="Software Update">
+        <div className="st-panel" aria-live="polite">
+          <div className="st-row st-update">
+            <div className="st-update-copy">
+              <span className="st-row-label">
+                Macroni {updater.currentVersion ? `v${updater.currentVersion}` : ""}
+              </span>
+              <UpdateDescription updater={updater} />
+              {(updater.status === "downloading" || updater.status === "installing") && (
+                <div
+                  className={`st-progress${updater.progress === null ? " indeterminate" : ""}`}
+                  role="progressbar"
+                  aria-label="Update download progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={updater.progress ?? undefined}
+                >
+                  <div
+                    className="st-progress-fill"
+                    style={{
+                      width: updater.progress === null ? undefined : `${updater.progress}%`,
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+            <UpdateActions updater={updater} />
+          </div>
+        </div>
+      </Section>
+
       {/* Keyboard shortcuts */}
       <Section icon={<Keyboard />} label="Keyboard Shortcuts">
         <div className="st-panel">
@@ -365,6 +428,83 @@ function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+type Updater = ReturnType<typeof useAppUpdater>;
+
+function UpdateDescription({ updater }: { updater: Updater }) {
+  if (updater.status === "checking") {
+    return <span className="st-row-desc">Checking for updates…</span>;
+  }
+  if (updater.status === "up-to-date") {
+    return (
+      <span className="st-row-desc st-update-status ok">
+        <CheckCircle2 /> You’re up to date
+      </span>
+    );
+  }
+  if (updater.status === "available") {
+    return (
+      <>
+        <span className="st-row-desc">
+          <span className="st-update-version">Version {updater.availableVersion}</span> is ready to
+          install.
+        </span>
+        {updater.notes && <p className="st-update-notes">{updater.notes}</p>}
+      </>
+    );
+  }
+  if (updater.status === "downloading") {
+    return (
+      <span className="st-row-desc">
+        Downloading update{updater.progress === null ? "…" : `… ${updater.progress}%`}
+      </span>
+    );
+  }
+  if (updater.status === "installing") {
+    return <span className="st-row-desc">Installing update and preparing to restart…</span>;
+  }
+  if (updater.status === "error") {
+    return (
+      <span className="st-row-desc st-update-status error">
+        <AlertCircle /> {updater.error || "Couldn’t check for updates."}
+      </span>
+    );
+  }
+  return <span className="st-row-desc">Updates are downloaded and installed securely.</span>;
+}
+
+function UpdateActions({ updater }: { updater: Updater }) {
+  const busy =
+    updater.status === "checking" ||
+    updater.status === "downloading" ||
+    updater.status === "installing";
+  if (updater.status === "available" || (updater.status === "error" && updater.availableVersion)) {
+    return (
+      <div className="st-update-actions">
+        <button
+          type="button"
+          className="st-btn primary"
+          disabled={busy}
+          onClick={() => void updater.installUpdate()}
+        >
+          <Download /> Update and restart
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="st-update-actions">
+      <button
+        type="button"
+        className={`st-btn${busy ? " busy" : ""}`}
+        disabled={busy}
+        onClick={() => void updater.checkForUpdates()}
+      >
+        <RefreshCw /> {updater.status === "checking" ? "Checking…" : "Check again"}
+      </button>
+    </div>
   );
 }
 

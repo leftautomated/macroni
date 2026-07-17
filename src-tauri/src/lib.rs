@@ -638,7 +638,9 @@ pub fn run() {
                 ])
                 .build(),
         )
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
 
     // Initialize nspanel plugin on macOS (MUST be before setup)
     #[cfg(target_os = "macos")]

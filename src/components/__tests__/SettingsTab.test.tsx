@@ -11,11 +11,33 @@ const settingsState = vi.hoisted(() => ({
   update: vi.fn(),
 }));
 
+const updaterState = vi.hoisted(() => ({
+  availableVersion: null as string | null,
+  checkForUpdates: vi.fn(),
+  currentVersion: "0.1.7",
+  error: null as string | null,
+  installUpdate: vi.fn(),
+  notes: null as string | null,
+  progress: null as number | null,
+  status: "up-to-date" as
+    | "idle"
+    | "checking"
+    | "up-to-date"
+    | "available"
+    | "downloading"
+    | "installing"
+    | "error",
+}));
+
 vi.mock("@/hooks/useAppSettings", () => ({
   useAppSettings: () => ({
     settings: settingsState.settings,
     update: settingsState.update,
   }),
+}));
+
+vi.mock("@/hooks/useAppUpdater", () => ({
+  useAppUpdater: () => updaterState,
 }));
 
 vi.mock("@/components/theme-provider", () => ({
@@ -43,6 +65,14 @@ describe("SettingsTab", () => {
       perception: { continuous_ocr: false },
     };
     settingsState.update.mockReset();
+    updaterState.availableVersion = null;
+    updaterState.currentVersion = "0.1.7";
+    updaterState.error = null;
+    updaterState.notes = null;
+    updaterState.progress = null;
+    updaterState.status = "up-to-date";
+    updaterState.checkForUpdates.mockReset();
+    updaterState.installUpdate.mockReset();
   });
 
   it("turning off screen video clears continuous OCR", async () => {
@@ -76,6 +106,34 @@ describe("SettingsTab", () => {
     expect(screen.getByRole("switch", { name: /continuous text scan/i })).toHaveAttribute(
       "aria-checked",
       "false",
+    );
+  });
+
+  it("installs an available update from settings", async () => {
+    updaterState.availableVersion = "0.1.8";
+    updaterState.notes = "Faster and more reliable recording.";
+    updaterState.status = "available";
+
+    render(<SettingsTab />);
+
+    expect(screen.getByText(/version 0\.1\.8/i)).toBeInTheDocument();
+    expect(screen.getByText(/faster and more reliable recording/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /update and restart/i }));
+
+    expect(updaterState.installUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("shows updater download progress", () => {
+    updaterState.availableVersion = "0.1.8";
+    updaterState.progress = 42;
+    updaterState.status = "downloading";
+
+    render(<SettingsTab />);
+
+    expect(screen.getByText(/downloading update… 42%/i)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: /update download progress/i })).toHaveAttribute(
+      "aria-valuenow",
+      "42",
     );
   });
 });

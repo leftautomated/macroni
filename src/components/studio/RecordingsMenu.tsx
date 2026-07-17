@@ -135,8 +135,8 @@ export function RecordingsMenu({
                   <button type="button" className="rm-pick" onClick={() => pick(r.id)}>
                     <div className="rm-name">{recordingTitle(r)}</div>
                     <div className="rm-meta">
-                      {r.video ? formatDuration(r.video.duration_ms) : "—"} · {r.events.length}{" "}
-                      actions
+                      {r.video ? formatDuration(r.video.duration_ms) : "No video"} ·{" "}
+                      {r.events.length} actions
                     </div>
                   </button>
                   <button

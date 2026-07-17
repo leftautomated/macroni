@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { Recording } from "@/types";
+import { InputEventType, type Recording } from "@/types";
 
 // In-memory backend the mocked Tauri commands talk to.
 const fake = { recordings: [] as Recording[] };
@@ -16,6 +16,13 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "delete_recording":
         fake.recordings = fake.recordings.filter((r) => r.id !== args?.id);
         return undefined;
+      case "update_recording_name": {
+        const recording = fake.recordings.find((r) => r.id === args?.id);
+        if (!recording) throw new Error("recording not found");
+        const updated = { ...recording, name: String(args?.name ?? recording.name) };
+        fake.recordings = fake.recordings.map((r) => (r.id === updated.id ? updated : r));
+        return updated;
+      }
       case "load_observations":
         return [];
       case "load_macros":
@@ -72,6 +79,19 @@ function makeRecording(id: string, name: string): Recording {
   };
 }
 
+function makeInputOnlyRecording(id: string, name: string): Recording {
+  return {
+    id,
+    name,
+    events: [
+      { type: InputEventType.KeyPress, key: "KeyA", timestamp: Number(id) },
+      { type: InputEventType.KeyRelease, key: "KeyA", timestamp: Number(id) + 1200 },
+    ],
+    created_at: Number(id),
+    playback_speed: 1,
+  };
+}
+
 describe("StudioEditor (recordings browser)", () => {
   beforeEach(() => {
     fake.recordings = [];
@@ -97,10 +117,57 @@ describe("StudioEditor (recordings browser)", () => {
     expect(await screen.findByText("Older clip")).toBeInTheDocument();
   });
 
+  it("lists and selects recordings captured without screen video", async () => {
+    fake.recordings = [
+      makeRecording("1000", "Video clip"),
+      makeInputOnlyRecording("2000", "Input only"),
+    ];
+    render(<StudioEditor />);
+
+    expect(await screen.findByRole("heading", { name: "No screen video" })).toBeInTheDocument();
+    expect(screen.getByText(/captured the keyboard and mouse actions/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /recordings/i }));
+    const menuName = (await screen.findAllByText("Input only")).find((element) =>
+      element.classList.contains("rm-name"),
+    );
+    const row = menuName?.closest(".rm-row") as HTMLElement;
+    expect(within(row).getByText("No video · 2 actions")).toBeInTheDocument();
+  });
+
+  it("replays and renames an input-only recording", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    fake.recordings = [makeInputOnlyRecording("2000", "Input only")];
+    render(<StudioEditor />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /replay macro/i }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "request_replay",
+        expect.objectContaining({ id: "2000", loopForever: true, traceId: expect.any(String) }),
+      );
+    });
+
+    await userEvent.click(screen.getByTitle("Click to rename"));
+    const titleInput = screen.getByRole("textbox");
+    await userEvent.clear(titleInput);
+    await userEvent.type(titleInput, "Keyboard workflow{Enter}");
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "update_recording_name",
+        expect.objectContaining({
+          id: "2000",
+          name: "Keyboard workflow",
+          traceId: expect.any(String),
+        }),
+      );
+    });
+    expect(screen.getByTitle("Click to rename")).toHaveTextContent("Keyboard workflow");
+  });
+
   it("hands the selected recording to the main window for replay", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     // Newest (id 2000) is auto-selected, so its player shows the Replay button.
-    fake.recordings = [makeRecording("1000", "Alpha"), makeRecording("2000", "Beta")];
+    fake.recordings = [makeInputOnlyRecording("1000", "Alpha"), makeRecording("2000", "Beta")];
 
     render(<StudioEditor />);
     const replayButton = await screen.findByRole("button", { name: /replay macro/i });

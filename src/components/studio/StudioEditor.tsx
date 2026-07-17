@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Settings, Workflow } from "lucide-react";
 import { SettingsTab } from "@/components/SettingsTab";
+import { InputOnlyRecording } from "@/components/studio/InputOnlyRecording";
 import { MacroEditor } from "@/components/studio/macros/MacroEditor";
 import { PerceptionPanel } from "@/components/studio/PerceptionPanel";
 import { RecordingsMenu } from "@/components/studio/RecordingsMenu";
@@ -47,18 +48,19 @@ export function StudioEditor() {
   const load = useCallback(async () => {
     try {
       const recs = await invoke<Recording[]>("load_recordings");
-      // Only video recordings are playable here; newest first (id = ms timestamp).
-      const withVideo = recs.filter((r) => r.video).sort((a, b) => (b.id > a.id ? 1 : -1));
+      const newestFirst = recs.sort((a, b) => b.created_at - a.created_at);
       logEvent("info", "studio", "recordings_loaded", {
         fields: {
           count: recs.length,
-          videoCount: withVideo.length,
-          firstPlayableId: withVideo[0]?.id,
+          videoCount: recs.filter((recording) => recording.video).length,
+          firstSelectedId: newestFirst[0]?.id,
         },
       });
-      setRecordings(withVideo);
+      setRecordings(newestFirst);
       setSelectedId((prev) =>
-        prev && withVideo.some((r) => r.id === prev) ? prev : (withVideo[0]?.id ?? null),
+        prev && newestFirst.some((recording) => recording.id === prev)
+          ? prev
+          : (newestFirst[0]?.id ?? null),
       );
     } catch (e) {
       logEvent("error", "studio", "load_recordings_failed", { error: e });
@@ -337,6 +339,12 @@ export function StudioEditor() {
           </div>
         ) : view === "macros" ? (
           <MacroEditor recordings={recordings} {...macrosState} />
+        ) : selected && !selected.video ? (
+          <InputOnlyRecording
+            key={selected.id}
+            recording={selected}
+            onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
+          />
         ) : selected && url ? (
           <>
             {/* Top: the clip */}

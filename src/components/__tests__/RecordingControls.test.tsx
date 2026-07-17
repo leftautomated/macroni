@@ -4,33 +4,42 @@ import userEvent from "@testing-library/user-event";
 import { RecordingControls } from "../RecordingControls";
 
 describe("RecordingControls", () => {
-  it("shows the Start button when not recording and calls onStartRecording on click", async () => {
+  it("shows separate Record and Play buttons when idle", async () => {
     const onStart = vi.fn();
     const onStop = vi.fn();
+    const onPlay = vi.fn();
     render(
-      <RecordingControls isRecording={false} onStartRecording={onStart} onStopRecording={onStop} />,
+      <RecordingControls
+        canPlay
+        isRecording={false}
+        onStartPlayback={onPlay}
+        onStartRecording={onStart}
+        onStopRecording={onStop}
+      />,
     );
 
-    const startButton = screen.getByRole("button", { name: /start/i });
-    expect(startButton).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /stop/i })).not.toBeInTheDocument();
+    const recordButton = screen.getByRole("button", { name: "Record macro" });
+    const playButton = screen.getByRole("button", { name: "Play current macro" });
+    expect(recordButton).toBeInTheDocument();
+    expect(playButton).toBeEnabled();
 
-    await userEvent.click(startButton);
+    await userEvent.click(recordButton);
     expect(onStart).toHaveBeenCalledTimes(1);
+    await userEvent.click(playButton);
+    expect(onPlay).toHaveBeenCalledTimes(1);
     expect(onStop).not.toHaveBeenCalled();
   });
 
-  it("shows the Recording indicator + Stop button when recording, and calls onStopRecording on click", async () => {
+  it("turns Record into Stop while recording and disables Play", async () => {
     const onStart = vi.fn();
     const onStop = vi.fn();
     render(
-      <RecordingControls isRecording={true} onStartRecording={onStart} onStopRecording={onStop} />,
+      <RecordingControls canPlay isRecording onStartRecording={onStart} onStopRecording={onStop} />,
     );
 
-    expect(screen.getByText(/recording/i)).toBeInTheDocument();
-    const stopButton = screen.getByRole("button", { name: /stop/i });
+    const stopButton = screen.getByRole("button", { name: "Stop recording" });
     expect(stopButton).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^start$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Play current macro" })).toBeDisabled();
 
     await userEvent.click(stopButton);
     expect(onStop).toHaveBeenCalledTimes(1);
@@ -45,5 +54,35 @@ describe("RecordingControls", () => {
     );
     expect(onStart).not.toHaveBeenCalled();
     expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("disables Play until a recording is available", () => {
+    render(
+      <RecordingControls
+        isRecording={false}
+        onStartRecording={vi.fn()}
+        onStopRecording={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Play current macro" })).toBeDisabled();
+  });
+
+  it("turns Play into Stop while playing and disables Record", async () => {
+    const onStopPlayback = vi.fn();
+    render(
+      <RecordingControls
+        canPlay
+        isPlaying
+        isRecording={false}
+        onStartRecording={vi.fn()}
+        onStopPlayback={onStopPlayback}
+        onStopRecording={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Record macro" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Stop playing macro" }));
+    expect(onStopPlayback).toHaveBeenCalledTimes(1);
   });
 });

@@ -66,14 +66,15 @@ describe("App (integration root)", () => {
     }
   });
 
-  it("renders the recording controls in the header", async () => {
+  it("renders separate Record and Play controls in the header", async () => {
     render(<App />);
-    expect(await screen.findByRole("button", { name: /start/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Record macro" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Play current macro" })).toBeDisabled();
   });
 
   it("makes SVG clicks inside the grip start a window drag", async () => {
     const { container } = render(<App />);
-    await screen.findByRole("button", { name: /start/i });
+    await screen.findByRole("button", { name: "Record macro" });
 
     expect(container.querySelector('[title="Drag Macroni"]')).toHaveAttribute(
       "data-tauri-drag-region",
@@ -83,7 +84,7 @@ describe("App (integration root)", () => {
 
   it("is a flat bar — Live Events and Settings moved to the Studio", async () => {
     render(<App />);
-    await screen.findByRole("button", { name: /start/i });
+    await screen.findByRole("button", { name: "Record macro" });
     expect(screen.queryByText("Live Events")).not.toBeInTheDocument();
     expect(screen.queryByText("Settings")).not.toBeInTheDocument();
     // No expandable panel anymore — there's no expand toggle.
@@ -123,7 +124,7 @@ describe("App (integration root)", () => {
 
   it("does not subscribe to per-event input traffic (long-recording freeze regression)", async () => {
     render(<App />);
-    await screen.findByRole("button", { name: /start/i });
+    await screen.findByRole("button", { name: "Record macro" });
     // A long recording delivers tens of thousands of input events; any
     // per-event listener doing React work wedges the webview main thread —
     // and with it the (former) frontend stop path. The bar has no live event
@@ -156,7 +157,7 @@ describe("App (integration root)", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("save_recording", expect.anything());
   });
 
-  it("starts Studio replay with the requested loop setting", async () => {
+  it("loads a Studio replay target and waits for the separate Play button", async () => {
     const recording = makeRecording("rec-1");
     tauri.state.recordings = [recording];
 
@@ -171,6 +172,9 @@ describe("App (integration root)", () => {
       });
     });
 
+    expect(tauri.invoke).not.toHaveBeenCalledWith("play_recording", expect.anything());
+    await userEvent.click(screen.getByRole("button", { name: "Play current macro" }));
+
     await waitFor(() => {
       expect(tauri.invoke).toHaveBeenCalledWith(
         "play_recording",
@@ -178,6 +182,28 @@ describe("App (integration root)", () => {
           events: recording.events,
           loopForever: false,
           speed: 1,
+          traceId: expect.any(String),
+        }),
+      );
+    });
+  });
+
+  it("plays the newest saved recording from the Play button", async () => {
+    const recording = makeRecording("rec-current", 1.5);
+    tauri.state.recordings = [recording];
+
+    render(<App />);
+    const play = await screen.findByRole("button", { name: "Play current macro" });
+    await waitFor(() => expect(play).toBeEnabled());
+    await userEvent.click(play);
+
+    await waitFor(() => {
+      expect(tauri.invoke).toHaveBeenCalledWith(
+        "play_recording",
+        expect.objectContaining({
+          events: recording.events,
+          loopForever: true,
+          speed: 1.5,
           traceId: expect.any(String),
         }),
       );

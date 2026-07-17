@@ -115,9 +115,11 @@ describe("Acceptance: recording flow", () => {
     });
   });
 
-  it("clicking Start dispatches start_recording to the backend", async () => {
+  it("shows separate Record and Play buttons and Record starts capture", async () => {
     render(<App />);
-    await userEvent.click(await screen.findByRole("button", { name: /start/i }));
+    const record = await screen.findByRole("button", { name: "Record macro" });
+    expect(screen.getByRole("button", { name: "Play current macro" })).toBeDisabled();
+    await userEvent.click(record);
 
     await waitFor(() => {
       expect(fakeBackend.startCalls).toBeGreaterThanOrEqual(1);

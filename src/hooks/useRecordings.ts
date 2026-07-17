@@ -8,7 +8,9 @@ export const useRecordings = () => {
 
   const loadRecordings = useCallback(async () => {
     const result = await invoke<Recording[]>("load_recordings");
-    setRecordings(result.sort((a, b) => b.created_at - a.created_at));
+    const newestFirst = result.sort((a, b) => b.created_at - a.created_at);
+    setRecordings(newestFirst);
+    return newestFirst;
   }, []);
 
   const saveRecording = useCallback(

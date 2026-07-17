@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { invoke, logEvent } from "@/lib/observability";
 import type { Recording } from "@/types";
-import { Clapperboard, GripVertical, MousePointerClick, Square } from "lucide-react";
+import { Clapperboard, GripVertical, MousePointerClick } from "lucide-react";
 
 const isMac = typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
 
@@ -37,12 +37,28 @@ const App = () => {
   const clicker = useClicker();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isClickerOpen, setIsClickerOpen] = useState(false);
-  const [replayName, setReplayName] = useState<string | null>(null);
+  const [currentRecording, setCurrentRecording] = useState<Recording | null>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  // Last recording the Studio asked us to replay — re-played on Cmd+R.
+  // Current playback target — also re-played by Cmd+R.
   const replayRecRef = useRef<Recording | null>(null);
   const replayLoopForeverRef = useRef(true);
+
+  useEffect(() => {
+    setCurrentRecording((current) => {
+      if (current) {
+        const refreshed = recordingsManager.recordings.find(
+          (recording) => recording.id === current.id,
+        );
+        if (refreshed) return refreshed;
+      }
+      return recordingsManager.recordings[0] ?? null;
+    });
+  }, [recordingsManager.recordings]);
+
+  useEffect(() => {
+    replayRecRef.current = currentRecording;
+  }, [currentRecording]);
 
   const permissionsComplete =
     !isMac ||
@@ -93,12 +109,14 @@ const App = () => {
       const result = await recorder.stopRecording();
       if (result.events.length > 0 || result.video) {
         // Save it; it lives in the Studio now (no detail panel in the overlay).
-        await recordingsManager.saveRecording(
+        const saved = await recordingsManager.saveRecording(
           result.id,
           "Untitled",
           result.events,
           result.video ?? undefined,
         );
+        setCurrentRecording(saved);
+        replayLoopForeverRef.current = true;
         recorder.clearEvents();
       }
     } catch (error) {
@@ -109,7 +127,6 @@ const App = () => {
   const handlePlay = useCallback(async (rec: Recording, loopForever = true) => {
     try {
       setIsPlaying(true);
-      setReplayName(rec.name && rec.name !== "Untitled" ? rec.name : null);
       replayRecRef.current = rec;
       replayLoopForeverRef.current = loopForever;
       await invoke("play_recording", {
@@ -174,9 +191,14 @@ const App = () => {
   const { clearEvents } = recorder;
   const { loadRecordings } = recordingsManager;
   useEffect(() => {
-    const unlisten = listen("recording-stopped", () => {
+    const unlisten = listen<string | null>("recording-stopped", async (event) => {
       clearEvents();
-      void loadRecordings();
+      const refreshed = await loadRecordings();
+      const stopped = refreshed.find((recording) => recording.id === event.payload) ?? refreshed[0];
+      if (stopped) {
+        setCurrentRecording(stopped);
+        replayLoopForeverRef.current = true;
+      }
     });
     return () => {
       unlisten.then((fn) => fn());
@@ -205,19 +227,29 @@ const App = () => {
     };
   }, []);
 
-  // The Studio hands a recording here to replay it — the overlay's
-  // non-activating panel is the focus-safe surface, so auto-play immediately.
+  // The Studio hands a recording here as the current replay target. The
+  // overlay's non-activating panel is the focus-safe surface; the user starts
+  // it explicitly with the separate Play button when their target is ready.
   useEffect(() => {
     const unlisten = listen<ReplayRecordingPayload>("replay-recording", async (event) => {
       const { id, loopForever } = normalizeReplayPayload(event.payload);
       const all = await invoke<Recording[]>("load_recordings");
       const rec = all.find((r) => r.id === id);
-      if (rec) void handlePlay(rec, loopForever);
+      if (rec) {
+        setCurrentRecording(rec);
+        replayLoopForeverRef.current = loopForever;
+      }
     });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [handlePlay]);
+  }, []);
+
+  const handlePlayCurrent = useCallback(() => {
+    if (currentRecording) {
+      void handlePlay(currentRecording, replayLoopForeverRef.current);
+    }
+  }, [currentRecording, handlePlay]);
 
   return (
     <div className="w-screen h-screen flex overflow-hidden justify-center items-start pt-4 pb-4 bg-transparent">
@@ -239,28 +271,17 @@ const App = () => {
                   <GripVertical className="h-4 w-4 text-muted-foreground" />
                 </div>
                 <div className="h-4 w-px bg-border" data-tauri-drag-region />
-                {isPlaying ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">
-                      Playing{replayName ? ` · ${replayName}` : "…"}
-                    </span>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      className="h-7"
-                      onClick={handleStopPlayback}
-                    >
-                      <Square className="h-3 w-3 mr-1" /> Stop
-                    </Button>
-                  </div>
-                ) : (
-                  <RecordingControls
-                    isRecording={recorder.isRecording}
-                    isProcessing={recorder.isProcessing}
-                    onStartRecording={handleStartRecording}
-                    onStopRecording={handleStopRecording}
-                  />
-                )}
+                <RecordingControls
+                  canPlay={currentRecording !== null}
+                  isPlaying={isPlaying}
+                  isRecording={recorder.isRecording}
+                  isProcessing={recorder.isProcessing}
+                  onStartPlayback={handlePlayCurrent}
+                  onStartRecording={handleStartRecording}
+                  onStopPlayback={handleStopPlayback}
+                  onStopRecording={handleStopRecording}
+                  playbackName={currentRecording?.name}
+                />
                 <div className="h-4 w-px bg-border" data-tauri-drag-region />
                 <Button
                   variant="ghost"

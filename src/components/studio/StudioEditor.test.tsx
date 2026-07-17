@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InputEventType, type Recording } from "@/types";
 
@@ -115,6 +115,34 @@ describe("StudioEditor (recordings browser)", () => {
     // Open the folder menu to reveal the full list.
     await userEvent.click(screen.getByRole("button", { name: /recordings/i }));
     expect(await screen.findByText("Older clip")).toBeInTheDocument();
+  });
+
+  it("selects a newly discovered recording and preserves it on ordinary refreshes", async () => {
+    fake.recordings = [makeInputOnlyRecording("1000", "Original")];
+    render(<StudioEditor />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Click to rename")).toHaveTextContent("Original");
+    });
+
+    fake.recordings = [
+      makeInputOnlyRecording("1000", "Original"),
+      makeInputOnlyRecording("2000", "Newest recording"),
+    ];
+    act(() => window.dispatchEvent(new Event("focus")));
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Click to rename")).toHaveTextContent("Newest recording");
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /recordings/i }));
+    await userEvent.click(await screen.findByText("Original"));
+    expect(screen.getByTitle("Click to rename")).toHaveTextContent("Original");
+
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => {
+      expect(screen.getByTitle("Click to rename")).toHaveTextContent("Original");
+    });
   });
 
   it("lists and selects recordings captured without screen video", async () => {

@@ -28,6 +28,8 @@ export function StudioEditor() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const knownRecordingIdsRef = useRef<Set<string>>(new Set());
+  const hasLoadedRecordingsRef = useRef(false);
   const playerRef = useRef<StudioPlayerHandle>(null);
   // Loop region from the timeline, in video-relative ms (null = no loop).
   const [loop, setLoop] = useState<LoopRegion | null>(null);
@@ -49,18 +51,27 @@ export function StudioEditor() {
     try {
       const recs = await invoke<Recording[]>("load_recordings");
       const newestFirst = recs.sort((a, b) => b.created_at - a.created_at);
+      const newestAdded = hasLoadedRecordingsRef.current
+        ? newestFirst.find((recording) => !knownRecordingIdsRef.current.has(recording.id))
+        : newestFirst[0];
+
+      knownRecordingIdsRef.current = new Set(newestFirst.map((recording) => recording.id));
+      hasLoadedRecordingsRef.current = true;
       logEvent("info", "studio", "recordings_loaded", {
         fields: {
           count: recs.length,
           videoCount: recs.filter((recording) => recording.video).length,
           firstSelectedId: newestFirst[0]?.id,
+          newRecordingId: newestAdded?.id,
         },
       });
       setRecordings(newestFirst);
       setSelectedId((prev) =>
-        prev && newestFirst.some((recording) => recording.id === prev)
-          ? prev
-          : (newestFirst[0]?.id ?? null),
+        newestAdded
+          ? newestAdded.id
+          : prev && newestFirst.some((recording) => recording.id === prev)
+            ? prev
+            : (newestFirst[0]?.id ?? null),
       );
     } catch (e) {
       logEvent("error", "studio", "load_recordings_failed", { error: e });

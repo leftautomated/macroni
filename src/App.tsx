@@ -235,8 +235,8 @@ const App = () => {
           ) : (
             <>
               <Card className="flex items-center gap-2 px-3 py-2 w-fit" data-tauri-drag-region>
-                <div className="cursor-move" data-tauri-drag-region>
-                  <GripVertical className="h-4 w-4 text-muted-foreground" data-tauri-drag-region />
+                <div className="cursor-move" data-tauri-drag-region="deep" title="Drag Macroni">
+                  <GripVertical className="h-4 w-4 text-muted-foreground" />
                 </div>
                 <div className="h-4 w-px bg-border" data-tauri-drag-region />
                 {isPlaying ? (

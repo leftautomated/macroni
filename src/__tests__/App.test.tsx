@@ -71,6 +71,16 @@ describe("App (integration root)", () => {
     expect(await screen.findByRole("button", { name: /start/i })).toBeInTheDocument();
   });
 
+  it("makes SVG clicks inside the grip start a window drag", async () => {
+    const { container } = render(<App />);
+    await screen.findByRole("button", { name: /start/i });
+
+    expect(container.querySelector('[title="Drag Macroni"]')).toHaveAttribute(
+      "data-tauri-drag-region",
+      "deep",
+    );
+  });
+
   it("is a flat bar — Live Events and Settings moved to the Studio", async () => {
     render(<App />);
     await screen.findByRole("button", { name: /start/i });

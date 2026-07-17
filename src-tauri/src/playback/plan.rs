@@ -14,8 +14,12 @@ use crate::types::{InputEvent, InputEventTimestamp};
 pub enum PlannedStep {
     /// Tell observers which event index playback is currently on.
     EmitPosition { index: usize },
-    /// Wait for `ms` milliseconds (subject to engine-level cancellation between steps).
+    /// A reliability settle that must run for its full relative duration.
     Sleep { ms: u64 },
+    /// Advance the recorded timeline by `ms`, then wait only until that
+    /// absolute per-iteration deadline. Runtime overhead is therefore
+    /// recovered here instead of accumulating between replayed events.
+    TimelineSleep { ms: u64 },
     /// Drive an OS-level input simulation.
     Simulate(EventType),
 }
@@ -93,7 +97,7 @@ impl PlaybackPlan {
                 let min_delay = min_delay_for(event);
                 let actual = scaled.saturating_sub(credit).max(min_delay);
                 if actual > 0 {
-                    steps.push(PlannedStep::Sleep { ms: actual });
+                    steps.push(PlannedStep::TimelineSleep { ms: actual });
                 }
             }
 
@@ -286,7 +290,7 @@ mod tests {
         steps
             .iter()
             .filter_map(|s| match s {
-                PlannedStep::Sleep { ms } => Some(*ms),
+                PlannedStep::Sleep { ms } | PlannedStep::TimelineSleep { ms } => Some(*ms),
                 _ => None,
             })
             .sum()
@@ -524,14 +528,14 @@ mod tests {
         ];
         // At very high speed the per-event delay collapses; min-delay floor protects MouseMove at 5ms.
         let plan = PlaybackPlan::compile(&events, 1000.0).unwrap();
-        // Find any sleep that *precedes* a MouseMove simulate. At least one such
-        // sleep should be >= 5ms.
+        // Find any timeline sleep that *precedes* a MouseMove simulate. At
+        // least one such sleep should be >= 5ms.
         let mut found_floor = false;
         for (i, s) in plan.steps.iter().enumerate() {
             if matches!(s, PlannedStep::Simulate(EventType::MouseMove { .. })) {
-                // walk backward to find the most recent Sleep before this MouseMove
+                // Walk backward to find the most recent inter-event wait.
                 for prev in plan.steps[..i].iter().rev() {
-                    if let PlannedStep::Sleep { ms } = prev {
+                    if let PlannedStep::TimelineSleep { ms } = prev {
                         if *ms >= 5 {
                             found_floor = true;
                         }
@@ -542,7 +546,7 @@ mod tests {
         }
         assert!(
             found_floor,
-            "expected at least one >=5ms sleep before a MouseMove simulate: {:?}",
+            "expected at least one >=5ms timeline sleep before a MouseMove simulate: {:?}",
             plan.steps
         );
     }
@@ -761,16 +765,16 @@ mod tests {
         // event so the time between simulations matches the recording. For a
         // 100ms gap between two key presses at 1x the credit is the previous
         // event's post settle (10) + this event's position update (10) = 20, so
-        // the inter-event Sleep should be exactly 80ms, not 100ms.
+        // the inter-event TimelineSleep should be exactly 80ms, not 100ms.
         let events = vec![key_press("A", 0), key_press("B", 100)];
         let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
-        // Look for an inter-event sleep — the largest Sleep step in the plan
-        // that isn't the post-event 10ms or the first-event 50ms.
+        // TimelineSleep is reserved for the inter-event portion; fixed
+        // reliability settles remain relative Sleep steps.
         let sleeps: Vec<u64> = plan
             .steps
             .iter()
             .filter_map(|s| match s {
-                PlannedStep::Sleep { ms } => Some(*ms),
+                PlannedStep::TimelineSleep { ms } => Some(*ms),
                 _ => None,
             })
             .collect();
@@ -802,7 +806,7 @@ mod tests {
             .steps
             .iter()
             .filter_map(|s| match s {
-                PlannedStep::Sleep { ms } => Some(*ms),
+                PlannedStep::TimelineSleep { ms } => Some(*ms),
                 _ => None,
             })
             .collect();
@@ -855,7 +859,7 @@ mod tests {
             .steps
             .iter()
             .filter_map(|s| match s {
-                PlannedStep::Sleep { ms } => Some(*ms),
+                PlannedStep::Sleep { ms } | PlannedStep::TimelineSleep { ms } => Some(*ms),
                 _ => None,
             })
             .sum();

@@ -6,7 +6,7 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::plan::{PlannedStep, PlaybackPlan};
 use super::ports::{Emitter, Simulator};
@@ -127,7 +127,7 @@ fn run_plan(
         .steps
         .iter()
         .filter_map(|s| match s {
-            PlannedStep::Sleep { ms } => Some(*ms),
+            PlannedStep::Sleep { ms } | PlannedStep::TimelineSleep { ms } => Some(*ms),
             _ => None,
         })
         .sum();
@@ -196,6 +196,8 @@ pub(crate) fn execute_steps(
     mut on_position: impl FnMut(usize),
 ) -> bool {
     let mut completed = true;
+    let iteration_started = Instant::now();
+    let mut planned_elapsed_ms = 0_u64;
     for step in steps {
         if !cancel.load(Ordering::Relaxed) {
             completed = false;
@@ -207,6 +209,15 @@ pub(crate) fn execute_steps(
             }
             PlannedStep::Sleep { ms } => {
                 if !sleep_cancellable(*ms, cancel) {
+                    completed = false;
+                    break;
+                }
+                planned_elapsed_ms = planned_elapsed_ms.saturating_add(*ms);
+            }
+            PlannedStep::TimelineSleep { ms } => {
+                planned_elapsed_ms = planned_elapsed_ms.saturating_add(*ms);
+                let remaining = timeline_remaining(planned_elapsed_ms, iteration_started.elapsed());
+                if !sleep_cancellable_duration(remaining, cancel) {
                     completed = false;
                     break;
                 }
@@ -247,20 +258,29 @@ fn finalize(
 /// Sleep `ms` in small chunks, bailing if `is_playing` flips to false. Returns
 /// `true` if we slept the full duration, `false` if cancelled.
 pub(crate) fn sleep_cancellable(ms: u64, is_playing: &AtomicBool) -> bool {
-    if ms == 0 {
+    sleep_cancellable_duration(Duration::from_millis(ms), is_playing)
+}
+
+fn timeline_remaining(planned_elapsed_ms: u64, actual_elapsed: Duration) -> Duration {
+    Duration::from_millis(planned_elapsed_ms).saturating_sub(actual_elapsed)
+}
+
+fn sleep_cancellable_duration(duration: Duration, is_playing: &AtomicBool) -> bool {
+    if duration.is_zero() {
         return is_playing.load(Ordering::Relaxed);
     }
-    const CHUNK_MS: u64 = 10;
-    let mut remaining = ms;
-    while remaining > 0 {
+    const CHUNK: Duration = Duration::from_millis(10);
+    let deadline = Instant::now() + duration;
+    loop {
         if !is_playing.load(Ordering::Relaxed) {
             return false;
         }
-        let chunk = remaining.min(CHUNK_MS);
-        thread::sleep(Duration::from_millis(chunk));
-        remaining = remaining.saturating_sub(chunk);
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return true;
+        }
+        thread::sleep(remaining.min(CHUNK));
     }
-    true
 }
 
 #[cfg(test)]
@@ -517,6 +537,18 @@ mod tests {
             1,
             "the simulate after a successful sleep must run"
         );
+    }
+
+    #[test]
+    fn timeline_remaining_recovers_prior_execution_overhead() {
+        let remaining = timeline_remaining(1_000, Duration::from_millis(275));
+        assert_eq!(remaining, Duration::from_millis(725));
+    }
+
+    #[test]
+    fn timeline_remaining_skips_wait_when_execution_is_already_late() {
+        let remaining = timeline_remaining(1_000, Duration::from_millis(1_250));
+        assert_eq!(remaining, Duration::ZERO);
     }
 
     #[test]

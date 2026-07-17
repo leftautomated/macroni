@@ -4,6 +4,8 @@ import { useRecorder } from "@/hooks/useRecorder";
 import { useRecordings } from "@/hooks/useRecordings";
 import { useAutoResize } from "@/hooks/useAutoResize";
 import { usePermissionStatus } from "@/hooks/usePermissionStatus";
+import { useClicker } from "@/hooks/useClicker";
+import { ClickerPanel } from "@/components/ClickerPanel";
 import { RecordingControls } from "@/components/RecordingControls";
 import { VisibilityToggle } from "@/components/VisibilityToggle";
 import { PermissionAlert } from "@/components/PermissionAlert";
@@ -12,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { invoke, logEvent } from "@/lib/observability";
 import type { Recording } from "@/types";
-import { Clapperboard, GripVertical, Square } from "lucide-react";
+import { Clapperboard, GripVertical, MousePointerClick, Square } from "lucide-react";
 
 const isMac = typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
 
@@ -32,7 +34,9 @@ const App = () => {
   const recorder = useRecorder();
   const recordingsManager = useRecordings();
   const permissions = usePermissionStatus();
+  const clicker = useClicker();
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isClickerOpen, setIsClickerOpen] = useState(false);
   const [replayName, setReplayName] = useState<string | null>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -56,6 +60,8 @@ const App = () => {
       permissions.state.screenRecording,
       showPermissionGate,
       isPlaying,
+      isClickerOpen,
+      clicker.status,
     ],
   });
 
@@ -259,6 +265,18 @@ const App = () => {
                 <Button
                   variant="ghost"
                   size="icon"
+                  className={`h-7 w-7 ${
+                    clicker.status !== "idle" ? "bg-primary/15 text-primary" : ""
+                  }`}
+                  onClick={() => setIsClickerOpen((open) => !open)}
+                  aria-label={isClickerOpen ? "Close auto clicker" : "Open auto clicker"}
+                  title="Auto clicker"
+                >
+                  <MousePointerClick className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
                   className="h-7 w-7"
                   onClick={() => void invoke("focus_studio_window")}
                   title="Open Studio — browse and play recordings"
@@ -267,6 +285,17 @@ const App = () => {
                 </Button>
                 <VisibilityToggle />
               </Card>
+              {isClickerOpen && (
+                <ClickerPanel
+                  config={clicker.config}
+                  disabled={recorder.isRecording || recorder.isProcessing || isPlaying}
+                  error={clicker.error}
+                  onChange={clicker.setConfig}
+                  onStart={() => void clicker.start()}
+                  onStop={() => void clicker.stop()}
+                  status={clicker.status}
+                />
+              )}
               <PermissionAlert
                 screenRecording={permissions.state.screenRecording}
                 accessibility={permissions.state.accessibility}

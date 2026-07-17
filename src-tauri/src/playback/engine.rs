@@ -51,13 +51,14 @@ impl PlaybackEngine {
         self.loop_count.store(0, Ordering::Relaxed);
     }
 
-    /// Claim the playback slot for a macro run (mutually exclusive with
-    /// `start`). Errors if playback or another macro already holds it.
+    /// Claim the input-control slot for a background automation run (mutually
+    /// exclusive with `start`). Errors if playback or another automation
+    /// already holds it.
     /// Release by storing `false` into the returned flag (or via `stop()`,
     /// which the macro runner observes to cancel).
-    pub(crate) fn claim_for_macro(&self) -> Result<Arc<AtomicBool>, String> {
+    pub(crate) fn claim_input_slot(&self) -> Result<Arc<AtomicBool>, String> {
         if self.is_playing.swap(true, Ordering::Relaxed) {
-            return Err("Already playing".to_string());
+            return Err("Another input automation is already running".to_string());
         }
         Ok(Arc::clone(&self.is_playing))
     }
@@ -574,9 +575,9 @@ mod tests {
     }
 
     #[test]
-    fn claim_for_macro_excludes_playback_and_stop_releases() {
+    fn input_slot_claim_excludes_playback_and_stop_releases() {
         let engine = PlaybackEngine::new();
-        let flag = engine.claim_for_macro().unwrap();
+        let flag = engine.claim_input_slot().unwrap();
         assert!(engine.is_playing());
         // Playback cannot start while a macro holds the slot.
         assert!(engine
@@ -588,12 +589,12 @@ mod tests {
             )
             .is_err());
         // A second macro cannot claim either.
-        assert!(engine.claim_for_macro().is_err());
+        assert!(engine.claim_input_slot().is_err());
         // engine.stop() flips the shared flag — the macro runner sees it.
         engine.stop();
         assert!(!flag.load(Ordering::Relaxed));
         // Slot reusable after release.
-        assert!(engine.claim_for_macro().is_ok());
+        assert!(engine.claim_input_slot().is_ok());
         engine.stop();
     }
 

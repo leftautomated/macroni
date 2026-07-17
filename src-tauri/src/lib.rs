@@ -1,4 +1,5 @@
 mod capture;
+mod clicker;
 mod crash_log;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod encoder;
@@ -374,6 +375,36 @@ fn stop_playback(state: State<RecordingState>, trace_id: Option<String>) -> Resu
 fn is_playing(state: State<RecordingState>, trace_id: Option<String>) -> Result<bool, String> {
     observability::trace_command("is_playing", trace_id, None, || {
         Ok(state.engine.is_playing())
+    })
+}
+
+#[tauri::command]
+fn start_clicker(
+    app_handle: AppHandle,
+    state: State<RecordingState>,
+    button: String,
+    clicks_per_period: u32,
+    period: String,
+    trace_id: Option<String>,
+) -> Result<(), String> {
+    let fields = json!({
+        "button": button,
+        "clicksPerPeriod": clicks_per_period,
+        "period": period,
+    });
+    observability::trace_command("start_clicker", trace_id, Some(fields), || {
+        let config = clicker::ClickerConfig::parse(&button, clicks_per_period, &period)?;
+        let cancel = state.engine.claim_input_slot()?;
+        clicker::start(config, cancel, app_handle);
+        Ok(())
+    })
+}
+
+#[tauri::command]
+fn stop_clicker(state: State<RecordingState>, trace_id: Option<String>) -> Result<(), String> {
+    observability::trace_command("stop_clicker", trace_id, None, || {
+        state.engine.stop();
+        Ok(())
     })
 }
 
@@ -941,6 +972,8 @@ pub fn run() {
             play_recording,
             stop_playback,
             is_playing,
+            start_clicker,
+            stop_clicker,
             set_window_size,
             toggle_visibility,
             settings::load_settings,

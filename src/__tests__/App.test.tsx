@@ -92,6 +92,25 @@ describe("App (integration root)", () => {
     });
   });
 
+  it("opens the auto clicker and starts it with the compact defaults", async () => {
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "Open auto clicker" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start clicking" }));
+
+    await waitFor(() => {
+      expect(tauri.invoke).toHaveBeenCalledWith(
+        "start_clicker",
+        expect.objectContaining({
+          button: "left",
+          clicksPerPeriod: 10,
+          period: "second",
+          traceId: expect.any(String),
+        }),
+      );
+    });
+    expect(screen.getByText("Starts in 3 seconds…")).toBeInTheDocument();
+  });
+
   it("does not subscribe to per-event input traffic (long-recording freeze regression)", async () => {
     render(<App />);
     await screen.findByRole("button", { name: /start/i });

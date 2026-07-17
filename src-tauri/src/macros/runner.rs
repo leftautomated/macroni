@@ -200,7 +200,7 @@ impl MacroRunner {
         emitter: impl MacroEmitter,
     ) -> Result<(), String> {
         validate_runnable(&doc).map_err(|e| e.to_string())?;
-        let flag = engine.claim_for_macro()?;
+        let flag = engine.claim_input_slot()?;
 
         thread::spawn(move || {
             // Hold a macOS "no App Nap" activity assertion for the whole macro

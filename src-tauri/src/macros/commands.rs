@@ -4,7 +4,7 @@
 //!
 //! `run_macro` shares the playback engine's single "one thing plays at a
 //! time" slot with `play_recording`: `MacroRunner::start` claims it via
-//! `PlaybackEngine::claim_for_macro`, so a macro run and a recording replay
+//! `PlaybackEngine::claim_input_slot`, so a macro run and a recording replay
 //! can never run concurrently, and `stop_macro`/`stop_playback` both just
 //! flip the same shared flag.
 

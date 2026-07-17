@@ -157,10 +157,14 @@ export const SettingsTab = () => {
         .st-btn:hover { background: rgba(240,205,120,0.12); color: #f0cd78; border-color: rgba(240,205,120,0.3); }
         .st-btn:disabled { opacity: 0.5; cursor: default; }
 
-        .st-update { align-items: flex-start; }
-        .st-update-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        .st-update { align-items: center; }
+        .st-update-copy { display: flex; flex: 1; flex-direction: column; gap: 7px; min-width: 0; }
+        .st-update-heading { display: flex; align-items: center; gap: 12px; min-width: 0; flex-wrap: wrap; }
         .st-update-version { color: rgba(255,255,255,0.9); font-weight: 600; }
-        .st-update-status { display: inline-flex; align-items: center; gap: 6px; }
+        .st-update-status {
+          display: inline-flex; align-items: center; gap: 6px;
+          font-size: 11.5px; line-height: 1.45; color: rgba(255,255,255,0.45);
+        }
         .st-update-status svg { width: 13px; height: 13px; flex-shrink: 0; }
         .st-update-status.ok { color: #34d399; }
         .st-update-status.error { color: #f87171; }
@@ -336,10 +340,15 @@ export const SettingsTab = () => {
         <div className="st-panel" aria-live="polite">
           <div className="st-row st-update">
             <div className="st-update-copy">
-              <span className="st-row-label">
-                Macroni {updater.currentVersion ? `v${updater.currentVersion}` : ""}
-              </span>
-              <UpdateDescription updater={updater} />
+              <div className="st-update-heading">
+                <span className="st-row-label">
+                  Macroni {updater.currentVersion ? `v${updater.currentVersion}` : ""}
+                </span>
+                <UpdateStatus updater={updater} />
+              </div>
+              {updater.status === "available" && updater.notes && (
+                <p className="st-update-notes">{updater.notes}</p>
+              )}
               {(updater.status === "downloading" || updater.status === "installing") && (
                 <div
                   className={`st-progress${updater.progress === null ? " indeterminate" : ""}`}
@@ -433,46 +442,43 @@ function Section({
 
 type Updater = ReturnType<typeof useAppUpdater>;
 
-function UpdateDescription({ updater }: { updater: Updater }) {
+function UpdateStatus({ updater }: { updater: Updater }) {
   if (updater.status === "checking") {
-    return <span className="st-row-desc">Checking for updates…</span>;
+    return <span className="st-update-status">Checking for updates…</span>;
   }
   if (updater.status === "up-to-date") {
     return (
-      <span className="st-row-desc st-update-status ok">
+      <span className="st-update-status ok">
         <CheckCircle2 /> You’re up to date
       </span>
     );
   }
   if (updater.status === "available") {
     return (
-      <>
-        <span className="st-row-desc">
-          <span className="st-update-version">Version {updater.availableVersion}</span> is ready to
-          install.
-        </span>
-        {updater.notes && <p className="st-update-notes">{updater.notes}</p>}
-      </>
+      <span className="st-update-status">
+        <span className="st-update-version">Version {updater.availableVersion}</span> is ready to
+        install.
+      </span>
     );
   }
   if (updater.status === "downloading") {
     return (
-      <span className="st-row-desc">
+      <span className="st-update-status">
         Downloading update{updater.progress === null ? "…" : `… ${updater.progress}%`}
       </span>
     );
   }
   if (updater.status === "installing") {
-    return <span className="st-row-desc">Installing update and preparing to restart…</span>;
+    return <span className="st-update-status">Installing update and preparing to restart…</span>;
   }
   if (updater.status === "error") {
     return (
-      <span className="st-row-desc st-update-status error">
+      <span className="st-update-status error">
         <AlertCircle /> {updater.error || "Couldn’t check for updates."}
       </span>
     );
   }
-  return <span className="st-row-desc">Updates are downloaded and installed securely.</span>;
+  return <span className="st-update-status">Updates are downloaded and installed securely.</span>;
 }
 
 function UpdateActions({ updater }: { updater: Updater }) {

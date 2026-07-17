@@ -123,6 +123,16 @@ describe("SettingsTab", () => {
     expect(updaterState.installUpdate).toHaveBeenCalledOnce();
   });
 
+  it("places the update status beside the current version", () => {
+    render(<SettingsTab />);
+
+    const version = screen.getByText("Macroni v0.1.7");
+    const status = screen.getByText(/you’re up to date/i);
+
+    expect(version.parentElement).toContainElement(status);
+    expect(version.parentElement).toHaveClass("st-update-heading");
+  });
+
   it("shows updater download progress", () => {
     updaterState.availableVersion = "0.1.8";
     updaterState.progress = 42;

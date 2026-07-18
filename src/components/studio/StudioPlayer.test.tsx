@@ -78,6 +78,34 @@ describe("StudioPlayer", () => {
     expect(screen.getByText("1.5×")).toBeInTheDocument();
   });
 
+  it("starts at the trim boundary and enforces the kept video range", async () => {
+    const onTimeUpdate = vi.fn();
+    const { container } = render(
+      <StudioPlayer
+        src="asset://clip.mp4"
+        fps={30}
+        trimRegion={{ a: 2, b: 8 }}
+        onTimeUpdate={onTimeUpdate}
+        onReplay={noop}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "duration", { value: 10, configurable: true });
+    Object.defineProperty(video, "videoWidth", { value: 1920, configurable: true });
+    Object.defineProperty(video, "videoHeight", { value: 1080, configurable: true });
+    const { pause } = stubPlayback(video, false);
+
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(2);
+    expect(onTimeUpdate).toHaveBeenLastCalledWith(2);
+
+    await userEvent.click(screen.getByRole("button", { name: /loop on/i }));
+    video.currentTime = 8.2;
+    fireEvent.timeUpdate(video);
+    expect(pause).toHaveBeenCalled();
+    expect(video.currentTime).toBe(8);
+  });
+
   // jsdom's HTMLMediaElement play()/pause() are unimplemented no-ops that
   // never flip `.paused`, so control it explicitly: a flag backs a `paused`
   // getter, and play/pause spies flip the flag like a real media element.

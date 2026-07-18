@@ -8,6 +8,7 @@ import {
   scrollSummary,
   swipeLabel,
 } from "@/lib/event-utils";
+import type { TrimRange } from "@/lib/recording-trim";
 import { type InputEvent, InputEventType } from "@/types";
 
 /** A loop region, in video-relative milliseconds. */
@@ -25,6 +26,10 @@ interface StudioTimelineProps {
   onSeekSeconds: (seconds: number) => void;
   loop: LoopRegion | null;
   onLoopChange: (loop: LoopRegion | null) => void;
+  /** Non-destructive kept range. Omit in selection-only timeline contexts. */
+  trim?: TrimRange;
+  onTrimChange?: (trim: TrimRange) => void;
+  onTrimCommit?: (trim: TrimRange) => void;
   /** Perception observations to render as ticks in their own lane, video-relative ms. */
   perceptionTicks?: Array<{ ms: number; label: string }>;
   /** Word used for the dragged range: the player context loops playback
@@ -121,12 +126,17 @@ export function StudioTimeline({
   onSeekSeconds,
   loop,
   onLoopChange,
+  trim,
+  onTrimChange,
+  onTrimCommit,
   perceptionTicks,
   rangeWord = "loop",
 }: StudioTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ downX: number; downMs: number; moved: boolean } | null>(null);
+  const trimDrag = useRef<{ edge: "start" | "end" } | null>(null);
+  const trimDraft = useRef<TrimRange | null>(null);
   // Whether the view should keep the playhead in sight. The user scrolling
   // turns it off (so playback doesn't yank the view back); clicking/seeking or
   // loading another clip turns it back on.
@@ -242,6 +252,65 @@ export function StudioTimeline({
     if (!el) return 0;
     const r = el.getBoundingClientRect();
     return Math.min(1, Math.max(0, (clientX - r.left) / r.width)) * dur;
+  };
+
+  const updateTrimAt = (clientX: number) => {
+    const active = trimDraft.current;
+    const edge = trimDrag.current?.edge;
+    if (!active || !edge || !onTrimChange) return active;
+    const minimum = Math.min(100, dur);
+    const next =
+      edge === "start"
+        ? { a: Math.min(msAt(clientX), active.b - minimum), b: active.b }
+        : { a: active.a, b: Math.max(msAt(clientX), active.a + minimum) };
+    const clamped = {
+      a: Math.max(0, Math.min(dur, next.a)),
+      b: Math.max(0, Math.min(dur, next.b)),
+    };
+    trimDraft.current = clamped;
+    onTrimChange(clamped);
+    return clamped;
+  };
+
+  const onTrimDown = (edge: "start" | "end") => (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!trim || !onTrimChange) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    trimDrag.current = { edge };
+    trimDraft.current = trim;
+  };
+
+  const onTrimMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!trimDrag.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    updateTrimAt(e.clientX);
+  };
+
+  const onTrimUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!trimDrag.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const finalTrim = updateTrimAt(e.clientX) ?? trimDraft.current;
+    trimDrag.current = null;
+    trimDraft.current = null;
+    if (finalTrim) onTrimCommit?.(finalTrim);
+  };
+
+  const onTrimKeyDown = (edge: "start" | "end") => (e: React.KeyboardEvent) => {
+    if (!trim || !onTrimChange || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const direction = e.key === "ArrowRight" ? 1 : -1;
+    const delta = direction * (e.shiftKey ? 1000 : 100);
+    const minimum = Math.min(100, dur);
+    const next =
+      edge === "start"
+        ? { a: Math.max(0, Math.min(trim.b - minimum, trim.a + delta)), b: trim.b }
+        : { a: trim.a, b: Math.min(dur, Math.max(trim.a + minimum, trim.b + delta)) };
+    onTrimChange(next);
+    onTrimCommit?.(next);
   };
 
   const onDown = (e: React.PointerEvent) => {
@@ -435,6 +504,14 @@ export function StudioTimeline({
         .tl-slider { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.18); cursor: pointer; outline: none; }
         .tl-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%; background: #f0cd78; cursor: pointer; }
         .tl-slider::-webkit-slider-thumb:hover { background: #f4dda4; }
+        .tl-cut { position: absolute; top: 0; bottom: 0; background: rgba(0,0,0,0.58); pointer-events: none; z-index: 5; }
+        .tl-trim-line { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #f0cd78; box-shadow: 0 0 0 1px rgba(0,0,0,0.35); pointer-events: none; z-index: 7; }
+        .tl-trim-handle { position: absolute; top: 50%; z-index: 8; width: 16px; height: 36px; padding: 0; transform: translate(-50%, -50%); border: 1px solid rgba(255,255,255,0.42); border-radius: 5px; background: #f0cd78; color: #201b0f; cursor: ew-resize; touch-action: none; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+        .tl-trim-handle::after { content: ""; position: absolute; top: 9px; bottom: 9px; left: 6px; width: 2px; border-left: 1px solid rgba(32,27,15,0.7); border-right: 1px solid rgba(32,27,15,0.7); }
+        .tl-trim-handle:hover, .tl-trim-handle:focus-visible { background: #f4dda4; outline: 2px solid rgba(244,221,164,0.42); outline-offset: 2px; }
+        .tl-trim-status { display: inline-flex; align-items: center; gap: 7px; color: #f4dda4; }
+        .tl-trim-reset { border: 0; padding: 0; background: transparent; color: rgba(255,255,255,0.48); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+        .tl-trim-reset:hover { color: #fff; }
       `}</style>
 
         <div
@@ -464,13 +541,30 @@ export function StudioTimeline({
             />
             <span style={{ minWidth: 26, textAlign: "right" }}>{Math.round(secondsVisible)}s</span>
           </span>
-          {loop ? (
+          {trim && (trim.a > 0 || trim.b < dur) ? (
+            <span className="tl-trim-status">
+              Kept {fmtPrecise(trim.a)}–{fmtPrecise(trim.b)}
+              <button
+                type="button"
+                className="tl-trim-reset"
+                onClick={() => {
+                  const full = { a: 0, b: dur };
+                  onTrimChange?.(full);
+                  onTrimCommit?.(full);
+                }}
+              >
+                Reset trim
+              </button>
+            </span>
+          ) : loop ? (
             <button type="button" className="tl-clear" onClick={() => onLoopChange(null)}>
               {rangeWord === "selection" ? "selection" : "⟳ loop"} {fmt(loop.a)}–{fmt(loop.b)} ✕
             </button>
           ) : (
             <span style={{ color: "rgba(255,255,255,0.3)" }}>
-              drag to {rangeWord === "selection" ? "select" : "loop"} a range
+              {trim
+                ? "drag gold handles to cut or extend"
+                : `drag to ${rangeWord === "selection" ? "select" : "loop"} a range`}
             </span>
           )}
           <span>{fmt(dur)}</span>
@@ -574,6 +668,44 @@ export function StudioTimeline({
                   pointerEvents: "none",
                 }}
               />
+            )}
+            {trim && (
+              <>
+                <div className="tl-cut" style={{ left: 0, width: `${pctOf(trim.a)}%` }} />
+                <div className="tl-cut" style={{ left: `${pctOf(trim.b)}%`, right: 0 }} />
+                <div className="tl-trim-line" style={{ left: `${pctOf(trim.a)}%` }} />
+                <div className="tl-trim-line" style={{ left: `${pctOf(trim.b)}%` }} />
+                <button
+                  type="button"
+                  className="tl-trim-handle"
+                  style={{
+                    left: `${pctOf(trim.a)}%`,
+                    transform: `translate(${trim.a <= 0 ? "0" : "-50%"}, -50%)`,
+                  }}
+                  aria-label={`Trim start at ${fmtPrecise(trim.a)}`}
+                  title="Drag to set the start"
+                  onPointerDown={onTrimDown("start")}
+                  onPointerMove={onTrimMove}
+                  onPointerUp={onTrimUp}
+                  onPointerCancel={onTrimUp}
+                  onKeyDown={onTrimKeyDown("start")}
+                />
+                <button
+                  type="button"
+                  className="tl-trim-handle"
+                  style={{
+                    left: `${pctOf(trim.b)}%`,
+                    transform: `translate(${trim.b >= dur ? "-100%" : "-50%"}, -50%)`,
+                  }}
+                  aria-label={`Trim end at ${fmtPrecise(trim.b)}`}
+                  title="Drag to set the end"
+                  onPointerDown={onTrimDown("end")}
+                  onPointerMove={onTrimMove}
+                  onPointerUp={onTrimUp}
+                  onPointerCancel={onTrimUp}
+                  onKeyDown={onTrimKeyDown("end")}
+                />
+              </>
             )}
             <div
               style={{

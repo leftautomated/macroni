@@ -58,3 +58,19 @@ export interface ProjectDoc {
   trimRegions: TrimRegion[];
   speedRegions: SpeedRegion[];
 }
+
+export function defaultProjectDoc(screenMp4 = ""): ProjectDoc {
+  return {
+    version: 1,
+    media: { screenMp4 },
+    framing: {
+      background: { type: "solid", color: [30, 30, 30, 255] },
+      paddingPx: 64,
+      borderRadiusPx: 12,
+      shadow: { blurPx: 32, offsetYPx: 16, opacity: 0.35 },
+    },
+    zoomRegions: [],
+    trimRegions: [],
+    speedRegions: [],
+  };
+}

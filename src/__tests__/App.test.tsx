@@ -188,6 +188,39 @@ describe("App (integration root)", () => {
     });
   });
 
+  it("replays only events inside the Studio trim without mutating the recording", async () => {
+    const recording: Recording = {
+      ...makeRecording("rec-trim"),
+      created_at: 1000,
+      events: [
+        { type: "KeyPress", key: "KeyA", timestamp: 1000 },
+        { type: "KeyRelease", key: "KeyA", timestamp: 2000 },
+        { type: "KeyPress", key: "KeyB", timestamp: 3000 },
+      ] as Recording["events"],
+    };
+    tauri.state.recordings = [recording];
+    render(<App />);
+    await waitFor(() => expect(tauri.state.listeners.get("replay-recording")).toBeDefined());
+
+    await act(async () => {
+      await tauri.state.listeners.get("replay-recording")?.({
+        payload: { id: "rec-trim", loopForever: false, trimStartMs: 900, trimEndMs: 1100 },
+      });
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Play current macro" }));
+
+    await waitFor(() => {
+      expect(tauri.invoke).toHaveBeenCalledWith(
+        "play_recording",
+        expect.objectContaining({
+          events: [recording.events[1]],
+          loopForever: false,
+        }),
+      );
+    });
+    expect(recording.events).toHaveLength(3);
+  });
+
   it("plays the newest saved recording from the Play button", async () => {
     const recording = makeRecording("rec-current", 1.5);
     tauri.state.recordings = [recording];

@@ -73,7 +73,9 @@ pub struct ZoomRegion {
 #[serde(rename_all = "camelCase")]
 pub struct TrimRegion {
     pub id: String,
+    /// Start of the kept source range, relative to the recording, in milliseconds.
     pub start_ms: u64,
+    /// End of the kept source range, relative to the recording, in milliseconds.
     pub end_ms: u64,
 }
 

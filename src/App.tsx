@@ -13,6 +13,7 @@ import { PermissionGate } from "@/components/PermissionGate";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { invoke, logEvent } from "@/lib/observability";
+import { recordingWithinTrim } from "@/lib/recording-trim";
 import type { Recording } from "@/types";
 import { Clapperboard, GripVertical, MousePointerClick } from "lucide-react";
 
@@ -23,11 +24,20 @@ type ReplayRecordingPayload =
   | {
       id: string;
       loopForever?: boolean;
+      trimStartMs?: number | null;
+      trimEndMs?: number | null;
     };
 
 function normalizeReplayPayload(payload: ReplayRecordingPayload) {
-  if (typeof payload === "string") return { id: payload, loopForever: true };
-  return { id: payload.id, loopForever: payload.loopForever ?? true };
+  if (typeof payload === "string") {
+    return { id: payload, loopForever: true, trimStartMs: undefined, trimEndMs: undefined };
+  }
+  return {
+    id: payload.id,
+    loopForever: payload.loopForever ?? true,
+    trimStartMs: payload.trimStartMs,
+    trimEndMs: payload.trimEndMs,
+  };
 }
 
 const App = () => {
@@ -43,6 +53,7 @@ const App = () => {
   // Current playback target — also re-played by Cmd+R.
   const replayRecRef = useRef<Recording | null>(null);
   const replayLoopForeverRef = useRef(true);
+  const replayTrimRef = useRef<{ id: string; a: number; b: number } | null>(null);
 
   useEffect(() => {
     setCurrentRecording((current) => {
@@ -50,7 +61,12 @@ const App = () => {
         const refreshed = recordingsManager.recordings.find(
           (recording) => recording.id === current.id,
         );
-        if (refreshed) return refreshed;
+        if (refreshed) {
+          const savedTrim = replayTrimRef.current;
+          return savedTrim?.id === refreshed.id
+            ? recordingWithinTrim(refreshed, savedTrim)
+            : refreshed;
+        }
       }
       return recordingsManager.recordings[0] ?? null;
     });
@@ -116,6 +132,7 @@ const App = () => {
           result.video ?? undefined,
         );
         setCurrentRecording(saved);
+        replayTrimRef.current = null;
         replayLoopForeverRef.current = true;
         recorder.clearEvents();
       }
@@ -197,6 +214,7 @@ const App = () => {
       const stopped = refreshed.find((recording) => recording.id === event.payload) ?? refreshed[0];
       if (stopped) {
         setCurrentRecording(stopped);
+        replayTrimRef.current = null;
         replayLoopForeverRef.current = true;
       }
     });
@@ -232,11 +250,17 @@ const App = () => {
   // it explicitly with the separate Play button when their target is ready.
   useEffect(() => {
     const unlisten = listen<ReplayRecordingPayload>("replay-recording", async (event) => {
-      const { id, loopForever } = normalizeReplayPayload(event.payload);
+      const { id, loopForever, trimStartMs, trimEndMs } = normalizeReplayPayload(event.payload);
       const all = await invoke<Recording[]>("load_recordings");
       const rec = all.find((r) => r.id === id);
       if (rec) {
-        setCurrentRecording(rec);
+        replayTrimRef.current =
+          trimStartMs != null && trimEndMs != null ? { id, a: trimStartMs, b: trimEndMs } : null;
+        const replayRecording =
+          trimStartMs != null && trimEndMs != null
+            ? recordingWithinTrim(rec, { a: trimStartMs, b: trimEndMs })
+            : rec;
+        setCurrentRecording(replayRecording);
         replayLoopForeverRef.current = loopForever;
       }
     });

@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InputEventType, type Recording } from "@/types";
+import { defaultProjectDoc, type ProjectDoc } from "@/types/project";
 
 // In-memory backend the mocked Tauri commands talk to.
-const fake = { recordings: [] as Recording[] };
+const fake = { recordings: [] as Recording[], projects: new Map<string, ProjectDoc>() };
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
@@ -13,6 +14,11 @@ vi.mock("@tauri-apps/api/core", () => ({
         return [...fake.recordings];
       case "get_app_data_dir":
         return "/data";
+      case "studio_load_project":
+        return fake.projects.get(String(args?.recordingId)) ?? defaultProjectDoc();
+      case "studio_save_project":
+        fake.projects.set(String(args?.recordingId), args?.doc as ProjectDoc);
+        return undefined;
       case "delete_recording":
         fake.recordings = fake.recordings.filter((r) => r.id !== args?.id);
         return undefined;
@@ -95,6 +101,7 @@ function makeInputOnlyRecording(id: string, name: string): Recording {
 describe("StudioEditor (recordings browser)", () => {
   beforeEach(() => {
     fake.recordings = [];
+    fake.projects.clear();
     vi.clearAllMocks();
   });
 
@@ -225,6 +232,43 @@ describe("StudioEditor (recordings browser)", () => {
       expect(invoke).toHaveBeenCalledWith(
         "request_replay",
         expect.objectContaining({ id: "2000", loopForever: false, traceId: expect.any(String) }),
+      );
+    });
+  });
+
+  it("loads, resets, saves, and replays the non-destructive trim range", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    fake.recordings = [makeInputOnlyRecording("2000", "Trimmed input")];
+    const doc = defaultProjectDoc();
+    doc.trimRegions = [{ id: "recording-trim", startMs: 200, endMs: 900 }];
+    fake.projects.set("2000", doc);
+
+    render(<StudioEditor />);
+    const reset = await screen.findByRole("button", { name: /reset trim/i });
+    expect(screen.getByText(/kept 0:00\.20–0:00\.90/i)).toBeInTheDocument();
+    await userEvent.click(reset);
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "studio_save_project",
+        expect.objectContaining({
+          recordingId: "2000",
+          doc: expect.objectContaining({ trimRegions: [] }),
+          traceId: expect.any(String),
+        }),
+      );
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /replay macro/i }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "request_replay",
+        expect.objectContaining({
+          id: "2000",
+          trimStartMs: 0,
+          trimEndMs: 1200,
+          traceId: expect.any(String),
+        }),
       );
     });
   });

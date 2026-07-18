@@ -430,15 +430,56 @@ impl Engine {
         // Use 30 fps as the Phase 1 default; the source FPS is not yet exposed
         // by the FrameSource trait.
         const FPS: u32 = 30;
+        let frame_range = export_frame_range(doc, n, FPS);
+        if frame_range.is_empty() {
+            return Err(EngineError::Encode(
+                "trim range contains no video frames".into(),
+            ));
+        }
+        let export_count = frame_range.len();
         let mut enc = Mp4Encoder::new(w, h, FPS)?;
 
-        for i in 0..n {
+        for (exported, i) in frame_range.enumerate() {
             let rgba = self.render_to_texture(doc, i)?;
             enc.encode_rgba(&rgba)?;
-            progress((i + 1) as f32 / n as f32);
+            progress((exported + 1) as f32 / export_count as f32);
         }
 
         enc.finish(out)?;
         Ok(())
+    }
+}
+
+/// Converts the persisted millisecond kept range into source-frame indices.
+fn export_frame_range(doc: &ProjectDoc, frame_count: usize, fps: u32) -> std::ops::Range<usize> {
+    let Some(trim) = doc.trim_regions.first() else {
+        return 0..frame_count;
+    };
+    let fps = u64::from(fps.max(1));
+    let start = ((trim.start_ms.saturating_mul(fps)) / 1000) as usize;
+    let end = ((trim.end_ms.saturating_mul(fps).saturating_add(999)) / 1000) as usize;
+    start.min(frame_count)..end.min(frame_count)
+}
+
+#[cfg(test)]
+mod trim_tests {
+    use super::*;
+    use crate::doc::TrimRegion;
+
+    #[test]
+    fn empty_trim_exports_every_frame() {
+        let doc = ProjectDoc::new_default("clip.mp4".into());
+        assert_eq!(export_frame_range(&doc, 90, 30), 0..90);
+    }
+
+    #[test]
+    fn kept_millisecond_range_maps_to_source_frames() {
+        let mut doc = ProjectDoc::new_default("clip.mp4".into());
+        doc.trim_regions.push(TrimRegion {
+            id: "recording-trim".into(),
+            start_ms: 1000,
+            end_ms: 2500,
+        });
+        assert_eq!(export_frame_range(&doc, 90, 30), 30..75);
     }
 }

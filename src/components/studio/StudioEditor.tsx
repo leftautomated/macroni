@@ -13,7 +13,9 @@ import { usePlaybackSync } from "@/hooks/usePlaybackSync";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import { invoke, logEvent } from "@/lib/observability";
 import { recordingDuration, recordingTitle } from "@/lib/recording-format";
+import { fullTrim, projectWithTrim, trimFromProject, type TrimRange } from "@/lib/recording-trim";
 import type { Observation, ObservationResult, PerceptionTarget, Recording, Region } from "@/types";
+import { defaultProjectDoc, type ProjectDoc } from "@/types/project";
 
 // Studio: pick a recording from the title-bar folder menu and play it. Effects
 // (background/framing/zoom) come later, one quality-checked feature at a time.
@@ -33,6 +35,9 @@ export function StudioEditor() {
   const playerRef = useRef<StudioPlayerHandle>(null);
   // Loop region from the timeline, in video-relative ms (null = no loop).
   const [loop, setLoop] = useState<LoopRegion | null>(null);
+  const [project, setProject] = useState<ProjectDoc | null>(null);
+  const [projectRecordingId, setProjectRecordingId] = useState<string | null>(null);
+  const [trim, setTrim] = useState<TrimRange>({ a: 0, b: 0 });
   // Recording id armed for delete (first click); a second click confirms.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   // The player portals its transport controls into this bottom-panel node, so
@@ -98,6 +103,37 @@ export function StudioEditor() {
   const title = selected ? recordingTitle(selected) : "Studio";
   const { url } = useVideoAssetUrl(selected?.video);
   const sync = usePlaybackSync({ events: selected?.events ?? [], video: selected?.video });
+  const durationMs = selected ? recordingDuration(selected) : 0;
+  const isProjectReady = !!selected && projectRecordingId === selected.id;
+  const effectiveTrim = isProjectReady ? trim : fullTrim(durationMs);
+
+  useEffect(() => {
+    setProject(null);
+    setProjectRecordingId(null);
+    setTrim(fullTrim(durationMs));
+    if (!selected) return;
+    let cancelled = false;
+    invoke<ProjectDoc>("studio_load_project", { recordingId: selected.id })
+      .then((doc) => {
+        if (cancelled) return;
+        const loaded = doc ?? defaultProjectDoc(selected.video?.path);
+        setProject(loaded);
+        setProjectRecordingId(selected.id);
+        setTrim(trimFromProject(loaded, durationMs));
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        logEvent("error", "studio", "load_project_failed", {
+          error: e,
+          fields: { recordingId: selected.id },
+        });
+        setProject(defaultProjectDoc(selected.video?.path));
+        setProjectRecordingId(selected.id);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, durationMs]);
 
   // Clear the loop and any armed delete when switching clips.
   useEffect(() => {
@@ -186,13 +222,43 @@ export function StudioEditor() {
 
   // Replay runs from the main control panel (focus-safe). Hand it the recording;
   // the main window comes forward with it loaded, ready for the user to play.
-  const handleReplay = useCallback((id: string, loopForever: boolean) => {
-    void invoke("request_replay", { id, loopForever }).catch((e) =>
-      logEvent("error", "studio", "request_replay_failed", {
-        error: e,
-        fields: { recordingId: id, loopForever },
-      }),
-    );
+  const handleReplay = useCallback(
+    (id: string, loopForever: boolean) => {
+      void invoke("request_replay", {
+        id,
+        loopForever,
+        trimStartMs: Math.round(effectiveTrim.a),
+        trimEndMs: Math.round(effectiveTrim.b),
+      }).catch((e) =>
+        logEvent("error", "studio", "request_replay_failed", {
+          error: e,
+          fields: { recordingId: id, loopForever },
+        }),
+      );
+    },
+    [effectiveTrim],
+  );
+
+  const handleTrimCommit = useCallback(
+    (next: TrimRange) => {
+      if (!selected) return;
+      const base = isProjectReady && project ? project : defaultProjectDoc(selected.video?.path);
+      const updated = projectWithTrim(base, next, durationMs);
+      setProject(updated);
+      setTrim(trimFromProject(updated, durationMs));
+      void invoke("studio_save_project", { recordingId: selected.id, doc: updated }).catch((e) =>
+        logEvent("error", "studio", "save_trim_failed", {
+          error: e,
+          fields: { recordingId: selected.id, startMs: next.a, endMs: next.b },
+        }),
+      );
+    },
+    [durationMs, isProjectReady, project, selected],
+  );
+
+  const handleTrimChange = useCallback((next: TrimRange) => {
+    setLoop(null);
+    setTrim(next);
   }, []);
 
   // Rename the selected recording inline from the title bar.
@@ -372,6 +438,7 @@ export function StudioEditor() {
                   onTimeUpdate={sync.onVideoTime}
                   onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
                   loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
+                  trimRegion={{ a: effectiveTrim.a / 1000, b: effectiveTrim.b / 1000 }}
                   controlsHost={controlsHost}
                   {...(PERCEPTION_STUDIO_UI
                     ? {
@@ -414,13 +481,16 @@ export function StudioEditor() {
               <StudioTimeline
                 events={selected.events}
                 startMs={sync.startMs}
-                durationMs={recordingDuration(selected)}
+                durationMs={durationMs}
                 videoMs={sync.videoTimeMs}
                 onSeekSeconds={(s) =>
                   selected.video ? playerRef.current?.seek(s) : sync.onVideoTime(s)
                 }
                 loop={loop}
                 onLoopChange={setLoop}
+                trim={isProjectReady ? trim : undefined}
+                onTrimChange={handleTrimChange}
+                onTrimCommit={handleTrimCommit}
                 perceptionTicks={PERCEPTION_STUDIO_UI ? perceptionTicks : undefined}
               />
             </div>

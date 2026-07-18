@@ -466,10 +466,17 @@ fn request_replay(
     app: AppHandle,
     id: String,
     loop_forever: Option<bool>,
+    trim_start_ms: Option<u64>,
+    trim_end_ms: Option<u64>,
     trace_id: Option<String>,
 ) -> Result<(), String> {
     let loop_forever = loop_forever.unwrap_or(true);
-    let fields = json!({ "recordingId": id, "loopForever": loop_forever });
+    let fields = json!({
+        "recordingId": id,
+        "loopForever": loop_forever,
+        "trimStartMs": trim_start_ms,
+        "trimEndMs": trim_end_ms,
+    });
     observability::trace_command("request_replay", trace_id, Some(fields), || {
         // Replay runs from the main control panel: it's small and non-activating, so
         // it won't steal focus from the user's target app. Bring it forward, then
@@ -491,7 +498,12 @@ fn request_replay(
         }
         app.emit(
             "replay-recording",
-            ReplayRecordingRequest { id, loop_forever },
+            ReplayRecordingRequest {
+                id,
+                loop_forever,
+                trim_start_ms,
+                trim_end_ms,
+            },
         )
         .map_err(|e| e.to_string())?;
         Ok(())
@@ -503,6 +515,8 @@ fn request_replay(
 struct ReplayRecordingRequest {
     id: String,
     loop_forever: bool,
+    trim_start_ms: Option<u64>,
+    trim_end_ms: Option<u64>,
 }
 
 #[tauri::command]

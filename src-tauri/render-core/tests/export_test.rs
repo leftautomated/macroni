@@ -51,3 +51,25 @@ fn export_preserves_color_no_rb_swap() {
         "center should be dominantly red (no R/B swap), got rgb=({r},{g},{b})"
     );
 }
+
+#[test]
+fn export_keeps_only_the_saved_trim_range() {
+    use render_core::decode::{FrameSource, Mp4FrameSource};
+    use render_core::doc::TrimRegion;
+
+    let src = Mp4FrameSource::open(std::path::Path::new("tests/fixtures/solid.mp4")).unwrap();
+    let source_count = FrameSource::frame_count(&src);
+    assert!(source_count >= 3);
+    let mut engine = render_core::engine::Engine::new(Box::new(src)).unwrap();
+    let mut doc = render_core::doc::ProjectDoc::new_default("solid.mp4".into());
+    doc.trim_regions.push(TrimRegion {
+        id: "recording-trim".into(),
+        start_ms: 34,
+        end_ms: 67,
+    });
+    let out = std::env::temp_dir().join("export_trim_test.mp4");
+    engine.export(&doc, &out, |_| {}).unwrap();
+
+    let reopened = Mp4FrameSource::open(&out).unwrap();
+    assert_eq!(FrameSource::frame_count(&reopened), 2);
+}

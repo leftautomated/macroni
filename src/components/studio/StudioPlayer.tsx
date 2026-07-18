@@ -19,6 +19,8 @@ interface StudioPlayerProps {
   onReplay: (loopForever: boolean) => void;
   /** When set (seconds), playback repeats over [a, b]. */
   loopRegion?: { a: number; b: number } | null;
+  /** Non-destructive kept range, in source-video seconds. */
+  trimRegion?: { a: number; b: number } | null;
   /** Where to render the transport controls. Defaults to inline below the video. */
   controlsHost?: HTMLElement | null;
   /** Show the "Replay macro" button (OS-level replay of the recording).
@@ -121,6 +123,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     onTimeUpdate,
     onReplay,
     loopRegion,
+    trimRegion,
     controlsHost,
     showReplay = true,
     targets,
@@ -163,6 +166,33 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   const [selection, setSelection] = useState<Region | null>(null);
   const [popover, setPopover] = useState<{ region: Region; x: number; y: number } | null>(null);
 
+  const playbackBounds = useCallback(
+    (videoDuration: number) => {
+      const trimStart = Math.max(0, trimRegion?.a ?? 0);
+      const trimEnd = Math.min(videoDuration, trimRegion?.b ?? videoDuration);
+      if (!loopRegion) return { a: trimStart, b: trimEnd };
+      return {
+        a: Math.max(trimStart, loopRegion.a),
+        b: Math.min(trimEnd, loopRegion.b),
+      };
+    },
+    [loopRegion, trimRegion],
+  );
+
+  const enforcePlaybackBounds = useCallback(
+    (video: HTMLVideoElement) => {
+      const bounds = playbackBounds(video.duration || duration);
+      if (video.currentTime < bounds.a) video.currentTime = bounds.a;
+      if (video.currentTime < bounds.b) return;
+      if (loopRegion || loop) video.currentTime = bounds.a;
+      else {
+        video.pause();
+        video.currentTime = bounds.b;
+      }
+    },
+    [duration, loop, loopRegion, playbackBounds],
+  );
+
   useImperativeHandle(
     ref,
     () => ({
@@ -203,7 +233,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     const tick = () => {
       const v = videoRef.current;
       if (v) {
-        if (loopRegion && v.currentTime >= loopRegion.b) v.currentTime = loopRegion.a;
+        enforcePlaybackBounds(v);
         setCurrent(v.currentTime);
         onTimeUpdate(v.currentTime);
       }
@@ -211,7 +241,18 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, onTimeUpdate, loopRegion]);
+  }, [playing, onTimeUpdate, enforcePlaybackBounds]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !ready) return;
+    const bounds = playbackBounds(video.duration);
+    if (video.currentTime < bounds.a || video.currentTime > bounds.b) {
+      video.currentTime = bounds.a;
+      setCurrent(bounds.a);
+      onTimeUpdate(bounds.a);
+    }
+  }, [onTimeUpdate, playbackBounds, ready]);
 
   useEffect(() => {
     setReady(false);
@@ -239,9 +280,12 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) void v.play();
-    else v.pause();
-  }, []);
+    if (v.paused) {
+      const bounds = playbackBounds(v.duration || duration);
+      if (v.currentTime < bounds.a || v.currentTime >= bounds.b) v.currentTime = bounds.a;
+      void v.play();
+    } else v.pause();
+  }, [duration, playbackBounds]);
 
   // Drag-to-select over the video: down snapshots the play state, then always
   // pauses (so a drag doesn't fight playback) and arms the gesture; move past
@@ -336,16 +380,17 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     const v = videoRef.current;
     if (!v) return;
     v.pause();
-    v.currentTime = 0;
-  }, []);
+    v.currentTime = playbackBounds(v.duration || duration).a;
+  }, [duration, playbackBounds]);
 
   const jumpToEnd = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
     v.pause();
     // Land on the last frame, not past the end (which would fire `ended`).
-    v.currentTime = Math.max(0, (v.duration || 0) - 1 / Math.max(1, fps));
-  }, [fps]);
+    const end = playbackBounds(v.duration || duration).b;
+    v.currentTime = Math.max(0, end - 1 / Math.max(1, fps));
+  }, [duration, fps, playbackBounds]);
 
   const changeSpeed = useCallback((value: number) => {
     setSpeed(value);
@@ -474,7 +519,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           ref={videoRef}
           src={src}
           autoPlay
-          loop={loop}
+          loop={false}
           onClick={togglePlay}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
@@ -482,6 +527,10 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
             const v = videoRef.current;
             if (v) {
               setDuration(v.duration);
+              const bounds = playbackBounds(v.duration);
+              v.currentTime = bounds.a;
+              setCurrent(bounds.a);
+              onTimeUpdate(bounds.a);
               setReady(true);
               setLoadError(null);
               setIntrinsic({ width: v.videoWidth, height: v.videoHeight });
@@ -513,7 +562,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           onTimeUpdate={() => {
             const v = videoRef.current;
             if (v) {
-              if (loopRegion && v.currentTime >= loopRegion.b) v.currentTime = loopRegion.a;
+              enforcePlaybackBounds(v);
               setCurrent(v.currentTime);
               onTimeUpdate(v.currentTime);
             }

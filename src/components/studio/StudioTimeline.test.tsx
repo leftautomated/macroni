@@ -114,6 +114,44 @@ describe("StudioTimeline", () => {
     expect(calls[calls.length - 1][0]).toMatchObject({ a: 400, b: 1600 });
   });
 
+  it("cuts and extends the kept recording range with draggable handles", () => {
+    const onTrimChange = vi.fn();
+    const onTrimCommit = vi.fn();
+    const { rerender } = render(
+      <StudioTimeline
+        {...base}
+        trim={{ a: 0, b: 2000 }}
+        onTrimChange={onTrimChange}
+        onTrimCommit={onTrimCommit}
+        onSeekSeconds={noop}
+        onLoopChange={noop}
+      />,
+    );
+    const start = screen.getByRole("button", { name: /trim start/i });
+    fireEvent.pointerDown(start, { clientX: 0, pointerId: 3 });
+    fireEvent.pointerMove(start, { clientX: 25, pointerId: 3 });
+    fireEvent.pointerUp(start, { clientX: 25, pointerId: 3 });
+    expect(onTrimCommit).toHaveBeenLastCalledWith({ a: 500, b: 2000 });
+
+    rerender(
+      <StudioTimeline
+        {...base}
+        trim={{ a: 500, b: 1600 }}
+        onTrimChange={onTrimChange}
+        onTrimCommit={onTrimCommit}
+        onSeekSeconds={noop}
+        onLoopChange={noop}
+      />,
+    );
+    expect(screen.getByText(/kept 0:00\.50–0:01\.60/i)).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("button", { name: /trim start/i }), {
+      key: "ArrowLeft",
+    });
+    expect(onTrimCommit).toHaveBeenLastCalledWith({ a: 400, b: 1600 });
+    fireEvent.click(screen.getByRole("button", { name: /reset trim/i }));
+    expect(onTrimCommit).toHaveBeenLastCalledWith({ a: 0, b: 2000 });
+  });
+
   it("renders perception ticks and seeks on click", () => {
     const onSeek = vi.fn();
     render(

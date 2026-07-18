@@ -332,13 +332,13 @@ export function StudioEditor() {
         flexDirection: "column",
         borderRadius: 12,
         fontFamily: "system-ui, -apple-system, sans-serif",
-        color: "#fff",
+        color: "var(--studio-text)",
         background:
-          "radial-gradient(circle at 50% -18%, rgba(240,205,120,0.11), transparent 36%), #000",
+          "radial-gradient(circle at 50% -18%, var(--studio-glow), transparent 36%), var(--studio-bg)",
       }}
     >
       <style>{`
-        .studio-gear { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 24px; padding: 0; border: none; border-radius: 6px; background: transparent; color: rgba(255,255,255,0.65); cursor: pointer; transition: background 120ms ease, color 120ms ease; }
+        .studio-gear { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 24px; padding: 0; border: none; border-radius: 6px; background: transparent; color: var(--studio-text-muted); cursor: pointer; transition: background 120ms ease, color 120ms ease; }
         .studio-gear:hover, .studio-gear.active { background: rgba(240,205,120,0.14); color: #f0cd78; }
 
         /* Custom scrollbar for the settings page — a rounded thumb that floats
@@ -463,8 +463,8 @@ export function StudioEditor() {
               style={{
                 flexShrink: 0,
                 padding: "12px 24px 18px",
-                borderTop: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(17,17,17,0.72)",
+                borderTop: "1px solid var(--studio-border)",
+                background: "color-mix(in srgb, var(--studio-surface) 88%, transparent)",
               }}
             >
               {selected.video && <div ref={setControlsHost} style={{ marginBottom: 14 }} />}
@@ -503,7 +503,7 @@ export function StudioEditor() {
               alignItems: "center",
               justifyContent: "center",
               fontSize: 14,
-              color: "rgba(255,255,255,0.4)",
+              color: "var(--studio-text-subtle)",
               padding: 24,
               textAlign: "center",
             }}

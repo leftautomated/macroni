@@ -109,8 +109,8 @@ export function StudioTitleBar({
           display: flex;
           align-items: center;
           padding: 0 14px;
-          background: #111;
-          border-bottom: 1px solid rgba(255,255,255,0.1);
+          background: var(--studio-surface);
+          border-bottom: 1px solid var(--studio-border);
           user-select: none;
         }
         .tl-lights { display: flex; align-items: center; gap: 8px; }
@@ -144,7 +144,7 @@ export function StudioTitleBar({
           font-family: inherit;
           font-size: 13px;
           font-weight: 500;
-          color: rgba(255,255,255,0.78);
+          color: var(--studio-text-strong);
           border: none;
           background: transparent;
           pointer-events: none;
@@ -156,7 +156,7 @@ export function StudioTitleBar({
           padding: 2px 8px;
           transition: background 120ms ease;
         }
-        .studio-title.editable:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .studio-title.editable:hover { background: var(--studio-hover); color: var(--studio-text); }
         .studio-title-input {
           position: absolute;
           left: 50%;
@@ -167,14 +167,14 @@ export function StudioTitleBar({
           font-family: inherit;
           font-size: 13px;
           font-weight: 500;
-          color: #fff;
-          background: rgba(255,255,255,0.1);
+          color: var(--studio-text);
+          background: var(--studio-hover);
           border: 1px solid rgba(240,205,120,0.62);
           border-radius: 5px;
           padding: 2px 8px;
           outline: none;
         }
-        .studio-titlebar.inactive .studio-title { color: rgba(255,255,255,0.4); }
+        .studio-titlebar.inactive .studio-title { color: var(--studio-text-subtle); }
       `}</style>
 
       {/* stopPropagation so double-clicking a light doesn't also zoom the bar */}

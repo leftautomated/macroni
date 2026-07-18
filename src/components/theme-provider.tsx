@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-type Theme = "dark" | "light" | "system";
+export type Theme = "dark" | "light" | "system";
 
 type ThemeProviderProps = {
   children: React.ReactNode;
@@ -20,40 +20,53 @@ const initialState: ThemeProviderState = {
 
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 
+const isTheme = (value: string | null): value is Theme =>
+  value === "dark" || value === "light" || value === "system";
+
 export function ThemeProvider({
   children,
   defaultTheme = "system",
   storageKey = "macroni-ui-theme",
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme,
-  );
+  const [theme, setThemeState] = useState<Theme>(() => {
+    const stored = localStorage.getItem(storageKey);
+    return isTheme(stored) ? stored : defaultTheme;
+  });
 
   useEffect(() => {
     const root = window.document.documentElement;
-
-    root.classList.remove("light", "dark");
-
-    if (theme === "system") {
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
-
-      root.classList.add(systemTheme);
-      return;
-    }
-
-    root.classList.add(theme);
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const resolved = theme === "system" ? (media.matches ? "dark" : "light") : theme;
+      root.classList.remove("light", "dark");
+      root.classList.add(resolved);
+      root.dataset.theme = theme;
+      root.style.colorScheme = resolved;
+    };
+    apply();
+    if (theme !== "system") return;
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
   }, [theme]);
 
-  const value = {
-    theme,
-    setTheme: (theme: Theme) => {
-      localStorage.setItem(storageKey, theme);
-      setTheme(theme);
+  useEffect(() => {
+    const syncAcrossWindows = (event: StorageEvent) => {
+      if (event.key === storageKey && isTheme(event.newValue)) setThemeState(event.newValue);
+    };
+    window.addEventListener("storage", syncAcrossWindows);
+    return () => window.removeEventListener("storage", syncAcrossWindows);
+  }, [storageKey]);
+
+  const setTheme = useCallback(
+    (next: Theme) => {
+      localStorage.setItem(storageKey, next);
+      setThemeState(next);
     },
-  };
+    [storageKey],
+  );
+
+  const value = useMemo(() => ({ theme, setTheme }), [theme, setTheme]);
 
   return (
     <ThemeProviderContext.Provider {...props} value={value}>

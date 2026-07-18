@@ -31,7 +31,7 @@ const onRender: React.ProfilerOnRenderCallback = (
 
 // Reset default margins and forbid document scroll. The window is borderless +
 // transparent so its rounded corners show through; the StudioEditor root paints
-// the opaque dark surface, so html/body stay transparent.
+// the active themed surface, so html/body stay transparent.
 for (const el of [document.documentElement, document.body]) {
   el.style.margin = "0";
   el.style.height = "100%";

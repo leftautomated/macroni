@@ -49,15 +49,15 @@ export const DiagnosticsPanel = () => {
         .diag-title {
           display: flex; align-items: center; gap: 7px; padding-left: 3px;
           font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
-          color: rgba(255,255,255,0.42);
+          color: var(--studio-text-subtle);
         }
         .diag-title svg { width: 13px; height: 13px; color: #f0cd78; }
         .diag-actions { display: inline-flex; gap: 6px; }
         .diag-btn {
           display: inline-flex; align-items: center; gap: 6px;
-          font: inherit; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.82);
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.1); border-radius: 7px;
+          font: inherit; font-size: 12px; font-weight: 500; color: var(--studio-text-strong);
+          background: var(--studio-hover);
+          border: 1px solid var(--studio-border); border-radius: 7px;
           padding: 5px 10px; cursor: pointer;
           transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
         }
@@ -65,24 +65,24 @@ export const DiagnosticsPanel = () => {
         .diag-btn:hover:not(:disabled) { background: rgba(240,205,120,0.12); color: #f0cd78; border-color: rgba(240,205,120,0.3); }
         .diag-btn:disabled { opacity: 0.5; cursor: default; }
         .diag-panel {
-          border: 1px solid rgba(255,255,255,0.07);
-          background: rgba(255,255,255,0.025);
+          border: 1px solid var(--studio-border);
+          background: var(--studio-surface-soft);
           border-radius: 12px; padding: 13px 14px;
           display: flex; flex-direction: column; gap: 11px;
         }
         .diag-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 20px; }
         .diag-kv { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
-        .diag-k { color: rgba(255,255,255,0.5); }
-        .diag-v { color: rgba(255,255,255,0.86); font-weight: 500; }
-        .diag-divider { height: 1px; background: rgba(255,255,255,0.06); }
+        .diag-k { color: var(--studio-text-muted); }
+        .diag-v { color: var(--studio-text-strong); font-weight: 500; }
+        .diag-divider { height: 1px; background: var(--studio-border); }
         .diag-path { display: flex; flex-direction: column; gap: 3px; }
-        .diag-path-k { font-size: 11px; color: rgba(255,255,255,0.5); }
+        .diag-path-k { font-size: 11px; color: var(--studio-text-muted); }
         .diag-path-link {
           appearance: none; border: none; background: transparent; padding: 0; margin: 0;
           display: inline-flex; align-items: center; gap: 6px; text-align: left; cursor: pointer;
-          color: rgba(255,255,255,0.68); transition: color 120ms ease; min-width: 0;
+          color: var(--studio-text-muted); transition: color 120ms ease; min-width: 0;
         }
-        .diag-path-link svg { width: 13px; height: 13px; flex-shrink: 0; color: rgba(255,255,255,0.38); transition: color 120ms ease; }
+        .diag-path-link svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--studio-text-subtle); transition: color 120ms ease; }
         .diag-path-link:hover { color: #f0cd78; }
         .diag-path-link:hover svg { color: #f0cd78; }
         .diag-path-link:hover .diag-path-v { text-decoration: underline; text-underline-offset: 2px; }
@@ -92,7 +92,7 @@ export const DiagnosticsPanel = () => {
         }
         .diag-path-na {
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-          font-size: 11px; color: rgba(255,255,255,0.4);
+          font-size: 11px; color: var(--studio-text-subtle);
         }
         .diag-error { font-size: 12px; color: #f87171; }
       `}</style>

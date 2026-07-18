@@ -57,6 +57,19 @@
   --input: rgb(255 255 255 / 12%);
   --ring: var(--brand-yellow);
 
+  --studio-bg: #000000;
+  --studio-surface: #111111;
+  --studio-surface-soft: rgb(255 255 255 / 2.5%);
+  --studio-control: rgb(0 0 0 / 28%);
+  --studio-hover: rgb(255 255 255 / 7%);
+  --studio-text: #ffffff;
+  --studio-text-strong: rgb(255 255 255 / 90%);
+  --studio-text-muted: rgb(255 255 255 / 60%);
+  --studio-text-subtle: rgb(255 255 255 / 44%);
+  --studio-border: rgb(255 255 255 / 9%);
+  --studio-border-strong: rgb(255 255 255 / 16%);
+  --studio-glow: rgb(240 205 120 / 11%);
+
   --opacity: 0.88;
   --backdrop-blur: blur(20px);
 }
@@ -81,6 +94,41 @@
   --border: var(--brand-border);
   --input: rgb(255 255 255 / 12%);
   --ring: var(--brand-yellow);
+}
+
+.light {
+  --background: #f4f0e7;
+  --foreground: #201c14;
+  --card: #fffdf8;
+  --card-foreground: #201c14;
+  --popover: #fffdf8;
+  --popover-foreground: #201c14;
+  --primary: #b47b0b;
+  --primary-foreground: #ffffff;
+  --secondary: #e9e2d4;
+  --secondary-foreground: #201c14;
+  --muted: #e9e2d4;
+  --muted-foreground: rgb(32 28 20 / 58%);
+  --accent: rgb(32 28 20 / 7%);
+  --accent-foreground: #201c14;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: rgb(32 28 20 / 13%);
+  --input: rgb(32 28 20 / 16%);
+  --ring: #b47b0b;
+
+  --studio-bg: #f4f0e7;
+  --studio-surface: #fffdf8;
+  --studio-surface-soft: rgb(32 28 20 / 3%);
+  --studio-control: rgb(32 28 20 / 7%);
+  --studio-hover: rgb(32 28 20 / 7%);
+  --studio-text: #201c14;
+  --studio-text-strong: rgb(32 28 20 / 90%);
+  --studio-text-muted: rgb(32 28 20 / 62%);
+  --studio-text-subtle: rgb(32 28 20 / 48%);
+  --studio-border: rgb(32 28 20 / 11%);
+  --studio-border-strong: rgb(32 28 20 / 18%);
+  --studio-glow: rgb(180 123 11 / 12%);
 }
 
 @layer base {

@@ -29,6 +29,11 @@ const updaterState = vi.hoisted(() => ({
     | "error",
 }));
 
+const themeState = vi.hoisted(() => ({
+  setTheme: vi.fn(),
+  theme: "dark" as "dark" | "light" | "system",
+}));
+
 vi.mock("@/hooks/useAppSettings", () => ({
   useAppSettings: () => ({
     settings: settingsState.settings,
@@ -41,7 +46,7 @@ vi.mock("@/hooks/useAppUpdater", () => ({
 }));
 
 vi.mock("@/components/theme-provider", () => ({
-  useTheme: () => ({ theme: "dark", setTheme: vi.fn() }),
+  useTheme: () => themeState,
 }));
 
 vi.mock("@/hooks/usePermissionStatus", () => ({
@@ -73,6 +78,8 @@ describe("SettingsTab", () => {
     updaterState.status = "up-to-date";
     updaterState.checkForUpdates.mockReset();
     updaterState.installUpdate.mockReset();
+    themeState.theme = "dark";
+    themeState.setTheme.mockReset();
   });
 
   it("turning off screen video clears continuous OCR", async () => {
@@ -88,6 +95,17 @@ describe("SettingsTab", () => {
       capture: { video: false, fps: 30, quality: "med", audio: true },
       perception: { continuous_ocr: false },
     });
+  });
+
+  it("wires each appearance button to its theme", async () => {
+    render(<SettingsTab />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Light" }));
+    await userEvent.click(screen.getByRole("button", { name: "System" }));
+
+    expect(themeState.setTheme).toHaveBeenNthCalledWith(1, "light");
+    expect(themeState.setTheme).toHaveBeenNthCalledWith(2, "system");
+    expect(screen.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("disables video-dependent controls when screen video is off", () => {

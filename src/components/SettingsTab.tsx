@@ -65,12 +65,12 @@ export const SettingsTab = () => {
           display: flex; align-items: center; gap: 7px;
           padding-left: 3px;
           font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
-          color: rgba(255,255,255,0.42);
+          color: var(--studio-text-subtle);
         }
         .st-label svg { width: 13px; height: 13px; color: #f0cd78; }
         .st-panel {
-          border: 1px solid rgba(255,255,255,0.07);
-          background: rgba(255,255,255,0.025);
+          border: 1px solid var(--studio-border);
+          background: var(--studio-surface-soft);
           border-radius: 12px;
           overflow: hidden;
         }
@@ -78,32 +78,32 @@ export const SettingsTab = () => {
           display: flex; align-items: center; justify-content: space-between; gap: 16px;
           padding: 11px 14px; min-height: 46px; box-sizing: border-box;
         }
-        .st-row + .st-row { border-top: 1px solid rgba(255,255,255,0.06); }
+        .st-row + .st-row { border-top: 1px solid var(--studio-border); }
         .st-row.is-disabled .st-row-label, .st-row.is-disabled .st-row-desc { opacity: 0.56; }
         .st-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-        .st-row-label { font-size: 13px; color: rgba(255,255,255,0.86); }
-        .st-row-desc { font-size: 11.5px; line-height: 1.45; color: rgba(255,255,255,0.45); }
-        .st-note { font-size: 12px; line-height: 1.5; color: rgba(255,255,255,0.5); padding: 0 3px; }
-        .st-note strong { color: rgba(255,255,255,0.82); font-weight: 500; }
+        .st-row-label { font-size: 13px; color: var(--studio-text-strong); }
+        .st-row-desc { font-size: 11.5px; line-height: 1.45; color: var(--studio-text-subtle); }
+        .st-note { font-size: 12px; line-height: 1.5; color: var(--studio-text-muted); padding: 0 3px; }
+        .st-note strong { color: var(--studio-text-strong); font-weight: 500; }
 
         .st-seg {
           display: inline-flex; gap: 2px; padding: 2px; flex-shrink: 0;
-          background: rgba(0,0,0,0.28);
-          border: 1px solid rgba(255,255,255,0.07);
+          background: var(--studio-control);
+          border: 1px solid var(--studio-border);
           border-radius: 8px;
         }
         .st-seg-btn {
           appearance: none; border: none; background: transparent; cursor: pointer;
           display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
           font: inherit; font-size: 12px; font-weight: 500;
-          color: rgba(255,255,255,0.6);
+          color: var(--studio-text-muted);
           padding: 5px 11px; border-radius: 6px;
           transition: background 120ms ease, color 120ms ease;
         }
         .st-seg-btn svg { width: 13px; height: 13px; }
-        .st-seg-btn:hover:not(.active) { color: rgba(255,255,255,0.92); background: rgba(255,255,255,0.05); }
+        .st-seg-btn:hover:not(.active) { color: var(--studio-text-strong); background: var(--studio-hover); }
         .st-seg-btn:disabled { cursor: default; opacity: 0.5; }
-        .st-seg-btn:disabled:hover { color: rgba(255,255,255,0.6); background: transparent; }
+        .st-seg-btn:disabled:hover { color: var(--studio-text-muted); background: transparent; }
         .st-seg-btn.active {
           background: #f0cd78; color: #000;
           box-shadow: 0 1px 2px rgba(0,0,0,0.28);
@@ -112,7 +112,7 @@ export const SettingsTab = () => {
         .st-switch {
           position: relative; flex-shrink: 0;
           width: 38px; height: 22px; padding: 0; border: none; border-radius: 999px;
-          background: rgba(255,255,255,0.16); cursor: pointer;
+          background: var(--studio-border-strong); cursor: pointer;
           transition: background 140ms ease;
         }
         .st-switch.on { background: #f0cd78; }
@@ -130,26 +130,26 @@ export const SettingsTab = () => {
           display: inline-flex; align-items: center; justify-content: center;
           min-width: 21px; height: 22px; padding: 0 7px;
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-          font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.82);
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.1);
-          border-bottom-color: rgba(255,255,255,0.16);
+          font-size: 11px; font-weight: 500; color: var(--studio-text-strong);
+          background: var(--studio-hover);
+          border: 1px solid var(--studio-border);
+          border-bottom-color: var(--studio-border-strong);
           border-radius: 5px;
           box-shadow: inset 0 -1px 0 rgba(0,0,0,0.24), 0 1px 1px rgba(0,0,0,0.28);
         }
-        .st-kbd-plus { color: rgba(255,255,255,0.3); font-size: 11px; }
+        .st-kbd-plus { color: var(--studio-text-subtle); font-size: 11px; }
 
         .st-perm { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
         .st-perm-dot { flex-shrink: 0; width: 15px; height: 15px; }
         .st-perm-dot.ok { color: #34d399; }
         .st-perm-dot.no { color: #f87171; }
-        .st-perm-sub { font-size: 11.5px; color: rgba(255,255,255,0.42); }
+        .st-perm-sub { font-size: 11.5px; color: var(--studio-text-subtle); }
 
         .st-btn {
           display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
-          font: inherit; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.82);
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.1); border-radius: 7px;
+          font: inherit; font-size: 12px; font-weight: 500; color: var(--studio-text-strong);
+          background: var(--studio-hover);
+          border: 1px solid var(--studio-border); border-radius: 7px;
           padding: 5px 10px; cursor: pointer;
           transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
         }
@@ -160,17 +160,17 @@ export const SettingsTab = () => {
         .st-update { align-items: center; }
         .st-update-copy { display: flex; flex: 1; flex-direction: column; gap: 7px; min-width: 0; }
         .st-update-heading { display: flex; align-items: center; gap: 12px; min-width: 0; flex-wrap: wrap; }
-        .st-update-version { color: rgba(255,255,255,0.9); font-weight: 600; }
+        .st-update-version { color: var(--studio-text-strong); font-weight: 600; }
         .st-update-status {
           display: inline-flex; align-items: center; gap: 6px;
-          font-size: 11.5px; line-height: 1.45; color: rgba(255,255,255,0.45);
+          font-size: 11.5px; line-height: 1.45; color: var(--studio-text-subtle);
         }
         .st-update-status svg { width: 13px; height: 13px; flex-shrink: 0; }
         .st-update-status.ok { color: #34d399; }
         .st-update-status.error { color: #f87171; }
         .st-update-notes {
           max-width: 540px; margin: 3px 0 0; white-space: pre-wrap;
-          font-size: 11.5px; line-height: 1.5; color: rgba(255,255,255,0.5);
+          font-size: 11.5px; line-height: 1.5; color: var(--studio-text-muted);
         }
         .st-update-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
         .st-btn.primary { color: #17130a; background: #f0cd78; border-color: #f0cd78; }
@@ -178,7 +178,7 @@ export const SettingsTab = () => {
         .st-btn.busy svg { animation: st-spin 900ms linear infinite; }
         .st-progress {
           width: 100%; height: 4px; margin-top: 5px; overflow: hidden;
-          border-radius: 999px; background: rgba(255,255,255,0.08);
+          border-radius: 999px; background: var(--studio-border);
         }
         .st-progress-fill { height: 100%; border-radius: inherit; background: #f0cd78; transition: width 160ms ease; }
         .st-progress.indeterminate .st-progress-fill {

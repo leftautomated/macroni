@@ -1,18 +1,31 @@
 .macro-editor-root {
-  --macro-bg: var(--brand-dark, #000);
-  --macro-panel: var(--brand-panel, #111);
-  --macro-panel-2: var(--brand-gray, #171717);
-  --macro-well: var(--brand-code, #050505);
-  --macro-line: rgb(255 255 255 / 8%);
-  --macro-line-strong: rgb(255 255 255 / 14%);
-  --macro-text: #fff;
-  --macro-muted: rgb(255 255 255 / 68%);
-  --macro-dim: rgb(255 255 255 / 46%);
-  --macro-accent: var(--brand-yellow, #f0cd78);
-  --macro-run: var(--brand-yellow, #f0cd78);
-  --macro-warn: #f0cd78;
-  --macro-danger: #f87171;
-  --macro-focus: var(--brand-yellow, #f0cd78);
+  --macro-bg: var(--studio-bg);
+  --macro-panel: var(--studio-surface);
+  --macro-panel-2: var(--studio-surface-soft);
+  --macro-well: color-mix(in oklch, var(--studio-bg) 88%, var(--studio-surface));
+  --macro-line: var(--studio-border);
+  --macro-line-strong: var(--studio-border-strong);
+  --macro-text: var(--studio-text);
+  --macro-muted: var(--studio-text-muted);
+  --macro-dim: var(--studio-text-subtle);
+  --macro-accent: var(--studio-accent);
+  --macro-accent-soft: var(--studio-accent-soft);
+  --macro-accent-border: var(--studio-accent-border);
+  --macro-accent-text: #f4dda4;
+  --macro-run: var(--studio-accent);
+  --macro-warn: var(--studio-accent);
+  --macro-danger: var(--studio-danger);
+  --macro-danger-soft: var(--studio-danger-soft);
+  --macro-danger-text: #fecaca;
+  --macro-focus: var(--studio-accent);
+  --macro-control: rgb(255 255 255 / 6%);
+  --macro-control-hover: rgb(255 255 255 / 10%);
+  --macro-node-border: rgb(255 255 255 / 12%);
+  --macro-highlight: rgb(255 255 255 / 7%);
+  --macro-grid: rgb(255 255 255 / 16%);
+  --macro-shadow: rgb(0 0 0 / 28%);
+  --macro-shadow-strong: rgb(0 0 0 / 45%);
+  --macro-handle-border: #050505;
 
   flex: 1;
   min-height: 0;
@@ -20,9 +33,26 @@
   flex-direction: column;
   color: var(--macro-text);
   background:
-    radial-gradient(circle at 16% 0%, rgb(240 205 120 / 12%), transparent 36%),
-    linear-gradient(180deg, #0b0b0b, var(--macro-bg));
+    radial-gradient(circle at 16% 0%, var(--macro-accent-soft), transparent 36%),
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--macro-panel) 62%, var(--macro-bg)),
+      var(--macro-bg)
+    );
   isolation: isolate;
+}
+
+.light .macro-editor-root {
+  --macro-accent-text: var(--studio-accent);
+  --macro-danger-text: var(--studio-danger);
+  --macro-control: var(--studio-surface-soft);
+  --macro-control-hover: var(--studio-hover);
+  --macro-node-border: var(--studio-border-strong);
+  --macro-highlight: rgb(255 255 255 / 72%);
+  --macro-grid: rgb(42 34 22 / 18%);
+  --macro-shadow: rgb(42 34 22 / 14%);
+  --macro-shadow-strong: rgb(42 34 22 / 24%);
+  --macro-handle-border: var(--studio-surface);
 }
 
 .macro-editor-header {
@@ -36,7 +66,7 @@
   min-height: 56px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--macro-line);
-  background: rgb(0 0 0 / 78%);
+  background: color-mix(in oklch, var(--macro-bg) 82%, transparent);
   backdrop-filter: blur(18px);
 }
 
@@ -82,7 +112,13 @@
   height: 100%;
   min-height: 0;
   overflow-y: auto;
-  background: linear-gradient(180deg, rgb(17 17 17 / 88%), rgb(0 0 0 / 92%)), var(--macro-panel);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--macro-panel) 88%, transparent),
+      color-mix(in oklch, var(--macro-bg) 92%, transparent)
+    ),
+    var(--macro-panel);
 }
 
 /* Theme the resize handles: 1px line in the panel seam, brightening on
@@ -98,7 +134,7 @@
 }
 
 .macro-editor-main [data-panel-resize-handle-id][data-resize-handle-state="drag"] {
-  background: rgb(240 205 120 / 55%);
+  background: color-mix(in oklch, var(--macro-accent) 55%, transparent);
 }
 
 .macro-editor-sidebar-inner {
@@ -119,9 +155,17 @@
   height: 100%;
   overflow: hidden;
   background:
-    linear-gradient(90deg, rgb(255 255 255 / 3%) 1px, transparent 1px),
-    linear-gradient(180deg, rgb(255 255 255 / 3%) 1px, transparent 1px),
-    radial-gradient(circle at 50% 45%, rgb(240 205 120 / 9%), transparent 42%), var(--macro-well);
+    linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--macro-text) 4%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--macro-text) 4%, transparent) 1px,
+      transparent 1px
+    ),
+    radial-gradient(circle at 50% 45%, var(--macro-accent-soft), transparent 42%), var(--macro-well);
   background-size:
     44px 44px,
     44px 44px,
@@ -135,8 +179,20 @@
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(90deg, rgb(0 0 0 / 76%), transparent 18%, transparent 82%, rgb(0 0 0 / 76%)),
-    linear-gradient(180deg, rgb(0 0 0 / 44%), transparent 24%, transparent 76%, rgb(0 0 0 / 50%));
+    linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--macro-bg) 76%, transparent),
+      transparent 18%,
+      transparent 82%,
+      color-mix(in oklch, var(--macro-bg) 76%, transparent)
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--macro-bg) 44%, transparent),
+      transparent 24%,
+      transparent 76%,
+      color-mix(in oklch, var(--macro-bg) 50%, transparent)
+    );
   z-index: 0;
 }
 
@@ -152,9 +208,9 @@
   padding: 7px 9px;
   border: 1px solid var(--macro-line);
   border-radius: 8px;
-  background: rgb(17 17 17 / 78%);
+  background: color-mix(in oklch, var(--macro-panel) 82%, transparent);
   color: var(--macro-muted);
-  box-shadow: 0 16px 32px rgb(0 0 0 / 20%);
+  box-shadow: 0 16px 32px var(--macro-shadow);
   backdrop-filter: blur(16px);
   font-size: 12px;
 }
@@ -164,7 +220,7 @@
   height: 7px;
   border-radius: 999px;
   background: var(--macro-accent);
-  box-shadow: 0 0 0 4px rgb(240 205 120 / 14%);
+  box-shadow: 0 0 0 4px var(--macro-accent-soft);
 }
 
 .macro-canvas-panel-dot[data-state="running"] {
@@ -173,7 +229,7 @@
 
 .macro-canvas-panel-dot[data-state="failed"] {
   background: var(--macro-danger);
-  box-shadow: 0 0 0 4px rgb(248 113 113 / 16%);
+  box-shadow: 0 0 0 4px var(--macro-danger-soft);
 }
 
 .macro-canvas-panel-strong {
@@ -219,8 +275,8 @@
 }
 
 .macro-canvas-flow .react-flow__edge.selected .react-flow__edge-path {
-  stroke: #f4dda4;
-  filter: drop-shadow(0 0 8px rgb(240 205 120 / 55%));
+  stroke: var(--macro-accent-text);
+  filter: drop-shadow(0 0 8px color-mix(in oklch, var(--macro-accent) 55%, transparent));
 }
 
 .macro-canvas-flow .react-flow__attribution {
@@ -230,13 +286,19 @@
 .macro-node {
   --macro-node-accent: var(--macro-accent);
   width: 218px;
-  border: 1px solid rgb(255 255 255 / 12%);
+  border: 1px solid var(--macro-node-border);
   border-radius: 10px;
-  background: linear-gradient(180deg, rgb(23 23 23 / 96%), rgb(8 8 8 / 96%)), var(--macro-panel);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--macro-panel-2) 82%, var(--macro-panel)),
+      color-mix(in oklch, var(--macro-bg) 62%, var(--macro-panel))
+    ),
+    var(--macro-panel);
   color: var(--macro-text);
   box-shadow:
-    0 18px 44px rgb(0 0 0 / 28%),
-    inset 0 1px 0 rgb(255 255 255 / 7%);
+    0 18px 44px var(--macro-shadow),
+    inset 0 1px 0 var(--macro-highlight);
   overflow: hidden;
 }
 
@@ -252,18 +314,18 @@
 }
 
 .macro-node--failed {
-  border-color: rgb(248 113 113 / 70%);
+  border-color: color-mix(in oklch, var(--macro-danger) 70%, transparent);
   box-shadow:
-    0 0 0 3px rgb(248 113 113 / 16%),
-    0 20px 48px rgb(0 0 0 / 32%);
+    0 0 0 3px var(--macro-danger-soft),
+    0 20px 48px var(--macro-shadow);
 }
 
 .macro-canvas-flow .react-flow__node.selected .macro-node {
   border-color: var(--macro-node-accent);
   box-shadow:
     0 0 0 3px color-mix(in oklch, var(--macro-node-accent) 22%, transparent),
-    0 22px 54px rgb(0 0 0 / 34%),
-    inset 0 1px 0 rgb(255 255 255 / 9%);
+    0 22px 54px var(--macro-shadow),
+    inset 0 1px 0 var(--macro-highlight);
 }
 
 .macro-node-body {
@@ -308,9 +370,9 @@
 }
 
 .macro-node-badge[data-state="failed"] {
-  border-color: rgb(248 113 113 / 46%);
-  background: rgb(248 113 113 / 13%);
-  color: #fecaca;
+  border-color: color-mix(in oklch, var(--macro-danger) 46%, transparent);
+  background: var(--macro-danger-soft);
+  color: var(--macro-danger-text);
 }
 
 .macro-node-summary {
@@ -331,10 +393,10 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  border: 1px solid rgb(255 255 255 / 9%);
+  border: 1px solid var(--macro-line);
   border-radius: 7px;
   padding: 4px 6px;
-  background: rgb(255 255 255 / 5%);
+  background: var(--macro-control);
   color: var(--macro-dim);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -355,7 +417,7 @@
 .macro-node-handle {
   width: 12px;
   height: 12px;
-  border: 2px solid #050505;
+  border: 2px solid var(--macro-handle-border);
   background: var(--macro-node-accent);
   box-shadow: 0 0 0 4px color-mix(in oklch, var(--macro-node-accent) 16%, transparent);
 }
@@ -384,7 +446,7 @@
   border: 1px solid var(--macro-line-strong);
   border-radius: 7px;
   padding: 6px 10px;
-  background: rgb(255 255 255 / 6%);
+  background: var(--macro-control);
   color: var(--macro-text);
   font-size: 12px;
   font-weight: 650;
@@ -392,7 +454,7 @@
 }
 
 .mt-btn:hover:not(:disabled) {
-  background: rgb(255 255 255 / 10%);
+  background: var(--macro-control-hover);
 }
 
 .mt-btn:active:not(:disabled) {
@@ -419,27 +481,27 @@
   height: 7px;
   border-radius: 999px;
   background: var(--macro-warn);
-  box-shadow: 0 0 0 4px rgb(240 205 120 / 14%);
+  box-shadow: 0 0 0 4px var(--macro-accent-soft);
 }
 
 .mt-run {
-  border-color: rgb(240 205 120 / 46%);
-  background: rgb(240 205 120 / 16%);
-  color: #f4dda4;
+  border-color: var(--macro-accent-border);
+  background: var(--macro-accent-soft);
+  color: var(--macro-accent-text);
 }
 
 .mt-run:hover:not(:disabled) {
-  background: rgb(240 205 120 / 24%);
+  background: color-mix(in oklch, var(--macro-accent) 20%, transparent);
 }
 
 .mt-stop {
-  border-color: rgb(248 113 113 / 44%);
-  background: rgb(248 113 113 / 14%);
-  color: #fecaca;
+  border-color: color-mix(in oklch, var(--macro-danger) 44%, transparent);
+  background: var(--macro-danger-soft);
+  color: var(--macro-danger-text);
 }
 
 .mt-stop:hover:not(:disabled) {
-  background: rgb(248 113 113 / 21%);
+  background: color-mix(in oklch, var(--macro-danger) 18%, transparent);
 }
 
 .anp-root {
@@ -454,7 +516,7 @@
   border: 1px solid var(--macro-line);
   border-radius: 10px;
   padding: 12px;
-  background: rgb(255 255 255 / 4%);
+  background: color-mix(in oklch, var(--macro-panel-2) 72%, transparent);
 }
 
 .anp-title {
@@ -501,18 +563,18 @@
   justify-content: center;
   gap: 7px;
   min-height: 32px;
-  border: 1px solid rgb(240 205 120 / 46%);
+  border: 1px solid var(--macro-accent-border);
   border-radius: 7px;
   padding: 7px 10px;
-  background: rgb(240 205 120 / 18%);
-  color: #f4dda4;
+  background: var(--macro-accent-soft);
+  color: var(--macro-accent-text);
   font-size: 12px;
   font-weight: 650;
   cursor: pointer;
 }
 
 .anp-add:hover:not(:disabled) {
-  background: rgb(240 205 120 / 25%);
+  background: color-mix(in oklch, var(--macro-accent) 20%, transparent);
 }
 
 .anp-add:active:not(:disabled) {
@@ -551,14 +613,14 @@
   border-radius: 7px;
   padding: 0;
   background: transparent;
-  color: rgb(255 255 255 / 66%);
+  color: var(--macro-muted);
   cursor: pointer;
 }
 
 .mm-folder:hover,
 .mm-folder.open {
   border-color: var(--macro-line);
-  background: rgb(255 255 255 / 7%);
+  background: var(--macro-control-hover);
   color: var(--macro-text);
 }
 
@@ -578,8 +640,8 @@
   border: 1px solid var(--macro-line);
   border-radius: 10px;
   padding: 7px;
-  background: rgb(17 17 17 / 96%);
-  box-shadow: 0 22px 56px rgb(0 0 0 / 45%);
+  background: color-mix(in oklch, var(--macro-panel) 96%, transparent);
+  box-shadow: 0 22px 56px var(--macro-shadow-strong);
   backdrop-filter: blur(22px);
 }
 
@@ -597,7 +659,7 @@
 .mm-count {
   border-radius: 999px;
   padding: 1px 7px;
-  background: rgb(255 255 255 / 7%);
+  background: var(--macro-control-hover);
   color: var(--macro-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -618,12 +680,12 @@
 }
 
 .mm-row:hover {
-  background: rgb(255 255 255 / 5%);
+  background: var(--macro-control);
 }
 
 .mm-row.sel {
-  border-color: rgb(240 205 120 / 46%);
-  background: rgb(240 205 120 / 13%);
+  border-color: var(--macro-accent-border);
+  background: var(--macro-accent-soft);
 }
 
 .mm-pick {
@@ -662,7 +724,7 @@
   border-radius: 6px;
   padding: 5px;
   background: transparent;
-  color: rgb(255 255 255 / 48%);
+  color: var(--macro-dim);
   cursor: pointer;
   opacity: 0;
 }
@@ -675,8 +737,8 @@
 
 .mm-del:hover,
 .mm-del.armed {
-  background: rgb(248 113 113 / 14%);
-  color: #fecaca;
+  background: var(--macro-danger-soft);
+  color: var(--macro-danger-text);
 }
 
 .mm-del svg {
@@ -706,7 +768,7 @@
 }
 
 .mm-new:hover {
-  background: rgb(255 255 255 / 6%);
+  background: var(--macro-control);
   color: var(--macro-text);
 }
 
@@ -726,17 +788,17 @@
   border: 1px solid var(--macro-line-strong);
   border-radius: 7px;
   padding: 7px 9px;
-  background: rgb(5 5 5 / 62%);
+  background: color-mix(in oklch, var(--macro-bg) 62%, transparent);
   color: var(--macro-text);
   font-size: 12px;
 }
 
 .mm-confirm {
-  border: 1px solid rgb(240 205 120 / 46%);
+  border: 1px solid var(--macro-accent-border);
   border-radius: 7px;
   padding: 7px 10px;
-  background: rgb(240 205 120 / 18%);
-  color: #f4dda4;
+  background: var(--macro-accent-soft);
+  color: var(--macro-accent-text);
   cursor: pointer;
   font-size: 12px;
   font-weight: 650;
@@ -747,12 +809,12 @@
   100% {
     box-shadow:
       0 0 0 3px color-mix(in oklch, var(--macro-node-accent) 20%, transparent),
-      0 18px 44px rgb(0 0 0 / 28%);
+      0 18px 44px var(--macro-shadow);
   }
   50% {
     box-shadow:
       0 0 0 5px color-mix(in oklch, var(--macro-node-accent) 32%, transparent),
-      0 24px 58px color-mix(in oklch, var(--macro-node-accent) 26%, rgb(0 0 0 / 34%));
+      0 24px 58px color-mix(in oklch, var(--macro-node-accent) 26%, var(--macro-shadow));
   }
 }
 
@@ -762,9 +824,9 @@
   justify-content: space-between;
   gap: 8px;
   padding: 5px 9px;
-  border: 1px solid rgb(240 205 120 / 46%);
+  border: 1px solid var(--macro-accent-border);
   border-radius: 7px;
-  background: rgb(240 205 120 / 12%);
+  background: var(--macro-accent-soft);
   color: var(--macro-text);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -792,7 +854,7 @@
   min-height: 0;
   box-sizing: border-box;
   padding: 12px 16px;
-  background: rgb(10 10 10 / 82%);
+  background: color-mix(in oklch, var(--macro-bg) 82%, var(--macro-panel));
 }
 
 .adock-player {
@@ -853,14 +915,14 @@
   border: 1px solid var(--macro-line-strong);
   border-radius: 6px;
   padding: 2px 9px;
-  background: rgb(255 255 255 / 5%);
+  background: var(--macro-control);
   color: var(--macro-text);
   font-size: 11px;
   cursor: pointer;
 }
 
 .adock-mark:hover {
-  background: rgb(255 255 255 / 10%);
+  background: var(--macro-control-hover);
 }
 
 .adock-chip {
@@ -868,15 +930,15 @@
 }
 
 .adock-add {
-  border: 1px solid rgb(240 205 120 / 46%);
+  border: 1px solid var(--macro-accent-border);
   border-radius: 6px;
   padding: 2px 10px;
-  background: rgb(240 205 120 / 14%);
-  color: #f0cd78;
+  background: var(--macro-accent-soft);
+  color: var(--macro-accent-text);
   font-size: 11px;
   cursor: pointer;
 }
 
 .adock-add:hover {
-  background: rgb(240 205 120 / 24%);
+  background: color-mix(in oklch, var(--macro-accent) 20%, transparent);
 }

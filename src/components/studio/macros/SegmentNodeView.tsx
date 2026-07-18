@@ -4,7 +4,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { nodeSummary } from "@/lib/macro-flow";
 import type { MacroNode, MacroNodeKind } from "@/types";
 
-const ACCENT = "#f0cd78";
+const ACCENT = "var(--macro-accent)";
 
 function segmentDurationLabel(kind: Extract<MacroNodeKind, { type: "Segment" }>): string {
   if (kind.provenance) {

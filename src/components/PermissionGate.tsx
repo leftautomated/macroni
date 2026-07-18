@@ -90,9 +90,14 @@ function PermissionGateTrafficLights({
       <style>{`
         .permission-traffic-lights { display: flex; align-items: center; gap: 8px; }
         .permission-traffic-light {
+          position: relative;
+          flex: 0 0 12px;
+          box-sizing: border-box;
           width: 12px; height: 12px; padding: 0;
           border: none; border-radius: 999px;
-          display: inline-flex; align-items: center; justify-content: center;
+          appearance: none; -webkit-appearance: none;
+          display: block;
+          line-height: 0;
           box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.24);
         }
         .permission-traffic-light:not(:disabled) { cursor: pointer; }
@@ -100,7 +105,11 @@ function PermissionGateTrafficLights({
         .permission-traffic-minimize { background: #febc2e; }
         .permission-traffic-zoom { background: #28c840; opacity: 0.45; }
         .permission-traffic-glyph {
+          position: absolute;
+          inset: 1px;
+          display: block;
           width: 10px; height: 10px;
+          pointer-events: none;
           animation: permission-traffic-glyph-in 100ms ease;
         }
         .permission-traffic-glyph path { stroke: rgba(0,0,0,0.56); stroke-width: 1.3; stroke-linecap: round; fill: none; }

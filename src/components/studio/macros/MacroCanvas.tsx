@@ -38,18 +38,18 @@ const defaultEdgeOptions = {
   type: "smoothstep",
   markerEnd: {
     type: MarkerType.ArrowClosed,
-    color: "#f0cd78",
+    color: "var(--macro-accent)",
     width: 18,
     height: 18,
   },
   style: {
-    stroke: "#f0cd78",
+    stroke: "var(--macro-accent)",
     strokeWidth: 2.3,
   },
 };
 
 const connectionLineStyle = {
-  stroke: "#f4dda4",
+  stroke: "var(--macro-accent-text)",
   strokeWidth: 2.3,
 };
 
@@ -222,7 +222,7 @@ export function MacroCanvas({
             variant={BackgroundVariant.Dots}
             gap={24}
             size={1.25}
-            color="rgba(255,255,255,0.16)"
+            color="var(--macro-grid)"
           />
           {runState && (
             <Panel className="macro-canvas-panel" position="top-left">

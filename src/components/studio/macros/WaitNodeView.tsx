@@ -4,7 +4,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { nodeSummary } from "@/lib/macro-flow";
 import type { MacroNode, TargetKind } from "@/types";
 
-const ACCENT = "#f4dda4";
+const ACCENT = "var(--macro-accent-text)";
 
 function targetLabel(kind: TargetKind): string {
   if (kind.type === "TextOcr") return "Text";

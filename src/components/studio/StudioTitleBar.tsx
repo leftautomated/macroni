@@ -117,9 +117,14 @@ export function StudioTitleBar({
         .tl-left { display: flex; align-items: center; margin-left: 8px; }
         .tl-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
         .tl-light {
+          position: relative;
+          flex: 0 0 12px;
+          box-sizing: border-box;
           width: 12px; height: 12px; padding: 0;
           border: none; border-radius: 50%;
-          display: inline-flex; align-items: center; justify-content: center;
+          appearance: none; -webkit-appearance: none;
+          display: block;
+          line-height: 0;
           cursor: pointer;
           box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.18);
         }
@@ -129,7 +134,15 @@ export function StudioTitleBar({
         /* Glyphs are mounted only while hovering (see JSX), so leaving removes
            them from the DOM and forces a repaint — WKWebView otherwise ghosts
            the axis-aligned - and + strokes when fading opacity back to 0. */
-        .tl-glyph { width: 10px; height: 10px; animation: tl-glyph-in 100ms ease; }
+        .tl-glyph {
+          position: absolute;
+          inset: 1px;
+          display: block;
+          width: 10px;
+          height: 10px;
+          pointer-events: none;
+          animation: tl-glyph-in 100ms ease;
+        }
         .tl-glyph path { stroke: rgba(0,0,0,0.55); stroke-width: 1.3; stroke-linecap: round; fill: none; }
         @keyframes tl-glyph-in { from { opacity: 0; } to { opacity: 1; } }
         .studio-titlebar.inactive .tl-light { background: #4a4a4f; box-shadow: none; }

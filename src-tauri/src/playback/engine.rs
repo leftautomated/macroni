@@ -17,7 +17,7 @@ const WARMUP_MS: u64 = 100;
 const LOOP_RESTART_GAP_MS: u64 = 50;
 
 pub struct PlaybackEngine {
-    is_playing: Arc<AtomicBool>,
+    active_run: Arc<Mutex<Option<Arc<AtomicBool>>>>,
     position: Arc<Mutex<Option<usize>>>,
     loop_count: Arc<AtomicUsize>,
 }
@@ -25,14 +25,18 @@ pub struct PlaybackEngine {
 impl PlaybackEngine {
     pub fn new() -> Self {
         Self {
-            is_playing: Arc::new(AtomicBool::new(false)),
+            active_run: Arc::new(Mutex::new(None)),
             position: Arc::new(Mutex::new(None)),
             loop_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
     pub fn is_playing(&self) -> bool {
-        self.is_playing.load(Ordering::Relaxed)
+        self.active_run
+            .lock()
+            .ok()
+            .and_then(|active| active.as_ref().map(|run| run.load(Ordering::Relaxed)))
+            .unwrap_or(false)
     }
     #[allow(dead_code)] // read in unit tests; exposed for future Tauri command needs
     pub fn position(&self) -> Option<usize> {
@@ -44,7 +48,11 @@ impl PlaybackEngine {
     }
 
     pub fn stop(&self) {
-        self.is_playing.store(false, Ordering::Relaxed);
+        if let Ok(mut active) = self.active_run.lock() {
+            if let Some(run) = active.take() {
+                run.store(false, Ordering::Relaxed);
+            }
+        }
         if let Ok(mut p) = self.position.lock() {
             *p = None;
         }
@@ -54,13 +62,23 @@ impl PlaybackEngine {
     /// Claim the input-control slot for a background automation run (mutually
     /// exclusive with `start`). Errors if playback or another automation
     /// already holds it.
-    /// Release by storing `false` into the returned flag (or via `stop()`,
-    /// which the macro runner observes to cancel).
+    /// Each claim receives its own cancellation flag, so a rapid stop/start
+    /// cannot revive the worker from the previous run. Release by storing
+    /// `false` into the returned flag (or via `stop()`).
     pub(crate) fn claim_input_slot(&self) -> Result<Arc<AtomicBool>, String> {
-        if self.is_playing.swap(true, Ordering::Relaxed) {
+        let mut active = self
+            .active_run
+            .lock()
+            .map_err(|_| "Input automation state is unavailable".to_string())?;
+        if active
+            .as_ref()
+            .is_some_and(|run| run.load(Ordering::Relaxed))
+        {
             return Err("Another input automation is already running".to_string());
         }
-        Ok(Arc::clone(&self.is_playing))
+        let run = Arc::new(AtomicBool::new(true));
+        *active = Some(Arc::clone(&run));
+        Ok(run)
     }
 
     /// Begin playback. Spawns a worker thread; returns immediately.
@@ -72,15 +90,15 @@ impl PlaybackEngine {
         simulator: impl Simulator,
         emitter: impl Emitter,
     ) -> Result<(), String> {
-        if self.is_playing.swap(true, Ordering::Relaxed) {
-            return Err("Already playing".to_string());
-        }
+        let run = self
+            .claim_input_slot()
+            .map_err(|_| "Already playing".to_string())?;
         if let Ok(mut p) = self.position.lock() {
             *p = None;
         }
         self.loop_count.store(0, Ordering::Relaxed);
 
-        let is_playing = Arc::clone(&self.is_playing);
+        let active_run = Arc::clone(&self.active_run);
         let position = Arc::clone(&self.position);
         let loop_count = Arc::clone(&self.loop_count);
 
@@ -88,7 +106,8 @@ impl PlaybackEngine {
             run_plan(
                 plan,
                 loop_forever,
-                &is_playing,
+                &run,
+                &active_run,
                 &position,
                 &loop_count,
                 simulator,
@@ -109,7 +128,8 @@ impl Default for PlaybackEngine {
 fn run_plan(
     plan: PlaybackPlan,
     loop_forever: bool,
-    is_playing: &AtomicBool,
+    run: &Arc<AtomicBool>,
+    active_run: &Mutex<Option<Arc<AtomicBool>>>,
     position: &Mutex<Option<usize>>,
     loop_count: &AtomicUsize,
     simulator: impl Simulator,
@@ -133,13 +153,13 @@ fn run_plan(
         .sum();
 
     // Warmup so UI subscribers have a chance to attach.
-    if !sleep_cancellable(WARMUP_MS, is_playing) {
-        return finalize(emitter, is_playing, position, loop_count);
+    if !sleep_cancellable(WARMUP_MS, run) {
+        return finalize(emitter, run, active_run, position, loop_count);
     }
 
     let mut is_first_iteration = true;
     loop {
-        if !is_playing.load(Ordering::Relaxed) {
+        if !run.load(Ordering::Relaxed) {
             break;
         }
 
@@ -149,13 +169,13 @@ fn run_plan(
                 *p = Some(0);
             }
             emitter.emit_loop_restart();
-            if !sleep_cancellable(LOOP_RESTART_GAP_MS, is_playing) {
+            if !sleep_cancellable(LOOP_RESTART_GAP_MS, run) {
                 break;
             }
         }
         is_first_iteration = false;
 
-        let completed = execute_steps(&plan.steps, is_playing, &simulator, |i| {
+        let completed = execute_steps(&plan.steps, run, &simulator, |i| {
             if let Ok(mut p) = position.lock() {
                 *p = Some(i);
             }
@@ -181,7 +201,7 @@ fn run_plan(
         })),
     );
 
-    finalize(emitter, is_playing, position, loop_count);
+    finalize(emitter, run, active_run, position, loop_count);
 }
 
 /// Execute a single iteration's worth of steps against `simulator`,
@@ -243,11 +263,25 @@ pub(crate) fn execute_steps(
 
 fn finalize(
     emitter: impl Emitter,
-    is_playing: &AtomicBool,
+    run: &Arc<AtomicBool>,
+    active_run: &Mutex<Option<Arc<AtomicBool>>>,
     position: &Mutex<Option<usize>>,
     loop_count: &AtomicUsize,
 ) {
-    is_playing.store(false, Ordering::Relaxed);
+    run.store(false, Ordering::Relaxed);
+    let owns_slot = active_run
+        .lock()
+        .ok()
+        .is_some_and(|mut active| match active.as_ref() {
+            Some(current) if Arc::ptr_eq(current, run) => {
+                *active = None;
+                true
+            }
+            _ => false,
+        });
+    if !owns_slot {
+        return;
+    }
     if let Ok(mut p) = position.lock() {
         *p = None;
     }
@@ -622,11 +656,26 @@ mod tests {
             .is_err());
         // A second macro cannot claim either.
         assert!(engine.claim_input_slot().is_err());
-        // engine.stop() flips the shared flag — the macro runner sees it.
+        // engine.stop() flips this run's flag — the macro runner sees it.
         engine.stop();
         assert!(!flag.load(Ordering::Relaxed));
         // Slot reusable after release.
         assert!(engine.claim_input_slot().is_ok());
+        engine.stop();
+    }
+
+    #[test]
+    fn rapid_restart_does_not_revive_or_let_old_run_cancel_new_run() {
+        let engine = PlaybackEngine::new();
+        let old_run = engine.claim_input_slot().unwrap();
+        engine.stop();
+        let new_run = engine.claim_input_slot().unwrap();
+
+        old_run.store(false, Ordering::Relaxed);
+
+        assert!(!old_run.load(Ordering::Relaxed));
+        assert!(new_run.load(Ordering::Relaxed));
+        assert!(engine.is_playing());
         engine.stop();
     }
 

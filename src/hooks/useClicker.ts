@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, logEvent } from "@/lib/observability";
 
 export type ClickerButton = "left" | "right" | "middle";
@@ -22,28 +22,39 @@ const DEFAULT_CONFIG: ClickerConfig = {
   period: "second",
 };
 
+function currentStatus(ref: { readonly current: ClickerStatus }): ClickerStatus {
+  return ref.current;
+}
+
 export function useClicker() {
   const [config, setConfig] = useState<ClickerConfig>(DEFAULT_CONFIG);
   const [status, setStatus] = useState<ClickerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const statusRef = useRef<ClickerStatus>("idle");
+
+  const transitionTo = useCallback((next: ClickerStatus) => {
+    statusRef.current = next;
+    setStatus(next);
+  }, []);
 
   useEffect(() => {
     const unlistenStarted = listen("clicker-started", () => {
-      setStatus("running");
+      if (statusRef.current === "arming") transitionTo("running");
     });
     const unlistenStopped = listen<ClickerStoppedPayload>("clicker-stopped", (event) => {
-      setStatus("idle");
+      transitionTo("idle");
       setError(event.payload?.error ?? null);
     });
     return () => {
       unlistenStarted.then((unlisten) => unlisten());
       unlistenStopped.then((unlisten) => unlisten());
     };
-  }, []);
+  }, [transitionTo]);
 
   const start = useCallback(async () => {
+    if (statusRef.current !== "idle") return;
     setError(null);
-    setStatus("arming");
+    transitionTo("arming");
     try {
       await invoke(
         "start_clicker",
@@ -58,22 +69,24 @@ export function useClicker() {
         },
       );
     } catch (startError) {
-      setStatus("idle");
+      if (currentStatus(statusRef) === "arming") transitionTo("idle");
       setError(startError instanceof Error ? startError.message : String(startError));
       logEvent("error", "clicker", "start_failed", { error: startError });
     }
-  }, [config]);
+  }, [config, transitionTo]);
 
   const stop = useCallback(async () => {
-    setStatus("stopping");
+    const previous = statusRef.current;
+    if (previous !== "arming" && previous !== "running") return;
+    transitionTo("stopping");
     try {
       await invoke("stop_clicker", {}, { area: "clicker" });
     } catch (stopError) {
-      setStatus("running");
+      if (currentStatus(statusRef) === "stopping") transitionTo(previous);
       setError(stopError instanceof Error ? stopError.message : String(stopError));
       logEvent("error", "clicker", "stop_failed", { error: stopError });
     }
-  }, []);
+  }, [transitionTo]);
 
   return {
     config,

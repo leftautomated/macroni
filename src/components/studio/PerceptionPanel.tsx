@@ -114,18 +114,18 @@ export function PerceptionPanel({
     <div className="pp-root">
       <style>{`
         .pp-root { display: flex; flex-direction: column; gap: 6px; }
-        .pp-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,0.04); }
-        .pp-name { font-size: 12px; font-weight: 600; color: #e5e7eb; white-space: nowrap; }
-        .pp-kind { font-size: 11px; color: rgba(255,255,255,0.45); border: 1px solid rgba(255,255,255,0.14); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
-        .pp-btn { display: inline-flex; align-items: center; border: 1px solid rgba(255,255,255,0.14); background: transparent; color: rgba(255,255,255,0.75); border-radius: 6px; padding: 4px 9px; font-size: 11px; cursor: pointer; white-space: nowrap; transition: background 120ms ease, color 120ms ease; }
-        .pp-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: #fff; }
+        .pp-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; background: var(--studio-surface-soft); }
+        .pp-name { font-size: 12px; font-weight: 600; color: var(--studio-text); white-space: nowrap; }
+        .pp-kind { font-size: 11px; color: var(--studio-text-subtle); border: 1px solid var(--studio-border-strong); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+        .pp-btn { display: inline-flex; align-items: center; border: 1px solid var(--studio-border-strong); background: transparent; color: var(--studio-text-muted); border-radius: 6px; padding: 4px 9px; font-size: 11px; cursor: pointer; white-space: nowrap; transition: background 120ms ease, color 120ms ease; }
+        .pp-btn:hover:not(:disabled) { background: var(--studio-hover); color: var(--studio-text); }
         .pp-btn:disabled { opacity: 0.35; cursor: default; }
-        .pp-del { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: none; background: transparent; color: rgba(255,255,255,0.4); border-radius: 6px; cursor: pointer; transition: background 120ms ease, color 120ms ease; }
-        .pp-del:hover { background: rgba(239,68,68,0.18); color: #f87171; }
-        .pp-result { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: rgba(255,255,255,0.6); display: inline-flex; align-items: center; gap: 6px; }
-        .pp-result.pp-match { color: #4ade80; }
-        .pp-result-error { color: #f87171; }
-        .pp-swatch { width: 11px; height: 11px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.3); flex-shrink: 0; }
+        .pp-del { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: none; background: transparent; color: var(--studio-text-subtle); border-radius: 6px; cursor: pointer; transition: background 120ms ease, color 120ms ease; }
+        .pp-del:hover { background: var(--studio-danger-soft); color: var(--studio-danger); }
+        .pp-result { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--studio-text-muted); display: inline-flex; align-items: center; gap: 6px; }
+        .pp-result.pp-match { color: var(--studio-success); }
+        .pp-result-error { color: var(--studio-danger); }
+        .pp-swatch { width: 11px; height: 11px; border-radius: 3px; border: 1px solid var(--studio-border-strong); flex-shrink: 0; }
       `}</style>
 
       {targets.map((target) => {

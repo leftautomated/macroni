@@ -51,7 +51,7 @@ describe("MacroToolbar", () => {
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 
-  it("shows an unsaved-changes indicator on Save only when dirty", () => {
+  it("describes unsaved changes without rendering a visual status dot", () => {
     const { rerender } = render(
       <MacroToolbar
         dirty={true}
@@ -62,7 +62,8 @@ describe("MacroToolbar", () => {
         onStop={() => {}}
       />,
     );
-    expect(screen.getByRole("status", { name: /unsaved/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save unsaved changes" })).toBeInTheDocument();
+    expect(document.querySelector(".mt-dirty-dot")).not.toBeInTheDocument();
 
     rerender(
       <MacroToolbar
@@ -74,7 +75,7 @@ describe("MacroToolbar", () => {
         onStop={() => {}}
       />,
     );
-    expect(screen.queryByRole("status", { name: /unsaved/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
 
   it("calls onSave when Save is clicked", async () => {

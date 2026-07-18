@@ -1,7 +1,6 @@
 import type { CSSProperties } from "react";
 import { Image, Pipette, ScanText, Timer } from "lucide-react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { nodeSummary } from "@/lib/macro-flow";
 import type { MacroNode, TargetKind } from "@/types";
 
 const ACCENT = "var(--macro-accent-text)";
@@ -31,7 +30,7 @@ export function WaitNodeView({ data }: NodeProps) {
 
   const live = Boolean(data.live);
   const failed = Boolean(data.failed);
-  const stateLabel = failed ? "Failed" : live ? "Live" : "Wait";
+  const stateLabel = failed ? "Failed" : live ? "Live" : null;
   const TargetIcon = targetIcon(node.kind.target.kind);
   const timeoutS = node.kind.timeout_ms / 1000;
 
@@ -49,11 +48,12 @@ export function WaitNodeView({ data }: NodeProps) {
             <TargetIcon aria-hidden="true" />
             Wait
           </div>
-          <div className="macro-node-badge" data-state={failed ? "failed" : undefined}>
-            {stateLabel}
-          </div>
+          {stateLabel && (
+            <div className="macro-node-badge" data-state={failed ? "failed" : undefined}>
+              {stateLabel}
+            </div>
+          )}
         </div>
-        <div className="macro-node-summary">{nodeSummary(node)}</div>
         <div className="macro-node-meta">
           <span className="macro-node-chip">
             <strong>{targetLabel(node.kind.target.kind)}</strong>

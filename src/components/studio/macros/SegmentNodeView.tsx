@@ -1,7 +1,6 @@
 import type { CSSProperties } from "react";
 import { MousePointer2 } from "lucide-react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { nodeSummary } from "@/lib/macro-flow";
 import type { MacroNode, MacroNodeKind } from "@/types";
 
 const ACCENT = "var(--macro-accent)";
@@ -23,7 +22,7 @@ export function SegmentNodeView({ data }: NodeProps) {
 
   const live = Boolean(data.live);
   const failed = Boolean(data.failed);
-  const stateLabel = failed ? "Failed" : live ? "Live" : "Segment";
+  const stateLabel = failed ? "Failed" : live ? "Live" : null;
   const duration = segmentDurationLabel(node.kind);
   const recording = node.kind.provenance?.recording_id ?? "manual";
   const speed = `${node.kind.speed}x`;
@@ -42,11 +41,12 @@ export function SegmentNodeView({ data }: NodeProps) {
             <MousePointer2 aria-hidden="true" />
             Segment
           </div>
-          <div className="macro-node-badge" data-state={failed ? "failed" : undefined}>
-            {stateLabel}
-          </div>
+          {stateLabel && (
+            <div className="macro-node-badge" data-state={failed ? "failed" : undefined}>
+              {stateLabel}
+            </div>
+          )}
         </div>
-        <div className="macro-node-summary">{nodeSummary(node)}</div>
         <div className="macro-node-meta">
           <span className="macro-node-chip">
             <strong>{node.kind.events.length}</strong> events

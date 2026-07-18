@@ -22,23 +22,23 @@ export function InputOnlyRecording({ recording, onReplay }: InputOnlyRecordingPr
         .ior-card {
           width: 100%; height: 100%; min-height: 150px; box-sizing: border-box;
           display: flex; flex-direction: column; align-items: center; justify-content: center;
-          padding: 24px; text-align: center; border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 12px; background: rgba(17,17,17,0.58);
+          padding: 24px; text-align: center; border: 1px solid var(--studio-border);
+          border-radius: 12px; background: color-mix(in oklch, var(--studio-surface) 72%, transparent);
         }
         .ior-icon {
           position: relative; display: inline-flex; align-items: center; justify-content: center;
-          width: 48px; height: 48px; color: #f0cd78; border-radius: 13px;
-          border: 1px solid rgba(240,205,120,0.25); background: rgba(240,205,120,0.1);
+          width: 48px; height: 48px; color: var(--studio-accent); border-radius: 13px;
+          border: 1px solid var(--studio-accent-border); background: var(--studio-accent-soft);
         }
         .ior-icon-badge {
           position: absolute; right: -7px; bottom: -7px; display: inline-flex;
           align-items: center; justify-content: center; width: 25px; height: 25px;
-          color: rgba(255,255,255,0.72); border: 3px solid #12110f; border-radius: 50%;
-          background: #242424;
+          color: var(--studio-text-muted); border: 3px solid var(--studio-surface); border-radius: 50%;
+          background: var(--studio-surface-soft);
         }
-        .ior-title { margin: 14px 0 0; color: #fff; font-size: 16px; font-weight: 650; }
+        .ior-title { margin: 14px 0 0; color: var(--studio-text); font-size: 16px; font-weight: 650; }
         .ior-copy {
-          margin: 6px auto 0; color: rgba(255,255,255,0.45); font-size: 12px;
+          margin: 6px auto 0; color: var(--studio-text-muted); font-size: 12px;
           line-height: 1.45;
         }
         .ior-actions { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; }
@@ -48,16 +48,16 @@ export function InputOnlyRecording({ recording, onReplay }: InputOnlyRecordingPr
           transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
         }
         .ior-loop {
-          width: 36px; padding: 0; color: rgba(255,255,255,0.52);
-          border: 1px solid rgba(255,255,255,0.13); background: rgba(255,255,255,0.04);
+          width: 36px; padding: 0; color: var(--studio-text-muted);
+          border: 1px solid var(--studio-border-strong); background: var(--studio-surface-soft);
         }
-        .ior-loop:hover { color: #fff; background: rgba(255,255,255,0.08); }
-        .ior-loop.on { color: #f0cd78; border-color: rgba(240,205,120,0.36); background: rgba(240,205,120,0.1); }
+        .ior-loop:hover { color: var(--studio-text); background: var(--studio-hover); }
+        .ior-loop.on { color: var(--studio-accent); border-color: var(--studio-accent-border); background: var(--studio-accent-soft); }
         .ior-replay {
-          padding: 0 15px; color: #f4dda4; border: 1px solid rgba(240,205,120,0.5);
-          background: rgba(240,205,120,0.17);
+          padding: 0 15px; color: var(--studio-accent); border: 1px solid var(--studio-accent-border);
+          background: var(--studio-accent-soft);
         }
-        .ior-replay:hover { border-color: #f0cd78; background: rgba(240,205,120,0.27); }
+        .ior-replay:hover { border-color: var(--studio-accent); background: color-mix(in oklch, var(--studio-accent) 20%, transparent); }
       `}</style>
 
       <section className="ior-card" aria-label="Input-only recording">

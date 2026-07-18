@@ -64,55 +64,55 @@ export function CreateTargetPopover({
       <style>{`
         .ctp-root {
           width: 220px;
-          background: #111;
-          border: 1px solid rgba(255,255,255,0.1);
+          background: var(--studio-surface);
+          border: 1px solid var(--studio-border);
           border-radius: 10px;
-          box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+          box-shadow: 0 16px 40px rgb(0 0 0 / 28%);
           padding: 10px;
           display: flex;
           flex-direction: column;
           gap: 8px;
           font-size: 12px;
-          color: #fff;
+          color: var(--studio-text);
         }
-        .ctp-meta { font-size: 11px; color: rgba(255,255,255,0.45); }
+        .ctp-meta { font-size: 11px; color: var(--studio-text-subtle); }
         .ctp-input {
           width: 100%;
           box-sizing: border-box;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.12);
+          background: var(--studio-control);
+          border: 1px solid var(--studio-border-strong);
           border-radius: 6px;
           padding: 6px 8px;
-          color: #fff;
+          color: var(--studio-text);
           font-size: 12px;
         }
-        .ctp-input:focus { outline: none; border-color: #f0cd78; }
+        .ctp-input:focus { outline: none; border-color: var(--studio-accent); }
         .ctp-kinds { display: flex; gap: 4px; }
         .ctp-kind {
           flex: 1;
-          border: 1px solid rgba(255,255,255,0.12);
+          border: 1px solid var(--studio-border-strong);
           background: transparent;
-          color: rgba(255,255,255,0.7);
+          color: var(--studio-text-muted);
           border-radius: 6px;
           padding: 6px 0;
           font-size: 12px;
           cursor: pointer;
           transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
         }
-        .ctp-kind:hover { background: rgba(255,255,255,0.06); }
-        .ctp-kind.sel { border-color: #f0cd78; background: rgba(240,205,120,0.18); color: #f4dda4; }
+        .ctp-kind:hover { background: var(--studio-hover); }
+        .ctp-kind.sel { border-color: var(--studio-accent-border); background: var(--studio-accent-soft); color: var(--studio-accent); }
         .ctp-actions { display: flex; justify-content: flex-end; gap: 6px; }
         .ctp-cancel {
-          border: none; background: transparent; color: rgba(255,255,255,0.6);
+          border: none; background: transparent; color: var(--studio-text-muted);
           border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer;
         }
-        .ctp-cancel:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .ctp-cancel:hover { background: var(--studio-hover); color: var(--studio-text); }
         .ctp-save {
-          border: 1px solid rgba(240,205,120,0.55); background: rgba(240,205,120,0.22);
-          color: #f4dda4; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600;
+          border: 1px solid var(--studio-accent-border); background: var(--studio-accent-soft);
+          color: var(--studio-accent); border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600;
           cursor: pointer; transition: background 120ms ease;
         }
-        .ctp-save:hover { background: rgba(240,205,120,0.32); }
+        .ctp-save:hover { background: color-mix(in oklch, var(--studio-accent) 20%, transparent); }
         .ctp-save:disabled { opacity: 0.6; cursor: default; }
       `}</style>
 

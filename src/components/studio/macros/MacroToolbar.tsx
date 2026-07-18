@@ -18,10 +18,10 @@ export interface MacroToolbarProps {
 
 /**
  * Compact Save / Run / Stop controls for the macro editor header. Save is
- * always available (explicit — nothing autosaves) and shows a small dot while
- * there are unsaved edits. Run only fires when the canvas is a single linear
- * chain, nothing is currently playing, and (via `runDisabledReason`) the
- * working doc is saved and not dirty; Stop appears alongside it mid-run.
+ * always available (explicit — nothing autosaves). Run only fires when the
+ * canvas is a single linear chain, nothing is currently playing, and (via
+ * `runDisabledReason`) the working doc is saved and not dirty; Stop appears
+ * alongside it mid-run.
  */
 export function MacroToolbar({
   dirty,
@@ -38,10 +38,15 @@ export function MacroToolbar({
 
   return (
     <div className="mt-root">
-      <button type="button" className="mt-btn mt-save" onClick={onSave} title="Save">
+      <button
+        type="button"
+        className="mt-btn mt-save"
+        onClick={onSave}
+        title="Save"
+        aria-label={dirty ? "Save unsaved changes" : "Save"}
+      >
         <Save size={13} />
         Save
-        {dirty && <span className="mt-dirty-dot" role="status" aria-label="unsaved changes" />}
       </button>
       <button
         type="button"

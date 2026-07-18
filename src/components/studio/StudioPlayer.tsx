@@ -413,7 +413,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           type="range"
           className="sp-slider"
           style={{
-            background: `linear-gradient(to right, #f0cd78 ${speedFrac * 100}%, rgba(255,255,255,0.18) ${speedFrac * 100}%)`,
+            background: `linear-gradient(to right, var(--studio-accent-fill) ${speedFrac * 100}%, var(--studio-control) ${speedFrac * 100}%)`,
           }}
           min={SPEED_MIN}
           max={SPEED_MAX}
@@ -423,7 +423,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           title="Playback speed"
           aria-label="Playback speed"
         />
-        <span className="sp-text" style={{ minWidth: 36, color: "#cbd5e1", textAlign: "right" }}>
+        <span className="sp-text" style={{ minWidth: 36, textAlign: "right" }}>
           {fmtRate(speed)}
         </span>
         <button
@@ -476,6 +476,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
 
   return (
     <div
+      className="sp-root"
       style={{
         flex: 1,
         minHeight: 0,
@@ -486,19 +487,19 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
       }}
     >
       <style>{`
-          .sp-btn { display:inline-flex; align-items:center; justify-content:center; border:none; background:transparent; color:#cbd5e1; border-radius:6px; padding:6px; cursor:pointer; transition: background 120ms ease, color 120ms ease; }
-          .sp-btn:hover { background: rgba(255,255,255,0.08); color:#fff; }
-          .sp-btn.on { color:#f0cd78; }
+          .sp-btn { display:inline-flex; align-items:center; justify-content:center; border:none; background:transparent; color:var(--studio-text-muted); border-radius:6px; padding:6px; cursor:pointer; transition: background 120ms ease, color 120ms ease; }
+          .sp-btn:hover { background:var(--studio-hover); color:var(--studio-text); }
+          .sp-btn.on { color:var(--studio-accent); }
           /* Emphasized, circular play/pause in the center — the primary action. */
-          .sp-play { display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:50%; border:1px solid rgba(255,255,255,0.25); background:transparent; color:#fff; cursor:pointer; transition: background 120ms ease, border-color 120ms ease; }
-          .sp-play:hover { background: rgba(240,205,120,0.12); border-color: rgba(240,205,120,0.55); color:#f0cd78; }
-          .sp-text { font-size:12px; font-variant-numeric: tabular-nums; color:rgba(255,255,255,0.6); }
-          .sp-time { font-size:13px; font-variant-numeric: tabular-nums; color:rgba(255,255,255,0.55); }
-          .sp-slider { -webkit-appearance:none; appearance:none; width:84px; height:4px; border-radius:2px; background:rgba(255,255,255,0.18); cursor:pointer; outline:none; }
-          .sp-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:12px; height:12px; border-radius:50%; background:#f0cd78; cursor:pointer; transition: background 120ms ease; }
-          .sp-slider::-webkit-slider-thumb:hover { background:#f4dda4; }
-          .sp-replay { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(240,205,120,0.5); background:rgba(240,205,120,0.18); color:#f4dda4; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; transition: background 120ms ease, border-color 120ms ease; }
-          .sp-replay:hover { background:rgba(240,205,120,0.28); border-color:#f0cd78; }
+          .sp-play { display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:50%; border:1px solid var(--studio-border-strong); background:transparent; color:var(--studio-text); cursor:pointer; transition: background 120ms ease, border-color 120ms ease, color 120ms ease; }
+          .sp-play:hover { background:var(--studio-accent-soft); border-color:var(--studio-accent-border); color:var(--studio-accent); }
+          .sp-text { font-size:12px; font-variant-numeric: tabular-nums; color:var(--studio-text-muted); }
+          .sp-time { font-size:13px; font-variant-numeric: tabular-nums; color:var(--studio-text-muted); }
+          .sp-slider { -webkit-appearance:none; appearance:none; width:84px; height:4px; border-radius:2px; background:var(--studio-control); cursor:pointer; outline:none; }
+          .sp-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:12px; height:12px; border-radius:50%; background:var(--studio-accent-fill); cursor:pointer; transition: background 120ms ease; }
+          .sp-slider::-webkit-slider-thumb:hover { background:var(--studio-accent-fill-hover); }
+          .sp-replay { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--studio-accent-border); background:var(--studio-accent-soft); color:var(--studio-accent); border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; transition: background 120ms ease, border-color 120ms ease; }
+          .sp-replay:hover { background:color-mix(in oklch, var(--studio-accent) 20%, transparent); border-color:var(--studio-accent); }
           .sp-layer { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(255,255,255,0.14); background:rgba(15,15,20,0.72); color:rgba(255,255,255,0.45); border-radius:999px; padding:3px 10px; font-size:11px; font-weight:600; cursor:pointer; transition: color 120ms ease, border-color 120ms ease; }
           .sp-layer:hover { border-color: rgba(255,255,255,0.3); }
           .sp-layer.on { color:#e5e7eb; }

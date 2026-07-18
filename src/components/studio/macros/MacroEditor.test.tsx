@@ -295,7 +295,7 @@ describe("MacroEditor", () => {
     await addTextWait();
 
     expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
-    expect(screen.getByRole("status", { name: /unsaved/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save unsaved changes" })).toBeInTheDocument();
     // Single node is trivially a valid chain, but the doc is unsaved (dirty,
     // and not yet present in the stored macro list) — run_macro would 404.
     const runButton = screen.getByRole("button", { name: /run/i });
@@ -335,7 +335,7 @@ describe("MacroEditor", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /simulate drag/i }));
 
-    expect(screen.getByRole("status", { name: /unsaved/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save unsaved changes" })).toBeInTheDocument();
     expect(invoke).not.toHaveBeenCalledWith("save_macro", expect.anything());
   });
 

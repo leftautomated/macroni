@@ -7,7 +7,8 @@ describe("custom scrollbar styles", () => {
   it("keeps WebKit pseudo-element styling enabled", () => {
     expect(globalStyles).toContain("*::-webkit-scrollbar");
     expect(globalStyles).toContain("*::-webkit-scrollbar-thumb");
-    expect(globalStyles).toMatch(/background-color:\s*rgb\(240 205 120 \/ 42%\)/);
+    expect(globalStyles).toContain("--studio-scrollbar: rgb(240 205 120 / 42%)");
+    expect(globalStyles).toMatch(/background-color:\s*var\(--studio-scrollbar\)/);
 
     // Non-auto CSS Scrollbars properties take precedence over the WebKit
     // pseudo-elements in current WebKit and make the native bar reappear.

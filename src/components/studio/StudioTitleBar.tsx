@@ -169,7 +169,7 @@ export function StudioTitleBar({
           font-weight: 500;
           color: var(--studio-text);
           background: var(--studio-hover);
-          border: 1px solid rgba(240,205,120,0.62);
+          border: 1px solid var(--studio-accent-border);
           border-radius: 5px;
           padding: 2px 8px;
           outline: none;

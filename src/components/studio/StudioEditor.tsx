@@ -339,7 +339,7 @@ export function StudioEditor() {
     >
       <style>{`
         .studio-gear { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 24px; padding: 0; border: none; border-radius: 6px; background: transparent; color: var(--studio-text-muted); cursor: pointer; transition: background 120ms ease, color 120ms ease; }
-        .studio-gear:hover, .studio-gear.active { background: rgba(240,205,120,0.14); color: #f0cd78; }
+        .studio-gear:hover, .studio-gear.active { background: var(--studio-accent-soft); color: var(--studio-accent); }
 
         /* Custom scrollbar for the settings page — a rounded thumb that floats
            inset from the edge (transparent border + padding-box clip), brighter
@@ -348,14 +348,14 @@ export function StudioEditor() {
         .studio-settings-scroll::-webkit-scrollbar { width: 12px; }
         .studio-settings-scroll::-webkit-scrollbar-track { background: transparent; }
         .studio-settings-scroll::-webkit-scrollbar-thumb {
-          background: rgba(240,205,120,0.42);
+          background: var(--studio-scrollbar);
           border-radius: 999px;
           border: 3px solid transparent;
           background-clip: padding-box;
           min-height: 48px;
         }
-        .studio-settings-scroll::-webkit-scrollbar-thumb:hover { background: rgba(240,205,120,0.72); background-clip: padding-box; }
-        .studio-settings-scroll::-webkit-scrollbar-thumb:active { background: rgba(240,205,120,0.92); background-clip: padding-box; }
+        .studio-settings-scroll::-webkit-scrollbar-thumb:hover { background: var(--studio-scrollbar-hover); background-clip: padding-box; }
+        .studio-settings-scroll::-webkit-scrollbar-thumb:active { background: var(--studio-scrollbar-active); background-clip: padding-box; }
       `}</style>
 
       <StudioTitleBar

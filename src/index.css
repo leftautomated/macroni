@@ -69,6 +69,17 @@
   --studio-border: rgb(255 255 255 / 9%);
   --studio-border-strong: rgb(255 255 255 / 16%);
   --studio-glow: rgb(240 205 120 / 11%);
+  --studio-accent: #f0cd78;
+  --studio-accent-fill: #f0cd78;
+  --studio-accent-fill-hover: #f6d98e;
+  --studio-accent-soft: rgb(240 205 120 / 14%);
+  --studio-accent-border: rgb(240 205 120 / 34%);
+  --studio-success: #34d399;
+  --studio-danger: #f87171;
+  --studio-danger-soft: rgb(248 113 113 / 14%);
+  --studio-scrollbar: rgb(240 205 120 / 42%);
+  --studio-scrollbar-hover: rgb(240 205 120 / 72%);
+  --studio-scrollbar-active: rgb(240 205 120 / 92%);
 
   --opacity: 0.88;
   --backdrop-blur: blur(20px);
@@ -97,38 +108,49 @@
 }
 
 .light {
-  --background: #f4f0e7;
-  --foreground: #201c14;
-  --card: #fffdf8;
-  --card-foreground: #201c14;
-  --popover: #fffdf8;
-  --popover-foreground: #201c14;
-  --primary: #b47b0b;
+  --background: #f7f4ed;
+  --foreground: #241f17;
+  --card: #fffdfa;
+  --card-foreground: #241f17;
+  --popover: #fffdfa;
+  --popover-foreground: #241f17;
+  --primary: #8a5a00;
   --primary-foreground: #ffffff;
-  --secondary: #e9e2d4;
-  --secondary-foreground: #201c14;
-  --muted: #e9e2d4;
-  --muted-foreground: rgb(32 28 20 / 58%);
-  --accent: rgb(32 28 20 / 7%);
-  --accent-foreground: #201c14;
-  --destructive: #dc2626;
+  --secondary: #e8e2d7;
+  --secondary-foreground: #241f17;
+  --muted: #e8e2d7;
+  --muted-foreground: #625b51;
+  --accent: #ebe5da;
+  --accent-foreground: #241f17;
+  --destructive: #b42318;
   --destructive-foreground: #ffffff;
-  --border: rgb(32 28 20 / 13%);
-  --input: rgb(32 28 20 / 16%);
-  --ring: #b47b0b;
+  --border: rgb(42 34 22 / 20%);
+  --input: rgb(42 34 22 / 24%);
+  --ring: #8a5a00;
 
-  --studio-bg: #f4f0e7;
-  --studio-surface: #fffdf8;
-  --studio-surface-soft: rgb(32 28 20 / 3%);
-  --studio-control: rgb(32 28 20 / 7%);
-  --studio-hover: rgb(32 28 20 / 7%);
-  --studio-text: #201c14;
-  --studio-text-strong: rgb(32 28 20 / 90%);
-  --studio-text-muted: rgb(32 28 20 / 62%);
-  --studio-text-subtle: rgb(32 28 20 / 48%);
-  --studio-border: rgb(32 28 20 / 11%);
-  --studio-border-strong: rgb(32 28 20 / 18%);
-  --studio-glow: rgb(180 123 11 / 12%);
+  --studio-bg: #f7f4ed;
+  --studio-surface: #fffdfa;
+  --studio-surface-soft: #efebe2;
+  --studio-control: #ded8cd;
+  --studio-hover: #e8e2d7;
+  --studio-text: #241f17;
+  --studio-text-strong: #302a21;
+  --studio-text-muted: #575147;
+  --studio-text-subtle: #665f55;
+  --studio-border: rgb(42 34 22 / 20%);
+  --studio-border-strong: rgb(42 34 22 / 32%);
+  --studio-glow: rgb(138 90 0 / 10%);
+  --studio-accent: #8a5a00;
+  --studio-accent-fill: #f3c85f;
+  --studio-accent-fill-hover: #edbb3d;
+  --studio-accent-soft: rgb(138 90 0 / 11%);
+  --studio-accent-border: rgb(138 90 0 / 32%);
+  --studio-success: #06724f;
+  --studio-danger: #b42318;
+  --studio-danger-soft: rgb(180 35 24 / 11%);
+  --studio-scrollbar: rgb(138 90 0 / 48%);
+  --studio-scrollbar-hover: rgb(138 90 0 / 70%);
+  --studio-scrollbar-active: rgb(138 90 0 / 88%);
 }
 
 @layer base {
@@ -188,17 +210,17 @@
   min-height: 40px;
   border: 2px solid transparent;
   border-radius: 999px;
-  background-color: rgb(240 205 120 / 42%);
+  background-color: var(--studio-scrollbar);
   background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(240 205 120 / 72%);
+  background-color: var(--studio-scrollbar-hover);
   background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:active {
-  background-color: rgb(240 205 120 / 92%);
+  background-color: var(--studio-scrollbar-active);
   background-clip: padding-box;
 }
 

@@ -63,7 +63,7 @@ export function RecordingsMenu({
           color: var(--studio-text-muted); cursor: pointer;
           transition: background 120ms ease, color 120ms ease;
         }
-        .rm-folder:hover, .rm-folder.open { background: rgba(240,205,120,0.14); color: #f0cd78; }
+        .rm-folder:hover, .rm-folder.open { background: var(--studio-accent-soft); color: var(--studio-accent); }
         .rm-menu {
           position: absolute; top: calc(100% + 6px); left: 0; z-index: 100;
           width: 280px; max-height: 60vh; overflow-y: auto;
@@ -87,7 +87,7 @@ export function RecordingsMenu({
           transition: background 120ms ease, border-color 120ms ease;
         }
         .rm-row:hover { background: var(--studio-hover); }
-        .rm-row.sel { border-color: rgba(240,205,120,0.5); background: rgba(240,205,120,0.14); }
+        .rm-row.sel { border-color: var(--studio-accent-border); background: var(--studio-accent-soft); }
         .rm-pick {
           flex: 1; min-width: 0; text-align: left;
           border: none; background: transparent; color: inherit;
@@ -105,8 +105,8 @@ export function RecordingsMenu({
           transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
         }
         .rm-row:hover .rm-del, .rm-row.sel .rm-del { opacity: 1; }
-        .rm-del:hover { color: #f87171; background: rgba(248,113,113,0.14); }
-        .rm-del.armed { opacity: 1; color: #f87171; background: rgba(248,113,113,0.22); }
+        .rm-del:hover { color: var(--studio-danger); background: var(--studio-danger-soft); }
+        .rm-del.armed { opacity: 1; color: var(--studio-danger); background: var(--studio-danger-soft); }
       `}</style>
 
       <button

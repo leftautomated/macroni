@@ -51,7 +51,7 @@ export const DiagnosticsPanel = () => {
           font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
           color: var(--studio-text-subtle);
         }
-        .diag-title svg { width: 13px; height: 13px; color: #f0cd78; }
+        .diag-title svg { width: 13px; height: 13px; color: var(--studio-accent); }
         .diag-actions { display: inline-flex; gap: 6px; }
         .diag-btn {
           display: inline-flex; align-items: center; gap: 6px;
@@ -62,7 +62,7 @@ export const DiagnosticsPanel = () => {
           transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
         }
         .diag-btn svg { width: 13px; height: 13px; }
-        .diag-btn:hover:not(:disabled) { background: rgba(240,205,120,0.12); color: #f0cd78; border-color: rgba(240,205,120,0.3); }
+        .diag-btn:hover:not(:disabled) { background: var(--studio-accent-soft); color: var(--studio-accent); border-color: var(--studio-accent-border); }
         .diag-btn:disabled { opacity: 0.5; cursor: default; }
         .diag-panel {
           border: 1px solid var(--studio-border);
@@ -83,8 +83,8 @@ export const DiagnosticsPanel = () => {
           color: var(--studio-text-muted); transition: color 120ms ease; min-width: 0;
         }
         .diag-path-link svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--studio-text-subtle); transition: color 120ms ease; }
-        .diag-path-link:hover { color: #f0cd78; }
-        .diag-path-link:hover svg { color: #f0cd78; }
+        .diag-path-link:hover { color: var(--studio-accent); }
+        .diag-path-link:hover svg { color: var(--studio-accent); }
         .diag-path-link:hover .diag-path-v { text-decoration: underline; text-underline-offset: 2px; }
         .diag-path-v {
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -94,7 +94,7 @@ export const DiagnosticsPanel = () => {
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
           font-size: 11px; color: var(--studio-text-subtle);
         }
-        .diag-error { font-size: 12px; color: #f87171; }
+        .diag-error { font-size: 12px; color: var(--studio-danger); }
       `}</style>
 
       <div className="diag-head">

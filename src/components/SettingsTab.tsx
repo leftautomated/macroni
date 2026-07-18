@@ -67,7 +67,7 @@ export const SettingsTab = () => {
           font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
           color: var(--studio-text-subtle);
         }
-        .st-label svg { width: 13px; height: 13px; color: #f0cd78; }
+        .st-label svg { width: 13px; height: 13px; color: var(--studio-accent); }
         .st-panel {
           border: 1px solid var(--studio-border);
           background: var(--studio-surface-soft);
@@ -105,7 +105,7 @@ export const SettingsTab = () => {
         .st-seg-btn:disabled { cursor: default; opacity: 0.5; }
         .st-seg-btn:disabled:hover { color: var(--studio-text-muted); background: transparent; }
         .st-seg-btn.active {
-          background: #f0cd78; color: #000;
+          background: var(--studio-accent-fill); color: #17130a;
           box-shadow: 0 1px 2px rgba(0,0,0,0.28);
         }
 
@@ -115,7 +115,7 @@ export const SettingsTab = () => {
           background: var(--studio-border-strong); cursor: pointer;
           transition: background 140ms ease;
         }
-        .st-switch.on { background: #f0cd78; }
+        .st-switch.on { background: var(--studio-accent-fill); }
         .st-switch:disabled { cursor: default; opacity: 0.5; }
         .st-knob {
           position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
@@ -141,8 +141,8 @@ export const SettingsTab = () => {
 
         .st-perm { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
         .st-perm-dot { flex-shrink: 0; width: 15px; height: 15px; }
-        .st-perm-dot.ok { color: #34d399; }
-        .st-perm-dot.no { color: #f87171; }
+        .st-perm-dot.ok { color: var(--studio-success); }
+        .st-perm-dot.no { color: var(--studio-danger); }
         .st-perm-sub { font-size: 11.5px; color: var(--studio-text-subtle); }
 
         .st-btn {
@@ -154,7 +154,7 @@ export const SettingsTab = () => {
           transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
         }
         .st-btn svg { width: 13px; height: 13px; }
-        .st-btn:hover { background: rgba(240,205,120,0.12); color: #f0cd78; border-color: rgba(240,205,120,0.3); }
+        .st-btn:hover { background: var(--studio-accent-soft); color: var(--studio-accent); border-color: var(--studio-accent-border); }
         .st-btn:disabled { opacity: 0.5; cursor: default; }
 
         .st-update { align-items: center; }
@@ -166,21 +166,21 @@ export const SettingsTab = () => {
           font-size: 11.5px; line-height: 1.45; color: var(--studio-text-subtle);
         }
         .st-update-status svg { width: 13px; height: 13px; flex-shrink: 0; }
-        .st-update-status.ok { color: #34d399; }
-        .st-update-status.error { color: #f87171; }
+        .st-update-status.ok { color: var(--studio-success); }
+        .st-update-status.error { color: var(--studio-danger); }
         .st-update-notes {
           max-width: 540px; margin: 3px 0 0; white-space: pre-wrap;
           font-size: 11.5px; line-height: 1.5; color: var(--studio-text-muted);
         }
         .st-update-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-        .st-btn.primary { color: #17130a; background: #f0cd78; border-color: #f0cd78; }
-        .st-btn.primary:hover { color: #000; background: #f6d98e; border-color: #f6d98e; }
+        .st-btn.primary { color: #17130a; background: var(--studio-accent-fill); border-color: var(--studio-accent-fill); }
+        .st-btn.primary:hover { color: #000; background: var(--studio-accent-fill-hover); border-color: var(--studio-accent-fill-hover); }
         .st-btn.busy svg { animation: st-spin 900ms linear infinite; }
         .st-progress {
           width: 100%; height: 4px; margin-top: 5px; overflow: hidden;
           border-radius: 999px; background: var(--studio-border);
         }
-        .st-progress-fill { height: 100%; border-radius: inherit; background: #f0cd78; transition: width 160ms ease; }
+        .st-progress-fill { height: 100%; border-radius: inherit; background: var(--studio-accent-fill); transition: width 160ms ease; }
         .st-progress.indeterminate .st-progress-fill {
           width: 35%; animation: st-progress 1.1s ease-in-out infinite;
         }

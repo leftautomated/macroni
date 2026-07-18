@@ -131,20 +131,19 @@ export function StudioTitleBar({
         .tl-close { background: #ff5f57; }
         .tl-min { background: #febc2e; }
         .tl-zoom { background: #28c840; }
-        /* Glyphs are mounted only while hovering (see JSX), so leaving removes
-           them from the DOM and forces a repaint — WKWebView otherwise ghosts
-           the axis-aligned - and + strokes when fading opacity back to 0. */
         .tl-glyph {
           position: absolute;
-          inset: 1px;
+          top: 50%; left: 50%;
           display: block;
           width: 10px;
           height: 10px;
+          transform: translate(-50%, -50%);
+          opacity: 0;
+          visibility: hidden;
           pointer-events: none;
-          animation: tl-glyph-in 100ms ease;
         }
+        .tl-lights.is-hovered .tl-glyph { opacity: 1; visibility: visible; }
         .tl-glyph path { stroke: rgba(0,0,0,0.55); stroke-width: 1.3; stroke-linecap: round; fill: none; }
-        @keyframes tl-glyph-in { from { opacity: 0; } to { opacity: 1; } }
         .studio-titlebar.inactive .tl-light { background: #4a4a4f; box-shadow: none; }
         .studio-title {
           position: absolute;
@@ -192,7 +191,7 @@ export function StudioTitleBar({
 
       {/* stopPropagation so double-clicking a light doesn't also zoom the bar */}
       <div
-        className="tl-lights"
+        className={`tl-lights${lightsHover ? " is-hovered" : ""}`}
         onPointerEnter={() => setLightsHover(true)}
         onPointerLeave={() => setLightsHover(false)}
         onDoubleClick={(e) => e.stopPropagation()}
@@ -203,11 +202,9 @@ export function StudioTitleBar({
           aria-label="Close window"
           onClick={() => void win.close()}
         >
-          {lightsHover && (
-            <svg className="tl-glyph" viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M3 3l4 4M7 3l-4 4" />
-            </svg>
-          )}
+          <svg className="tl-glyph" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M3 3l4 4M7 3l-4 4" />
+          </svg>
         </button>
         <button
           type="button"
@@ -215,11 +212,9 @@ export function StudioTitleBar({
           aria-label="Minimize window"
           onClick={() => void win.minimize()}
         >
-          {lightsHover && (
-            <svg className="tl-glyph" viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M3 5h4" />
-            </svg>
-          )}
+          <svg className="tl-glyph" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M3 5h4" />
+          </svg>
         </button>
         <button
           type="button"
@@ -229,11 +224,9 @@ export function StudioTitleBar({
           // toggles, so that's the way back to a windowed size).
           onClick={() => void win.maximize()}
         >
-          {lightsHover && (
-            <svg className="tl-glyph" viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M5 3v4M3 5h4" />
-            </svg>
-          )}
+          <svg className="tl-glyph" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M5 3v4M3 5h4" />
+          </svg>
         </button>
       </div>
 

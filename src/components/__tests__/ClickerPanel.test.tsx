@@ -27,7 +27,7 @@ describe("ClickerPanel", () => {
     expect(screen.getByRole("combobox", { name: "Click period" })).toHaveTextContent("second");
   });
 
-  it("starts and then exposes a single stop action while armed", async () => {
+  it("starts and stops on pointer-down before an auto-click can release", async () => {
     const onStart = vi.fn();
     const onStop = vi.fn();
     const { rerender } = render(

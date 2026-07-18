@@ -39,6 +39,23 @@ describe("StudioTitleBar", () => {
     expect(win.maximize).toHaveBeenCalledTimes(1);
   });
 
+  it("reveals permanently mounted traffic light glyphs without changing geometry", async () => {
+    const { container } = render(<StudioTitleBar title="Studio" />);
+    const lights = container.querySelector(".tl-lights");
+
+    expect(lights).toBeInstanceOf(HTMLElement);
+    expect(container.querySelectorAll(".tl-glyph")).toHaveLength(3);
+    expect(lights).not.toHaveClass("is-hovered");
+
+    await userEvent.hover(lights as HTMLElement);
+    expect(container.querySelectorAll(".tl-glyph")).toHaveLength(3);
+    expect(lights).toHaveClass("is-hovered");
+
+    await userEvent.unhover(lights as HTMLElement);
+    expect(container.querySelectorAll(".tl-glyph")).toHaveLength(3);
+    expect(lights).not.toHaveClass("is-hovered");
+  });
+
   it("renames the title inline: click → edit → Enter commits", async () => {
     const onTitleChange = vi.fn();
     render(<StudioTitleBar title="Old name" editable onTitleChange={onTitleChange} />);

@@ -106,14 +106,16 @@ function PermissionGateTrafficLights({
         .permission-traffic-zoom { background: #28c840; opacity: 0.45; }
         .permission-traffic-glyph {
           position: absolute;
-          inset: 1px;
+          top: 50%; left: 50%;
           display: block;
           width: 10px; height: 10px;
+          transform: translate(-50%, -50%);
+          opacity: 0;
+          visibility: hidden;
           pointer-events: none;
-          animation: permission-traffic-glyph-in 100ms ease;
         }
+        .permission-traffic-lights.is-hovered .permission-traffic-glyph { opacity: 1; visibility: visible; }
         .permission-traffic-glyph path { stroke: rgba(0,0,0,0.56); stroke-width: 1.3; stroke-linecap: round; fill: none; }
-        @keyframes permission-traffic-glyph-in { from { opacity: 0; } to { opacity: 1; } }
       `}</style>
       <div
         className={cn(
@@ -135,11 +137,9 @@ function PermissionGateTrafficLights({
           aria-label="Close window"
           onClick={onClose}
         >
-          {hovered && (
-            <svg className="permission-traffic-glyph" viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M3 3l4 4M7 3l-4 4" />
-            </svg>
-          )}
+          <svg className="permission-traffic-glyph" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M3 3l4 4M7 3l-4 4" />
+          </svg>
         </button>
         <button
           type="button"
@@ -147,11 +147,9 @@ function PermissionGateTrafficLights({
           aria-label="Minimize window"
           onClick={onMinimize}
         >
-          {hovered && (
-            <svg className="permission-traffic-glyph" viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M3 5h4" />
-            </svg>
-          )}
+          <svg className="permission-traffic-glyph" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M3 5h4" />
+          </svg>
         </button>
         <button
           type="button"
@@ -159,11 +157,9 @@ function PermissionGateTrafficLights({
           aria-label="Zoom unavailable"
           disabled
         >
-          {hovered && (
-            <svg className="permission-traffic-glyph" viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M5 3v4M3 5h4" />
-            </svg>
-          )}
+          <svg className="permission-traffic-glyph" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M5 3v4M3 5h4" />
+          </svg>
         </button>
       </div>
     </>

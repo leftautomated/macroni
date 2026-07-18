@@ -85,7 +85,7 @@ describe("PermissionGate", () => {
     expect(win.hide).not.toHaveBeenCalled();
   });
 
-  it("reveals traffic light glyphs while hovering the cluster", async () => {
+  it("reveals permanently mounted traffic light glyphs without changing geometry", async () => {
     const { container } = render(
       <PermissionGate
         accessibility={false}
@@ -98,13 +98,16 @@ describe("PermissionGate", () => {
     const lights = container.querySelector(".permission-traffic-lights");
 
     expect(lights).toBeInstanceOf(HTMLElement);
-    expect(container.querySelectorAll(".permission-traffic-glyph")).toHaveLength(0);
+    expect(container.querySelectorAll(".permission-traffic-glyph")).toHaveLength(3);
+    expect(lights).not.toHaveClass("is-hovered");
 
     await userEvent.hover(lights as HTMLElement);
     expect(container.querySelectorAll(".permission-traffic-glyph")).toHaveLength(3);
+    expect(lights).toHaveClass("is-hovered");
 
     await userEvent.unhover(lights as HTMLElement);
-    expect(container.querySelectorAll(".permission-traffic-glyph")).toHaveLength(0);
+    expect(container.querySelectorAll(".permission-traffic-glyph")).toHaveLength(3);
+    expect(lights).not.toHaveClass("is-hovered");
   });
 
   it("passes the clicked row rect when opening System Settings", async () => {

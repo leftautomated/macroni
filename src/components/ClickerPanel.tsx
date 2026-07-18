@@ -53,15 +53,15 @@ export function ClickerPanel({
   };
 
   return (
-    <Card className="w-[390px] space-y-3 px-4 py-3 shadow-xl" aria-label="Auto clicker controls">
-      <div className="flex items-center gap-2 text-sm">
+    <Card className="w-[340px] space-y-2 px-3 py-2.5 shadow-xl" aria-label="Auto clicker controls">
+      <div className="flex items-center gap-1.5 text-xs">
         <span className="whitespace-nowrap text-muted-foreground">Click using the</span>
         <Select
           value={config.button}
           onValueChange={(button: ClickerButton) => onChange({ ...config, button })}
           disabled={controlsDisabled}
         >
-          <SelectTrigger className="h-8 w-[108px]" aria-label="Mouse button">
+          <SelectTrigger className="h-7 w-[92px] px-2.5 text-xs" aria-label="Mouse button">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -73,7 +73,7 @@ export function ClickerPanel({
         <span className="whitespace-nowrap text-muted-foreground">mouse button</span>
       </div>
 
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-1.5 text-xs">
         <span className="whitespace-nowrap text-muted-foreground">Click</span>
         <Input
           type="number"
@@ -91,7 +91,7 @@ export function ClickerPanel({
           }}
           disabled={controlsDisabled}
           aria-label={`Clicks per ${config.period}`}
-          className="h-8 w-[76px] tabular-nums"
+          className="h-7 w-[64px] px-2.5 text-xs tabular-nums"
         />
         <span className="whitespace-nowrap text-muted-foreground">times per</span>
         <Select
@@ -99,7 +99,7 @@ export function ClickerPanel({
           onValueChange={(period: ClickerPeriod) => updatePeriod(period)}
           disabled={controlsDisabled}
         >
-          <SelectTrigger className="h-8 w-[112px]" aria-label="Click period">
+          <SelectTrigger className="h-7 w-[96px] px-2.5 text-xs" aria-label="Click period">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -110,24 +110,34 @@ export function ClickerPanel({
         </Select>
       </div>
 
-      <div className="flex items-center gap-3 pt-0.5">
+      <div className="flex items-center gap-2">
         {isIdle ? (
-          <Button className="h-8 flex-1" size="sm" onClick={onStart} disabled={disabled}>
-            <MousePointerClick className="mr-1.5 h-4 w-4" /> Start clicking
+          <Button className="h-7 flex-1 text-xs" size="sm" onClick={onStart} disabled={disabled}>
+            <MousePointerClick className="mr-1.5 h-3.5 w-3.5" /> Start clicking
           </Button>
         ) : (
           <Button
-            className="h-8 flex-1"
+            className="h-7 flex-1 text-xs"
             size="sm"
             variant="destructive"
-            onClick={onStop}
+            onPointerDown={onStop}
+            onClick={(event) => {
+              // Stop on press so an injected auto-click cancels the worker
+              // before its matching release can click this control again.
+              // Keyboard activation has no pointer-down, so retain its native
+              // click path (detail === 0).
+              if (event.detail === 0) onStop();
+            }}
             disabled={status === "stopping"}
           >
             <Square className="mr-1.5 h-3 w-3" />
             {status === "stopping" ? "Stopping…" : "Stop clicking"}
           </Button>
         )}
-        <span className="min-w-[138px] text-xs text-muted-foreground" aria-live="polite">
+        <span
+          className="min-w-[116px] text-[11px] leading-4 text-muted-foreground"
+          aria-live="polite"
+        >
           {status === "arming" && "Starts in 3 seconds…"}
           {status === "running" && "Clicking now"}
           {status === "stopping" && "Finishing the current click…"}

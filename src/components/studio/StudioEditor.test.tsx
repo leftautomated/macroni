@@ -152,8 +152,12 @@ describe("StudioEditor (recordings browser)", () => {
     ];
     render(<StudioEditor />);
 
-    expect(await screen.findByRole("heading", { name: "No screen video" })).toBeInTheDocument();
-    expect(screen.getByText(/captured the keyboard and mouse actions/i)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Input-only recording" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/no screen video was captured/i)).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "Zoom" })).toBeInTheDocument();
+    expect(document.querySelectorAll(".tl-tick")).toHaveLength(1);
     await userEvent.click(screen.getByRole("button", { name: /recordings/i }));
     const menuName = (await screen.findAllByText("Input only")).find((element) =>
       element.classList.contains("rm-name"),

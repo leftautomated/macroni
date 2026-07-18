@@ -12,7 +12,7 @@ import { useMacros } from "@/hooks/useMacros";
 import { usePlaybackSync } from "@/hooks/usePlaybackSync";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import { invoke, logEvent } from "@/lib/observability";
-import { recordingTitle } from "@/lib/recording-format";
+import { recordingDuration, recordingTitle } from "@/lib/recording-format";
 import type { Observation, ObservationResult, PerceptionTarget, Recording, Region } from "@/types";
 
 // Studio: pick a recording from the title-bar folder menu and play it. Effects
@@ -350,15 +350,9 @@ export function StudioEditor() {
           </div>
         ) : view === "macros" ? (
           <MacroEditor recordings={recordings} {...macrosState} />
-        ) : selected && !selected.video ? (
-          <InputOnlyRecording
-            key={selected.id}
-            recording={selected}
-            onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
-          />
-        ) : selected && url ? (
+        ) : selected && (!selected.video || url) ? (
           <>
-            {/* Top: the clip */}
+            {/* Top: the clip, or a restrained placeholder when video capture was off. */}
             <div
               style={{
                 flex: 1,
@@ -369,25 +363,33 @@ export function StudioEditor() {
                 boxSizing: "border-box",
               }}
             >
-              <StudioPlayer
-                key={selected.id}
-                ref={playerRef}
-                src={url}
-                fps={selected.video?.fps ?? 30}
-                onTimeUpdate={sync.onVideoTime}
-                onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
-                loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
-                controlsHost={controlsHost}
-                {...(PERCEPTION_STUDIO_UI
-                  ? {
-                      targets: selected.targets ?? [],
-                      spans: playheadSpans,
-                      hasObservations: observations.length > 0,
-                      onSaveTarget: handleSaveTarget,
-                      onSampleColor: handleSampleColor,
-                    }
-                  : {})}
-              />
+              {selected.video && url ? (
+                <StudioPlayer
+                  key={selected.id}
+                  ref={playerRef}
+                  src={url}
+                  fps={selected.video.fps}
+                  onTimeUpdate={sync.onVideoTime}
+                  onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
+                  loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
+                  controlsHost={controlsHost}
+                  {...(PERCEPTION_STUDIO_UI
+                    ? {
+                        targets: selected.targets ?? [],
+                        spans: playheadSpans,
+                        hasObservations: observations.length > 0,
+                        onSaveTarget: handleSaveTarget,
+                        onSampleColor: handleSampleColor,
+                      }
+                    : {})}
+                />
+              ) : (
+                <InputOnlyRecording
+                  key={selected.id}
+                  recording={selected}
+                  onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
+                />
+              )}
             </div>
             {/* Bottom: transport controls + all the events */}
             <div
@@ -398,7 +400,7 @@ export function StudioEditor() {
                 background: "rgba(17,17,17,0.72)",
               }}
             >
-              <div ref={setControlsHost} style={{ marginBottom: 14 }} />
+              {selected.video && <div ref={setControlsHost} style={{ marginBottom: 14 }} />}
               {PERCEPTION_STUDIO_UI && selected.targets && selected.targets.length > 0 && (
                 <PerceptionPanel
                   recordingId={selected.id}
@@ -412,9 +414,11 @@ export function StudioEditor() {
               <StudioTimeline
                 events={selected.events}
                 startMs={sync.startMs}
-                durationMs={selected.video?.duration_ms ?? 0}
+                durationMs={recordingDuration(selected)}
                 videoMs={sync.videoTimeMs}
-                onSeekSeconds={(s) => playerRef.current?.seek(s)}
+                onSeekSeconds={(s) =>
+                  selected.video ? playerRef.current?.seek(s) : sync.onVideoTime(s)
+                }
                 loop={loop}
                 onLoopChange={setLoop}
                 perceptionTicks={PERCEPTION_STUDIO_UI ? perceptionTicks : undefined}

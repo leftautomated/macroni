@@ -1,18 +1,11 @@
 import { Keyboard, Play, Repeat, VideoOff } from "lucide-react";
 import { useState } from "react";
-import { formatDuration } from "@/lib/recording-format";
+import { formatDuration, recordingDuration } from "@/lib/recording-format";
 import type { Recording } from "@/types";
 
 interface InputOnlyRecordingProps {
   recording: Recording;
   onReplay: (loopForever: boolean) => void;
-}
-
-function eventDuration(recording: Recording) {
-  const first = recording.events[0]?.timestamp;
-  const last = recording.events[recording.events.length - 1]?.timestamp;
-  if (first === undefined || last === undefined) return 0;
-  return Math.max(0, last - first);
 }
 
 export function InputOnlyRecording({ recording, onReplay }: InputOnlyRecordingProps) {
@@ -24,17 +17,17 @@ export function InputOnlyRecording({ recording, onReplay }: InputOnlyRecordingPr
       <style>{`
         .ior-root {
           flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
-          padding: 32px; box-sizing: border-box;
+          box-sizing: border-box;
         }
         .ior-card {
-          width: min(520px, 100%); padding: 36px; box-sizing: border-box; text-align: center;
-          border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
-          background: linear-gradient(180deg, rgba(240,205,120,0.07), rgba(17,17,17,0.82));
-          box-shadow: 0 24px 60px rgba(0,0,0,0.32);
+          width: 100%; height: 100%; min-height: 150px; box-sizing: border-box;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          padding: 24px; text-align: center; border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 12px; background: rgba(17,17,17,0.58);
         }
         .ior-icon {
           position: relative; display: inline-flex; align-items: center; justify-content: center;
-          width: 58px; height: 58px; color: #f0cd78; border-radius: 16px;
+          width: 48px; height: 48px; color: #f0cd78; border-radius: 13px;
           border: 1px solid rgba(240,205,120,0.25); background: rgba(240,205,120,0.1);
         }
         .ior-icon-badge {
@@ -43,24 +36,12 @@ export function InputOnlyRecording({ recording, onReplay }: InputOnlyRecordingPr
           color: rgba(255,255,255,0.72); border: 3px solid #12110f; border-radius: 50%;
           background: #242424;
         }
-        .ior-kicker {
-          margin-top: 20px; color: #f0cd78; font-size: 10px; font-weight: 700;
-          letter-spacing: 0.12em;
-        }
-        .ior-title { margin: 7px 0 0; color: #fff; font-size: 21px; font-weight: 650; }
+        .ior-title { margin: 14px 0 0; color: #fff; font-size: 16px; font-weight: 650; }
         .ior-copy {
-          max-width: 390px; margin: 10px auto 0; color: rgba(255,255,255,0.5);
-          font-size: 13px; line-height: 1.55;
+          margin: 6px auto 0; color: rgba(255,255,255,0.45); font-size: 12px;
+          line-height: 1.45;
         }
-        .ior-stats {
-          display: grid; grid-template-columns: 1fr 1fr; gap: 1px; max-width: 280px;
-          margin: 24px auto; overflow: hidden; border: 1px solid rgba(255,255,255,0.09);
-          border-radius: 10px; background: rgba(255,255,255,0.09);
-        }
-        .ior-stat { padding: 11px 14px; background: rgba(0,0,0,0.52); }
-        .ior-stat-value { color: #fff; font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
-        .ior-stat-label { margin-top: 2px; color: rgba(255,255,255,0.38); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
-        .ior-actions { display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .ior-actions { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; }
         .ior-loop, .ior-replay {
           display: inline-flex; align-items: center; justify-content: center; gap: 7px;
           height: 34px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 650;
@@ -86,23 +67,11 @@ export function InputOnlyRecording({ recording, onReplay }: InputOnlyRecordingPr
             <VideoOff size={12} />
           </span>
         </div>
-        <div className="ior-kicker">INPUT-ONLY RECORDING</div>
-        <h2 className="ior-title">No screen video</h2>
+        <h2 className="ior-title">Input-only recording</h2>
         <p className="ior-copy">
-          Screen video was turned off, but Macroni captured the keyboard and mouse actions. This
-          recording can still be replayed normally.
+          No screen video was captured · {actionCount} {actionCount === 1 ? "action" : "actions"} ·{" "}
+          {formatDuration(recordingDuration(recording))}
         </p>
-
-        <div className="ior-stats">
-          <div className="ior-stat">
-            <div className="ior-stat-value">{actionCount}</div>
-            <div className="ior-stat-label">Actions</div>
-          </div>
-          <div className="ior-stat">
-            <div className="ior-stat-value">{formatDuration(eventDuration(recording))}</div>
-            <div className="ior-stat-label">Duration</div>
-          </div>
-        </div>
 
         <div className="ior-actions">
           <button

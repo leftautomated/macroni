@@ -65,4 +65,37 @@ describe("useClicker", () => {
     expect(mocks.invoke).toHaveBeenCalledWith("stop_clicker", {}, expect.anything());
     expect(result.current.status).toBe("stopping");
   });
+
+  it("keeps Stop latched while the final injected click drains", async () => {
+    const { result } = renderHook(() => useClicker());
+    await waitFor(() => expect(mocks.listeners.has("clicker-stopped")).toBe(true));
+
+    await act(async () => {
+      await result.current.start();
+      mocks.listeners.get("clicker-started")?.({});
+      await result.current.stop();
+    });
+    mocks.invoke.mockClear();
+    vi.useFakeTimers();
+
+    try {
+      act(() => {
+        mocks.listeners.get("clicker-stopped")?.({ payload: {} });
+      });
+      expect(result.current.status).toBe("stopping");
+
+      await act(async () => {
+        await result.current.start();
+      });
+      expect(mocks.invoke).not.toHaveBeenCalled();
+      expect(mocks.logEvent).toHaveBeenCalledWith("warn", "clicker", "start_ignored", {
+        fields: { status: "stopping" },
+      });
+
+      act(() => vi.advanceTimersByTime(350));
+      expect(result.current.status).toBe("idle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

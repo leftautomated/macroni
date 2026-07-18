@@ -22,6 +22,12 @@ const DEFAULT_CONFIG: ClickerConfig = {
   period: "second",
 };
 
+// Keep the stopped UI latched long enough for the OS-injected press/release
+// sequence to drain. Without this, `clicker-stopped` swaps Stop back to Start
+// before the final synthetic click is delivered, immediately starting a new
+// run under the stationary pointer.
+const STOP_SETTLE_MS = 350;
+
 function currentStatus(ref: { readonly current: ClickerStatus }): ClickerStatus {
   return ref.current;
 }
@@ -31,6 +37,7 @@ export function useClicker() {
   const [status, setStatus] = useState<ClickerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const statusRef = useRef<ClickerStatus>("idle");
+  const stopSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const transitionTo = useCallback((next: ClickerStatus) => {
     statusRef.current = next;
@@ -42,17 +49,28 @@ export function useClicker() {
       if (statusRef.current === "arming") transitionTo("running");
     });
     const unlistenStopped = listen<ClickerStoppedPayload>("clicker-stopped", (event) => {
-      transitionTo("idle");
       setError(event.payload?.error ?? null);
+      transitionTo("stopping");
+      if (stopSettleTimerRef.current !== null) clearTimeout(stopSettleTimerRef.current);
+      stopSettleTimerRef.current = setTimeout(() => {
+        stopSettleTimerRef.current = null;
+        transitionTo("idle");
+      }, STOP_SETTLE_MS);
     });
     return () => {
+      if (stopSettleTimerRef.current !== null) clearTimeout(stopSettleTimerRef.current);
       unlistenStarted.then((unlisten) => unlisten());
       unlistenStopped.then((unlisten) => unlisten());
     };
   }, [transitionTo]);
 
   const start = useCallback(async () => {
-    if (statusRef.current !== "idle") return;
+    if (statusRef.current !== "idle") {
+      logEvent("warn", "clicker", "start_ignored", {
+        fields: { status: statusRef.current },
+      });
+      return;
+    }
     setError(null);
     transitionTo("arming");
     try {

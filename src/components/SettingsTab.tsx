@@ -92,6 +92,7 @@ export const SettingsTab = () => {
           border: 1px solid var(--studio-border);
           border-radius: 8px;
         }
+        .st-seg:focus-within { border-color: var(--studio-accent); }
         .st-seg-btn {
           appearance: none; border: none; background: transparent; cursor: pointer;
           display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
@@ -111,7 +112,7 @@ export const SettingsTab = () => {
 
         .st-switch {
           position: relative; flex-shrink: 0;
-          width: 38px; height: 22px; padding: 0; border: none; border-radius: 999px;
+          width: 38px; height: 22px; padding: 0; border: 1px solid transparent; border-radius: 999px;
           background: var(--studio-border-strong); cursor: pointer;
           transition: background 140ms ease;
         }

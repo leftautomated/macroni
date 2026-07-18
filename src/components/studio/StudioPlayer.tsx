@@ -487,7 +487,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
       }}
     >
       <style>{`
-          .sp-btn { display:inline-flex; align-items:center; justify-content:center; border:none; background:transparent; color:var(--studio-text-muted); border-radius:6px; padding:6px; cursor:pointer; transition: background 120ms ease, color 120ms ease; }
+          .sp-btn { display:inline-flex; align-items:center; justify-content:center; border:1px solid transparent; background:transparent; color:var(--studio-text-muted); border-radius:6px; padding:5px; cursor:pointer; transition: background 120ms ease, border-color 120ms ease, color 120ms ease; }
           .sp-btn:hover { background:var(--studio-hover); color:var(--studio-text); }
           .sp-btn.on { color:var(--studio-accent); }
           /* Emphasized, circular play/pause in the center — the primary action. */
@@ -495,7 +495,8 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           .sp-play:hover { background:var(--studio-accent-soft); border-color:var(--studio-accent-border); color:var(--studio-accent); }
           .sp-text { font-size:12px; font-variant-numeric: tabular-nums; color:var(--studio-text-muted); }
           .sp-time { font-size:13px; font-variant-numeric: tabular-nums; color:var(--studio-text-muted); }
-          .sp-slider { -webkit-appearance:none; appearance:none; width:84px; height:4px; border-radius:2px; background:var(--studio-control); cursor:pointer; outline:none; }
+          .sp-slider { -webkit-appearance:none; appearance:none; width:84px; height:6px; border:1px solid transparent; border-radius:3px; background:var(--studio-control); cursor:pointer; outline:none; }
+          .sp-slider:focus-visible { border-color:var(--studio-accent); }
           .sp-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:12px; height:12px; border-radius:50%; background:var(--studio-accent-fill); cursor:pointer; transition: background 120ms ease; }
           .sp-slider::-webkit-slider-thumb:hover { background:var(--studio-accent-fill-hover); }
           .sp-replay { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--studio-accent-border); background:var(--studio-accent-soft); color:var(--studio-accent); border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; transition: background 120ms ease, border-color 120ms ease; }

@@ -338,7 +338,7 @@ export function StudioEditor() {
       }}
     >
       <style>{`
-        .studio-gear { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 24px; padding: 0; border: none; border-radius: 6px; background: transparent; color: var(--studio-text-muted); cursor: pointer; transition: background 120ms ease, color 120ms ease; }
+        .studio-gear { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 24px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--studio-text-muted); cursor: pointer; transition: background 120ms ease, border-color 120ms ease, color 120ms ease; }
         .studio-gear:hover, .studio-gear.active { background: var(--studio-accent-soft); color: var(--studio-accent); }
 
         /* Custom scrollbar for the settings page — a rounded thumb that floats

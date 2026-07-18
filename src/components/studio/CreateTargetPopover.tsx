@@ -103,8 +103,8 @@ export function CreateTargetPopover({
         .ctp-kind.sel { border-color: var(--studio-accent-border); background: var(--studio-accent-soft); color: var(--studio-accent); }
         .ctp-actions { display: flex; justify-content: flex-end; gap: 6px; }
         .ctp-cancel {
-          border: none; background: transparent; color: var(--studio-text-muted);
-          border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer;
+          border: 1px solid transparent; background: transparent; color: var(--studio-text-muted);
+          border-radius: 6px; padding: 5px 9px; font-size: 12px; cursor: pointer;
         }
         .ctp-cancel:hover { background: var(--studio-hover); color: var(--studio-text); }
         .ctp-save {

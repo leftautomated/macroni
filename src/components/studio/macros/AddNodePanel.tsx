@@ -145,10 +145,7 @@ export function AddNodePanel({
       <div className="anp-field">
         <span className="anp-label">Recording</span>
         <Select value={selectedRecordingId} onValueChange={handleRecordingChange}>
-          <SelectTrigger
-            aria-label="Recording"
-            className="h-8 focus:ring-0 focus:ring-offset-0 focus-visible:ring-2"
-          >
+          <SelectTrigger aria-label="Recording" className="h-8 focus-visible:border-ring">
             <SelectValue placeholder="Select recording..." />
           </SelectTrigger>
           <SelectContent>

@@ -120,7 +120,7 @@ export function PerceptionPanel({
         .pp-btn { display: inline-flex; align-items: center; border: 1px solid var(--studio-border-strong); background: transparent; color: var(--studio-text-muted); border-radius: 6px; padding: 4px 9px; font-size: 11px; cursor: pointer; white-space: nowrap; transition: background 120ms ease, color 120ms ease; }
         .pp-btn:hover:not(:disabled) { background: var(--studio-hover); color: var(--studio-text); }
         .pp-btn:disabled { opacity: 0.35; cursor: default; }
-        .pp-del { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: none; background: transparent; color: var(--studio-text-subtle); border-radius: 6px; cursor: pointer; transition: background 120ms ease, color 120ms ease; }
+        .pp-del { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: 1px solid transparent; background: transparent; color: var(--studio-text-subtle); border-radius: 6px; cursor: pointer; transition: background 120ms ease, border-color 120ms ease, color 120ms ease; }
         .pp-del:hover { background: var(--studio-danger-soft); color: var(--studio-danger); }
         .pp-result { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--studio-text-muted); display: inline-flex; align-items: center; gap: 6px; }
         .pp-result.pp-match { color: var(--studio-success); }

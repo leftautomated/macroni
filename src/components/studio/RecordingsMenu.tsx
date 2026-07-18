@@ -59,7 +59,7 @@ export function RecordingsMenu({
         .rm-folder {
           display: inline-flex; align-items: center; justify-content: center;
           width: 28px; height: 24px; padding: 0;
-          border: none; border-radius: 6px; background: transparent;
+          border: 1px solid transparent; border-radius: 6px; background: transparent;
           color: var(--studio-text-muted); cursor: pointer;
           transition: background 120ms ease, color 120ms ease;
         }
@@ -90,8 +90,8 @@ export function RecordingsMenu({
         .rm-row.sel { border-color: var(--studio-accent-border); background: var(--studio-accent-soft); }
         .rm-pick {
           flex: 1; min-width: 0; text-align: left;
-          border: none; background: transparent; color: inherit;
-          border-radius: 8px; padding: 8px 10px; cursor: pointer;
+          border: 1px solid transparent; background: transparent; color: inherit;
+          border-radius: 8px; padding: 7px 9px; cursor: pointer;
         }
         .rm-name {
           font-size: 13px; font-weight: 600; margin-bottom: 2px; color: var(--studio-text);
@@ -100,8 +100,8 @@ export function RecordingsMenu({
         .rm-meta { font-size: 12px; color: var(--studio-text-muted); }
         .rm-del {
           flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
-          border: none; background: transparent; color: var(--studio-text-subtle);
-          border-radius: 6px; padding: 4px; cursor: pointer; opacity: 0;
+          border: 1px solid transparent; background: transparent; color: var(--studio-text-subtle);
+          border-radius: 6px; padding: 3px; cursor: pointer; opacity: 0;
           transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
         }
         .rm-row:hover .rm-del, .rm-row.sel .rm-del { opacity: 1; }

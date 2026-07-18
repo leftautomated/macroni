@@ -121,7 +121,7 @@ export function StudioTitleBar({
           flex: 0 0 12px;
           box-sizing: border-box;
           width: 12px; height: 12px; padding: 0;
-          border: none; border-radius: 50%;
+          border: 1px solid transparent; border-radius: 50%;
           appearance: none; -webkit-appearance: none;
           display: block;
           line-height: 0;
@@ -158,7 +158,7 @@ export function StudioTitleBar({
           font-size: 13px;
           font-weight: 500;
           color: var(--studio-text-strong);
-          border: none;
+          border: 1px solid transparent;
           background: transparent;
           pointer-events: none;
         }

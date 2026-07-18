@@ -94,7 +94,7 @@ function PermissionGateTrafficLights({
           flex: 0 0 12px;
           box-sizing: border-box;
           width: 12px; height: 12px; padding: 0;
-          border: none; border-radius: 999px;
+          border: 1px solid transparent; border-radius: 999px;
           appearance: none; -webkit-appearance: none;
           display: block;
           line-height: 0;

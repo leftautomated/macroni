@@ -489,8 +489,8 @@ export function StudioTimeline({
         .tl-rlabel { position: absolute; bottom: 8px; left: 0; transform: translateX(-50%); font-size: 10px; color: var(--studio-text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
         .tl-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--studio-border); pointer-events: none; }
         .tl-lane { position: relative; height: 22px; border-radius: 4px; background: var(--studio-surface-soft); }
-        .tl-marker { appearance: none; border: 0; padding: 0; cursor: default; font: inherit; }
-        .tl-marker:focus-visible { outline: 1px solid var(--studio-accent); outline-offset: 2px; }
+        .tl-marker { appearance: none; border: 1px solid transparent; padding: 0; cursor: default; font: inherit; }
+        .tl-marker:focus-visible { outline: none; border-color: var(--studio-accent); }
         .tl-span { position: absolute; top: 3px; height: 16px; border-radius: 3px; opacity: 0.85; overflow: hidden; container-type: inline-size; }
         .tl-span:hover, .tl-span:focus-visible { opacity: 1; }
         .tl-span-label { display: none; font-size: 10px; line-height: 16px; color: #fff; padding: 0 5px; white-space: nowrap; pointer-events: none; }
@@ -509,16 +509,17 @@ export function StudioTimeline({
         @media (prefers-reduced-motion: reduce) { .tl-event-tooltip { animation: none; } }
         .tl-clear { border: 1px solid var(--studio-accent-border); background: var(--studio-accent-soft); color: var(--studio-accent); border-radius: 5px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
         .tl-clear:hover { background: color-mix(in oklch, var(--studio-accent) 20%, transparent); }
-        .tl-slider { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 2px; background: var(--studio-control); cursor: pointer; outline: none; }
+        .tl-slider { -webkit-appearance: none; appearance: none; width: 90px; height: 6px; border: 1px solid transparent; border-radius: 3px; background: var(--studio-control); cursor: pointer; outline: none; }
+        .tl-slider:focus-visible { border-color: var(--studio-accent); }
         .tl-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance:none; width: 11px; height: 11px; border-radius: 50%; background: var(--studio-accent-fill); cursor: pointer; }
         .tl-slider::-webkit-slider-thumb:hover { background: var(--studio-accent-fill-hover); }
         .tl-cut { position: absolute; top: 0; bottom: 0; background: var(--timeline-cut); pointer-events: none; z-index: 5; }
         .tl-trim-line { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--studio-accent-fill); box-shadow: 0 0 0 1px rgb(0 0 0 / 25%); pointer-events: none; z-index: 7; }
         .tl-trim-handle { position: absolute; top: 50%; z-index: 8; width: 16px; height: 36px; padding: 0; transform: translate(-50%, -50%); border: 1px solid var(--studio-accent-border); border-radius: 5px; background: var(--studio-accent-fill); color: #201b0f; cursor: ew-resize; touch-action: none; box-shadow: 0 2px 8px rgb(0 0 0 / 28%); }
         .tl-trim-handle::after { content: ""; position: absolute; top: 9px; bottom: 9px; left: 6px; width: 2px; border-left: 1px solid rgba(32,27,15,0.7); border-right: 1px solid rgba(32,27,15,0.7); }
-        .tl-trim-handle:hover, .tl-trim-handle:focus-visible { background: var(--studio-accent-fill-hover); outline: 2px solid var(--studio-accent-border); outline-offset: 2px; }
+        .tl-trim-handle:hover, .tl-trim-handle:focus-visible { background: var(--studio-accent-fill-hover); border-color: var(--studio-accent); outline: none; }
         .tl-trim-status { display: inline-flex; align-items: center; gap: 7px; color: var(--studio-accent); }
-        .tl-trim-reset { border: 0; padding: 0; background: transparent; color: var(--studio-text-subtle); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+        .tl-trim-reset { border: 1px solid transparent; border-radius: 4px; padding: 1px 2px; margin: -2px -3px; background: transparent; color: var(--studio-text-subtle); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
         .tl-trim-reset:hover { color: var(--studio-text); }
       `}</style>
 

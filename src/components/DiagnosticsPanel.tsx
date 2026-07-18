@@ -78,7 +78,8 @@ export const DiagnosticsPanel = () => {
         .diag-path { display: flex; flex-direction: column; gap: 3px; }
         .diag-path-k { font-size: 11px; color: var(--studio-text-muted); }
         .diag-path-link {
-          appearance: none; border: none; background: transparent; padding: 0; margin: 0;
+          appearance: none; border: 1px solid transparent; border-radius: 4px;
+          background: transparent; padding: 1px 2px; margin: -2px -3px;
           display: inline-flex; align-items: center; gap: 6px; text-align: left; cursor: pointer;
           color: var(--studio-text-muted); transition: color 120ms ease; min-width: 0;
         }

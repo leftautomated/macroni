@@ -531,8 +531,8 @@
 }
 
 .mm-input:focus-visible {
-  outline: 2px solid var(--macro-focus);
-  outline-offset: 2px;
+  outline: none;
+  border-color: var(--macro-focus);
 }
 
 .anp-add {
@@ -669,9 +669,9 @@
 .mm-pick {
   flex: 1;
   min-width: 0;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 8px;
-  padding: 8px 9px;
+  padding: 7px 8px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -698,9 +698,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 6px;
-  padding: 5px;
+  padding: 4px;
   background: transparent;
   color: var(--macro-dim);
   cursor: pointer;
@@ -735,9 +735,9 @@
   align-items: center;
   gap: 7px;
   width: 100%;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 8px;
-  padding: 8px 9px;
+  padding: 7px 8px;
   background: transparent;
   color: var(--macro-muted);
   cursor: pointer;
@@ -811,12 +811,13 @@
 }
 
 .anp-chip-clear {
-  border: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
   background: transparent;
   color: var(--macro-dim);
   font-size: 12px;
   cursor: pointer;
-  padding: 0 2px;
+  padding: 0 1px;
 }
 
 .anp-chip-clear:hover {

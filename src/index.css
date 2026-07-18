@@ -155,7 +155,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
   }
   /* This is a chrome-less, fixed-size overlay — the document must never scroll.
      #root is clipped, but without these the html/body can still show a hairline
@@ -187,8 +187,8 @@
   }
 
   *:focus-visible {
-    outline: 2px solid var(--brand-yellow);
-    outline-offset: 2px;
+    outline: none;
+    border-color: var(--studio-accent);
   }
 }
 

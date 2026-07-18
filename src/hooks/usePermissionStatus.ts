@@ -221,6 +221,11 @@ export const usePermissionStatus = () => {
 
   const openScreenRecordingSettings = useCallback(
     async (sourceRect?: PermissionAssistantSourceRect) => {
+      try {
+        await invoke("request_screen_recording");
+      } catch (err) {
+        logEvent("error", "permissions", "request_screen_recording_failed", { error: err });
+      }
       await presentPermissionAssistant("screen-recording", sourceRect);
     },
     [presentPermissionAssistant],
@@ -228,6 +233,11 @@ export const usePermissionStatus = () => {
 
   const openAccessibilitySettings = useCallback(
     async (sourceRect?: PermissionAssistantSourceRect) => {
+      try {
+        await invoke("request_accessibility");
+      } catch (err) {
+        logEvent("error", "permissions", "request_accessibility_failed", { error: err });
+      }
       await presentPermissionAssistant("accessibility", sourceRect);
     },
     [presentPermissionAssistant],

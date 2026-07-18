@@ -109,6 +109,10 @@ describe("usePermissionStatus", () => {
     await act(async () => {
       await result.current.openSystemSettings();
     });
+    expect(invokeMock).toHaveBeenCalledWith(
+      "request_screen_recording",
+      expect.objectContaining({ traceId: expect.any(String) }),
+    );
     expect(openUrlMock).toHaveBeenCalledWith(
       "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture",
     );
@@ -134,6 +138,10 @@ describe("usePermissionStatus", () => {
     await act(async () => {
       await result.current.openAccessibilitySettings();
     });
+    expect(invokeMock).toHaveBeenCalledWith(
+      "request_accessibility",
+      expect.objectContaining({ traceId: expect.any(String) }),
+    );
     expect(openUrlMock).toHaveBeenCalledWith(
       "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
     );

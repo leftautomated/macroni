@@ -33,7 +33,7 @@ use objc2_app_kit::{
     NSImage, NSImageScaling, NSImageView, NSScreen, NSStatusWindowLevel, NSTextAlignment,
     NSTextField, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
     NSVisualEffectView, NSWindow, NSWindowCollectionBehavior, NSWindowOrderingMode,
-    NSWindowStyleMask, NSWorkspace,
+    NSWindowStyleMask,
 };
 #[cfg(target_os = "macos")]
 use objc2_foundation::{
@@ -1694,17 +1694,26 @@ fn build_assistant_content(
     );
     payload.setAutoresizingMask(resize_mask);
 
+    let instruction = if app_path.ends_with(".app") {
+        format!(
+            "Remove any existing Macroni entry with −,\nthen drag this copy into {} above.",
+            panel.allowed_target()
+        )
+    } else {
+        format!(
+            "Local build: remove the old Macroni entry with −,\nthen drag this exact build into {} above.",
+            panel.allowed_target()
+        )
+    };
+
     add_label(
         &payload,
-        &format!(
-            "Drag Macroni to the list above to allow {}",
-            panel.allowed_target()
-        ),
-        NSRect::new(NSPoint::new(24.0, 66.0), NSSize::new(482.0, 24.0)),
-        14.0,
+        &instruction,
+        NSRect::new(NSPoint::new(24.0, 63.0), NSSize::new(482.0, 34.0)),
+        13.0,
         false,
         &NSColor::labelColor().colorWithAlphaComponent(0.82),
-        1,
+        2,
         mtm,
     );
 
@@ -1815,12 +1824,12 @@ fn build_assistant_drag_row(
         1.0,
     )?;
 
-    let workspace = NSWorkspace::sharedWorkspace();
-    let icon = workspace.iconForFile(&NSString::from_str(app_path));
-    icon.setSize(NSSize::new(28.0, 28.0));
-    let icon_view = NSImageView::imageViewWithImage(&icon, mtm);
-    icon_view.setFrame(NSRect::new(NSPoint::new(9.0, 7.5), NSSize::new(28.0, 28.0)));
-    row.as_super().addSubview(&icon_view);
+    if let Some(icon) = raw_macroni_icon(mtm) {
+        icon.setSize(NSSize::new(28.0, 28.0));
+        let icon_view = NSImageView::imageViewWithImage(&icon, mtm);
+        icon_view.setFrame(NSRect::new(NSPoint::new(9.0, 7.5), NSSize::new(28.0, 28.0)));
+        row.as_super().addSubview(&icon_view);
+    }
 
     add_label(
         row.as_super(),
@@ -1834,6 +1843,12 @@ fn build_assistant_drag_row(
     );
 
     Ok(row)
+}
+
+#[cfg(target_os = "macos")]
+fn raw_macroni_icon(mtm: MainThreadMarker) -> Option<Retained<NSImage>> {
+    let data = NSData::with_bytes(include_bytes!("../icons/icon.png"));
+    NSImage::initWithData(mtm.alloc(), &data)
 }
 
 #[cfg(target_os = "macos")]

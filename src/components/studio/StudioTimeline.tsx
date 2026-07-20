@@ -1,5 +1,6 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import { Gauge } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   type EventRow,
@@ -28,6 +29,8 @@ interface StudioTimelineProps {
   onLoopChange: (loop: LoopRegion | null) => void;
   /** Non-destructive kept range. Omit in selection-only timeline contexts. */
   trim?: TrimRange;
+  /** Playback rate displayed on the clip ribbon. */
+  clipRate?: number;
   onTrimChange?: (trim: TrimRange) => void;
   onTrimCommit?: (trim: TrimRange) => void;
   /** Perception observations to render as ticks in their own lane, video-relative ms. */
@@ -47,6 +50,20 @@ function fmtPrecise(ms: number): string {
   const seconds = Math.floor(safeMs / 1000);
   const centiseconds = Math.floor((safeMs % 1000) / 10);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
+}
+
+function fmtClipDuration(ms: number): string {
+  const seconds = Math.max(0, ms / 1000);
+  if (seconds < 10 && !Number.isInteger(seconds)) return `${seconds.toFixed(1)}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const rounded = Math.round(seconds);
+  const minutes = Math.floor(rounded / 60);
+  const remainder = rounded % 60;
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+}
+
+function fmtRate(rate: number): string {
+  return `${Number(rate.toFixed(2))}×`;
 }
 
 interface TimelineTooltipProps {
@@ -127,6 +144,7 @@ export function StudioTimeline({
   loop,
   onLoopChange,
   trim,
+  clipRate = 1,
   onTrimChange,
   onTrimCommit,
   perceptionTicks,
@@ -465,10 +483,14 @@ export function StudioTimeline({
         .studio-timeline {
           --timeline-cut: rgb(0 0 0 / 58%);
           --timeline-playhead: #fff;
+          --timeline-clip-fill: color-mix(in srgb, var(--studio-accent-fill) 62%, #744500);
+          --timeline-clip-text: #fff8e8;
         }
         .light .studio-timeline {
           --timeline-cut: rgb(42 34 22 / 14%);
           --timeline-playhead: var(--studio-text);
+          --timeline-clip-fill: color-mix(in srgb, var(--studio-accent-fill) 72%, #a96800);
+          --timeline-clip-text: #2e210a;
         }
         /* Headroom for the ruler labels, which sit just above the tick marks at
            the very top of the track; without it, overflow-y:hidden clips their tops.
@@ -482,13 +504,15 @@ export function StudioTimeline({
         .tl-hscroll:hover .tl-hthumb { background: var(--studio-scrollbar-hover); }
         .tl-hscroll:active .tl-hthumb { background: var(--studio-scrollbar-active); }
         .tl-track { position: relative; user-select: none; cursor: pointer; touch-action: none; display: flex; flex-direction: column; gap: 4px; }
-        .tl-ruler { position: relative; height: 18px; }
+        .tl-ruler { position: relative; z-index: 4; height: 18px; }
         .tl-tickmark { position: absolute; bottom: 0; width: 1px; background: var(--studio-border-strong); pointer-events: none; }
         .tl-tickmark.major { height: 7px; }
         .tl-tickmark.minor { height: 4px; background: var(--studio-border); }
         .tl-rlabel { position: absolute; bottom: 8px; left: 0; transform: translateX(-50%); font-size: 10px; color: var(--studio-text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
-        .tl-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--studio-border); pointer-events: none; }
-        .tl-lane { position: relative; height: 22px; border-radius: 4px; background: var(--studio-surface-soft); }
+        .tl-grid { position: absolute; z-index: 3; top: 0; bottom: 0; width: 1px; background: var(--studio-border); pointer-events: none; }
+        .tl-lane { position: relative; z-index: 2; height: 22px; border-radius: 4px; background: var(--studio-surface-soft); }
+        .tl-track.has-trim .tl-lane { background: rgb(0 0 0 / 13%); }
+        .light .tl-track.has-trim .tl-lane { background: rgb(255 255 255 / 22%); }
         .tl-marker { appearance: none; border: 1px solid transparent; padding: 0; cursor: default; font: inherit; }
         .tl-marker:focus-visible { outline: none; border-color: var(--studio-accent); }
         .tl-span { position: absolute; top: 3px; height: 16px; border-radius: 3px; opacity: 0.85; overflow: hidden; container-type: inline-size; }
@@ -513,10 +537,18 @@ export function StudioTimeline({
         .tl-slider:focus-visible { border-color: var(--studio-accent); }
         .tl-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance:none; width: 11px; height: 11px; border-radius: 50%; background: var(--studio-accent-fill); cursor: pointer; }
         .tl-slider::-webkit-slider-thumb:hover { background: var(--studio-accent-fill-hover); }
-        .tl-cut { position: absolute; top: 0; bottom: 0; background: var(--timeline-cut); pointer-events: none; z-index: 5; }
-        .tl-trim-line { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--studio-accent-fill); box-shadow: 0 0 0 1px rgb(0 0 0 / 25%); pointer-events: none; z-index: 7; }
-        .tl-trim-handle { position: absolute; top: 50%; z-index: 8; width: 16px; height: 36px; padding: 0; transform: translate(-50%, -50%); border: 1px solid var(--studio-accent-border); border-radius: 5px; background: var(--studio-accent-fill); color: #201b0f; cursor: ew-resize; touch-action: none; box-shadow: 0 2px 8px rgb(0 0 0 / 28%); }
-        .tl-trim-handle::after { content: ""; position: absolute; top: 9px; bottom: 9px; left: 6px; width: 2px; border-left: 1px solid rgba(32,27,15,0.7); border-right: 1px solid rgba(32,27,15,0.7); }
+        .tl-clip-region { position: absolute; z-index: 1; top: 22px; bottom: 0; overflow: hidden; border: 1px solid var(--studio-accent); border-radius: 9px; background: linear-gradient(180deg, color-mix(in srgb, var(--timeline-clip-fill) 88%, white) 0%, var(--timeline-clip-fill) 100%); box-shadow: 0 1px 0 rgb(255 255 255 / 18%) inset; pointer-events: none; }
+        .tl-clip-meta-overlay { position: absolute; z-index: 4; top: 22px; bottom: 0; overflow: hidden; container-type: inline-size; pointer-events: none; }
+        .tl-clip-meta { position: absolute; top: 10px; right: 14px; display: none; min-width: 74px; color: var(--timeline-clip-text); text-align: right; text-shadow: 0 1px 1px rgb(0 0 0 / 25%); }
+        .tl-clip-name { display: block; opacity: 0.58; font-size: 10px; font-weight: 650; line-height: 1; }
+        .tl-clip-details { display: flex; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 5px; font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 650; line-height: 1; }
+        .tl-clip-rate { display: inline-flex; align-items: center; gap: 3px; }
+        @container (min-width: 132px) { .tl-clip-meta { display: block; } }
+        .tl-cut { position: absolute; z-index: 5; top: 22px; bottom: 0; background: var(--timeline-cut); pointer-events: none; }
+        .tl-trim-handle { position: absolute; z-index: 8; top: 23px; bottom: 1px; width: 12px; padding: 0; border: 1px solid color-mix(in srgb, var(--studio-accent) 75%, white); background: var(--studio-accent-fill); color: #201b0f; cursor: ew-resize; touch-action: none; box-shadow: 0 1px 0 rgb(255 255 255 / 16%) inset; }
+        .tl-trim-handle.start { border-radius: 8px 3px 3px 8px; }
+        .tl-trim-handle.end { border-radius: 3px 8px 8px 3px; }
+        .tl-trim-handle::after { content: ""; position: absolute; top: 50%; left: 50%; width: 2px; height: 16px; transform: translate(-50%, -50%); border-radius: 999px; background: rgb(255 255 255 / 82%); }
         .tl-trim-handle:hover, .tl-trim-handle:focus-visible { background: var(--studio-accent-fill-hover); border-color: var(--studio-accent); outline: none; }
         .tl-trim-status { display: inline-flex; align-items: center; gap: 7px; color: var(--studio-accent); }
         .tl-trim-reset { border: 1px solid transparent; border-radius: 4px; padding: 1px 2px; margin: -2px -3px; background: transparent; color: var(--studio-text-subtle); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
@@ -552,17 +584,17 @@ export function StudioTimeline({
           </span>
           {trim && (trim.a > 0 || trim.b < dur) ? (
             <span className="tl-trim-status">
-              Kept {fmtPrecise(trim.a)}–{fmtPrecise(trim.b)}
               <button
                 type="button"
                 className="tl-trim-reset"
+                aria-label="Reset trim"
                 onClick={() => {
                   const full = { a: 0, b: dur };
                   onTrimChange?.(full);
                   onTrimCommit?.(full);
                 }}
               >
-                Reset trim
+                Reset clip
               </button>
             </span>
           ) : loop ? (
@@ -572,7 +604,7 @@ export function StudioTimeline({
           ) : (
             <span style={{ color: "var(--studio-text-subtle)" }}>
               {trim
-                ? "drag gold handles to cut or extend"
+                ? "drag clip edges to cut or extend"
                 : `drag to ${rangeWord === "selection" ? "select" : "loop"} a range`}
             </span>
           )}
@@ -608,7 +640,7 @@ export function StudioTimeline({
         >
           <div
             ref={trackRef}
-            className="tl-track"
+            className={`tl-track${trim ? " has-trim" : ""}`}
             style={{ width: `${trackWidthPct}%` }}
             onPointerDown={onDown}
             onPointerMove={onMove}
@@ -680,22 +712,38 @@ export function StudioTimeline({
                   background: "var(--studio-accent-soft)",
                   border: "1px solid var(--studio-accent-border)",
                   borderRadius: 4,
+                  zIndex: 4,
                   pointerEvents: "none",
                 }}
               />
             )}
             {trim && (
               <>
+                <div
+                  className="tl-clip-region"
+                  style={{ left: `${pctOf(trim.a)}%`, width: `${pctOf(trim.b - trim.a)}%` }}
+                />
+                <div
+                  className="tl-clip-meta-overlay"
+                  style={{ left: `${pctOf(trim.a)}%`, width: `${pctOf(trim.b - trim.a)}%` }}
+                >
+                  <div className="tl-clip-meta">
+                    <span className="tl-clip-name">Clip</span>
+                    <span className="tl-clip-details">
+                      <span>{fmtClipDuration(trim.b - trim.a)}</span>
+                      <span className="tl-clip-rate">
+                        <Gauge size={12} strokeWidth={1.8} /> {fmtRate(clipRate)}
+                      </span>
+                    </span>
+                  </div>
+                </div>
                 <div className="tl-cut" style={{ left: 0, width: `${pctOf(trim.a)}%` }} />
                 <div className="tl-cut" style={{ left: `${pctOf(trim.b)}%`, right: 0 }} />
-                <div className="tl-trim-line" style={{ left: `${pctOf(trim.a)}%` }} />
-                <div className="tl-trim-line" style={{ left: `${pctOf(trim.b)}%` }} />
                 <button
                   type="button"
-                  className="tl-trim-handle"
+                  className="tl-trim-handle start"
                   style={{
                     left: `${pctOf(trim.a)}%`,
-                    transform: `translate(${trim.a <= 0 ? "0" : "-50%"}, -50%)`,
                   }}
                   aria-label={`Trim start at ${fmtPrecise(trim.a)}`}
                   title="Drag to set the start"
@@ -707,10 +755,10 @@ export function StudioTimeline({
                 />
                 <button
                   type="button"
-                  className="tl-trim-handle"
+                  className="tl-trim-handle end"
                   style={{
                     left: `${pctOf(trim.b)}%`,
-                    transform: `translate(${trim.b >= dur ? "-100%" : "-50%"}, -50%)`,
+                    transform: "translateX(-100%)",
                   }}
                   aria-label={`Trim end at ${fmtPrecise(trim.b)}`}
                   title="Drag to set the end"
@@ -732,6 +780,7 @@ export function StudioTimeline({
                 marginLeft: -1,
                 background: "var(--timeline-playhead)",
                 boxShadow: "0 0 4px rgb(0 0 0 / 38%)",
+                zIndex: 9,
                 pointerEvents: "none",
               }}
             />

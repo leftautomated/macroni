@@ -489,6 +489,7 @@ export function StudioEditor() {
                 loop={loop}
                 onLoopChange={setLoop}
                 trim={isProjectReady ? trim : undefined}
+                clipRate={selected.playback_speed}
                 onTrimChange={handleTrimChange}
                 onTrimCommit={handleTrimCommit}
                 perceptionTicks={PERCEPTION_STUDIO_UI ? perceptionTicks : undefined}

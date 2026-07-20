@@ -143,7 +143,9 @@ describe("StudioTimeline", () => {
         onLoopChange={noop}
       />,
     );
-    expect(screen.getByText(/kept 0:00\.50–0:01\.60/i)).toBeInTheDocument();
+    expect(screen.getByText("Clip")).toBeInTheDocument();
+    expect(screen.getByText("1.1s")).toBeInTheDocument();
+    expect(screen.getByText("1×")).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("button", { name: /trim start/i }), {
       key: "ArrowLeft",
     });

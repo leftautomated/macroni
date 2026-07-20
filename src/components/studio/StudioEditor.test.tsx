@@ -245,7 +245,7 @@ describe("StudioEditor (recordings browser)", () => {
 
     render(<StudioEditor />);
     const reset = await screen.findByRole("button", { name: /reset trim/i });
-    expect(screen.getByText(/kept 0:00\.20–0:00\.90/i)).toBeInTheDocument();
+    expect(screen.getByText("0.7s")).toBeInTheDocument();
     await userEvent.click(reset);
 
     await waitFor(() => {

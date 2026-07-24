@@ -1,44 +1,47 @@
-//! Translates `rdev::EventType`s into `InputEvent`s. Owns the modifier and
-//! button state machines, the last-known mouse position, the drag-detection
-//! filter, and combo recognition.
+//! Translates `rdev::EventType`s into `InputEvent`s. Owns modifier state, the
+//! last-known pointer position, bounded pointer-path sampling, and combo
+//! recognition.
 //!
 //! Single-threaded by design — instantiate once per rdev listener thread; no
 //! interior mutability required.
 
 use std::collections::HashSet;
 
-use rdev::{Button, EventType, Key};
+use rdev::{EventType, Key};
 
 use crate::key_mapping::{
     button_to_string, get_character_with_modifiers, is_modifier_key, key_to_string,
 };
 use crate::types::InputEvent;
 
+/// Capture enough pointer samples for fluid 120 Hz playback without storing
+/// every high-polling-rate mouse packet.
+const MOUSE_SAMPLE_INTERVAL_MS: i64 = 8;
+
 pub struct EventCapture {
     pressed_modifiers: HashSet<Key>,
-    pressed_buttons: HashSet<Button>,
     last_mouse_position: Option<(f64, f64)>,
+    last_mouse_sample: Option<(f64, f64, i64)>,
 }
 
 impl EventCapture {
     pub fn new() -> Self {
         Self {
             pressed_modifiers: HashSet::new(),
-            pressed_buttons: HashSet::new(),
             last_mouse_position: None,
+            last_mouse_sample: None,
         }
     }
 
-    /// Clear modifier/button state. Call at the start of every new recording
-    /// session so keys or mouse buttons that were held when the previous
-    /// session ended (and whose release events were dropped while
-    /// `is_recording == false`) don't poison the new session.
+    /// Clear modifier and sampling state at the start of every recording so a
+    /// modifier released while inactive cannot poison the next session.
     ///
     /// `last_mouse_position` is intentionally preserved — the cursor's last
-    /// known location is still a valid starting point.
+    /// known location is still a valid starting point. The sampling clock is
+    /// reset so the first movement in the next session is always captured.
     pub fn reset(&mut self) {
         self.pressed_modifiers.clear();
-        self.pressed_buttons.clear();
+        self.last_mouse_sample = None;
     }
 
     /// Convert a single rdev event into 0, 1, or 2 `InputEvent`s.
@@ -88,7 +91,6 @@ impl EventCapture {
                 });
             }
             EventType::ButtonPress(button) => {
-                self.pressed_buttons.insert(button);
                 let (x, y) = self.last_mouse_position.unwrap_or((0.0, 0.0));
                 out.push(InputEvent::ButtonPress {
                     button: button_to_string(button),
@@ -98,7 +100,6 @@ impl EventCapture {
                 });
             }
             EventType::ButtonRelease(button) => {
-                self.pressed_buttons.remove(&button);
                 let (x, y) = self.last_mouse_position.unwrap_or((0.0, 0.0));
                 out.push(InputEvent::ButtonRelease {
                     button: button_to_string(button),
@@ -109,7 +110,8 @@ impl EventCapture {
             }
             EventType::MouseMove { x, y } => {
                 self.last_mouse_position = Some((x, y));
-                if !self.pressed_buttons.is_empty() {
+                if self.should_capture_mouse_sample(x, y, timestamp_ms) {
+                    self.last_mouse_sample = Some((x, y, timestamp_ms));
                     out.push(InputEvent::MouseMove {
                         x,
                         y,
@@ -129,6 +131,16 @@ impl EventCapture {
         }
         out
     }
+
+    fn should_capture_mouse_sample(&self, x: f64, y: f64, timestamp_ms: i64) -> bool {
+        let Some((last_x, last_y, last_timestamp)) = self.last_mouse_sample else {
+            return true;
+        };
+        if x == last_x && y == last_y {
+            return false;
+        }
+        timestamp_ms.saturating_sub(last_timestamp) >= MOUSE_SAMPLE_INTERVAL_MS
+    }
 }
 
 impl Default for EventCapture {
@@ -140,6 +152,7 @@ impl Default for EventCapture {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rdev::Button;
 
     fn ts() -> i64 {
         1_700_000_000_000
@@ -233,10 +246,31 @@ mod tests {
     }
 
     #[test]
-    fn mouse_move_without_button_pressed_emits_nothing() {
+    fn mouse_move_without_button_pressed_captures_pointer_path() {
         let mut cap = EventCapture::new();
         let out = cap.on_rdev_event(EventType::MouseMove { x: 100.0, y: 200.0 }, ts());
-        assert!(out.is_empty(), "drag filter — got {:?}", out);
+        assert!(matches!(
+            out.as_slice(),
+            [InputEvent::MouseMove {
+                x: 100.0,
+                y: 200.0,
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn mouse_move_sampling_caps_capture_at_about_120_hz() {
+        let mut cap = EventCapture::new();
+        cap.on_rdev_event(EventType::MouseMove { x: 0.0, y: 0.0 }, ts());
+        let too_soon = cap.on_rdev_event(EventType::MouseMove { x: 1.0, y: 1.0 }, ts() + 7);
+        let on_interval = cap.on_rdev_event(EventType::MouseMove { x: 2.0, y: 2.0 }, ts() + 8);
+
+        assert!(too_soon.is_empty());
+        assert!(matches!(
+            on_interval.as_slice(),
+            [InputEvent::MouseMove { x: 2.0, y: 2.0, .. }]
+        ));
     }
 
     #[test]
@@ -244,7 +278,7 @@ mod tests {
         let mut cap = EventCapture::new();
         cap.on_rdev_event(EventType::MouseMove { x: 50.0, y: 60.0 }, ts());
         cap.on_rdev_event(EventType::ButtonPress(Button::Left), ts() + 1);
-        let out = cap.on_rdev_event(EventType::MouseMove { x: 100.0, y: 200.0 }, ts() + 2);
+        let out = cap.on_rdev_event(EventType::MouseMove { x: 100.0, y: 200.0 }, ts() + 8);
         assert_eq!(out.len(), 1);
         assert!(
             matches!(&out[0], InputEvent::MouseMove { x, y, .. } if *x == 100.0 && *y == 200.0)
@@ -280,28 +314,24 @@ mod tests {
     }
 
     #[test]
-    fn button_release_clears_drag_state() {
+    fn mouse_move_after_button_release_still_captures_pointer_path() {
         let mut cap = EventCapture::new();
         cap.on_rdev_event(EventType::ButtonPress(Button::Left), ts());
         cap.on_rdev_event(EventType::ButtonRelease(Button::Left), ts() + 1);
-        let out = cap.on_rdev_event(EventType::MouseMove { x: 1.0, y: 1.0 }, ts() + 2);
-        assert!(
-            out.is_empty(),
-            "after button release, drag filter should re-engage"
-        );
+        let out = cap.on_rdev_event(EventType::MouseMove { x: 1.0, y: 1.0 }, ts() + 8);
+        assert!(matches!(out.as_slice(), [InputEvent::MouseMove { .. }]));
     }
 
     #[test]
-    fn reset_clears_pressed_modifiers_and_buttons() {
+    fn reset_clears_pressed_modifiers_and_sampling_clock() {
         let mut cap = EventCapture::new();
-        // Hold Cmd + Left button, but never release either before reset.
+        // Hold Cmd and prime the pointer sample clock before reset.
         cap.on_rdev_event(EventType::KeyPress(Key::MetaLeft), ts());
         cap.on_rdev_event(EventType::ButtonPress(Button::Left), ts() + 1);
 
         cap.reset();
 
-        // After reset, a plain KeyPress(A) must not produce a stale KeyCombo,
-        // and a MouseMove must not be emitted as a drag.
+        // After reset, a plain KeyPress(A) must not produce a stale KeyCombo.
         let key_out = cap.on_rdev_event(EventType::KeyPress(Key::KeyA), ts() + 2);
         assert_eq!(
             key_out.len(),
@@ -313,8 +343,8 @@ mod tests {
 
         let move_out = cap.on_rdev_event(EventType::MouseMove { x: 1.0, y: 1.0 }, ts() + 3);
         assert!(
-            move_out.is_empty(),
-            "button state should be cleared by reset; mouse move should not emit"
+            matches!(move_out.as_slice(), [InputEvent::MouseMove { .. }]),
+            "reset should make the next pointer sample immediately eligible"
         );
     }
 

@@ -88,6 +88,9 @@ pollster = "0.3"
 # Native Windows.Graphics.Capture backend. Keep this direct dependency instead
 # of sc-cap 0.2, whose Windows adapter calls an API removed before release.
 windows-capture = "1.5.0"
+# Pointer playback uses SendInput directly so movement packets are not
+# coalesced and absolute coordinates cover the complete virtual desktop.
+windows-sys = { version = "0.61", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 openh264 = { version = "0.6", default-features = false, features = ["source"] }
 mp4 = "0.14"
 rayon = "1"

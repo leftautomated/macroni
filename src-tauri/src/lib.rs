@@ -37,6 +37,7 @@ use serde_json::json;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
+use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 #[cfg(target_os = "macos")]
@@ -927,15 +928,17 @@ pub fn run() {
 
                 let mut capture = event_capture::EventCapture::new();
                 let mut was_active = false;
+                let mut timing_origin = None;
                 let callback = move |event: Event| {
                     let is_active = listener_session.is_active();
                     if !is_active {
                         was_active = false;
+                        timing_origin = None;
                         return;
                     }
                     if !was_active {
                         // Rising edge: a new session just started. Clear any
-                        // modifier/button state left from the previous session —
+                        // modifier state left from the previous session —
                         // release events that fired while the listener was
                         // inactive were silently dropped and would otherwise
                         // poison this session (e.g. the user holds Cmd to fire
@@ -943,9 +946,17 @@ pub fn run() {
                         // session ended; without this reset every subsequent
                         // keypress would emit a stale KeyCombo).
                         capture.reset();
+                        timing_origin = Some((Utc::now().timestamp_millis(), Instant::now()));
                         was_active = true;
                     }
-                    let timestamp = Utc::now().timestamp_millis();
+                    let timestamp = timing_origin.map_or_else(
+                        || Utc::now().timestamp_millis(),
+                        |(epoch_ms, started)| {
+                            let elapsed_ms =
+                                i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+                            epoch_ms.saturating_add(elapsed_ms)
+                        },
+                    );
                     for ev in capture.on_rdev_event(event.event_type, timestamp) {
                         let _ = tx.send(ev);
                     }

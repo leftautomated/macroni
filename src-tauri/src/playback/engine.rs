@@ -304,6 +304,7 @@ fn sleep_cancellable_duration(duration: Duration, is_playing: &AtomicBool) -> bo
         return is_playing.load(Ordering::Relaxed);
     }
     const CHUNK: Duration = Duration::from_millis(10);
+    const FINAL_SPIN: Duration = Duration::from_micros(500);
     let deadline = Instant::now() + duration;
     loop {
         if !is_playing.load(Ordering::Relaxed) {
@@ -313,7 +314,11 @@ fn sleep_cancellable_duration(duration: Duration, is_playing: &AtomicBool) -> bo
         if remaining.is_zero() {
             return true;
         }
-        thread::sleep(remaining.min(CHUNK));
+        if remaining <= FINAL_SPIN {
+            std::hint::spin_loop();
+        } else {
+            thread::sleep(remaining.saturating_sub(FINAL_SPIN).min(CHUNK));
+        }
     }
 }
 

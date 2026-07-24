@@ -5,10 +5,23 @@
 //! everything else is encoded as a flat sequence of `PlannedStep`s for one
 //! iteration. The engine handles warmup, inter-iteration gaps, and stop.
 
+use std::borrow::Cow;
+
 use rdev::EventType;
 
 use crate::key_mapping::{string_to_button, string_to_key};
 use crate::types::{InputEvent, InputEventTimestamp};
+
+const CURSOR_SAMPLE_INTERVAL_MS: i64 = 8;
+const CURSOR_UI_INTERVAL_MS: i64 = 33;
+const LEGACY_CURSOR_MIN_DURATION_MS: i64 = 48;
+const LEGACY_CURSOR_MAX_DURATION_MS: i64 = 240;
+const LEGACY_CURSOR_PIXELS_PER_MS: f64 = 2.0;
+
+struct PreparedEvent<'a> {
+    event: Cow<'a, InputEvent>,
+    source_index: Option<usize>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlannedStep {
@@ -56,20 +69,32 @@ impl PlaybackPlan {
             return Err(PlanError::AllKeyCombos);
         }
         let speed = sanitize_speed(speed);
+        let prepared = prepare_events(events);
 
-        let mut steps = Vec::with_capacity(events.len() * 4);
+        let mut steps = Vec::with_capacity(prepared.len() * 3);
         // The settle sleep that ran after the previous simulated event. It's
         // credited against the next inter-event gap so it isn't double-counted
         // into the replay's wall-clock timing (the sleep still runs).
         let mut prev_post_ms: u64 = 0;
-        for (index, event) in events.iter().enumerate() {
-            let should_update_ui = should_update_position(events, index);
-            let mut pos_ms: u64 = 0;
-            if should_update_ui {
-                steps.push(PlannedStep::EmitPosition { index });
-                if speed <= 2.0 {
-                    steps.push(PlannedStep::Sleep { ms: 10 });
-                    pos_ms = 10;
+        let mut last_cursor_ui_timestamp = None;
+        for (prepared_index, prepared_event) in prepared.iter().enumerate() {
+            let event = prepared_event.event.as_ref();
+            if let Some(index) = prepared_event.source_index {
+                let should_update_ui = match event {
+                    InputEvent::MouseMove { timestamp, .. }
+                    | InputEvent::Scroll { timestamp, .. } => {
+                        let should_emit = last_cursor_ui_timestamp.is_none_or(|last| {
+                            timestamp.saturating_sub(last) >= CURSOR_UI_INTERVAL_MS
+                        });
+                        if should_emit {
+                            last_cursor_ui_timestamp = Some(*timestamp);
+                        }
+                        should_emit
+                    }
+                    _ => true,
+                };
+                if should_update_ui {
+                    steps.push(PlannedStep::EmitPosition { index });
                 }
             }
 
@@ -85,15 +110,16 @@ impl PlaybackPlan {
             };
 
             // Inter-event sleep. Credit the fixed settle sleeps that bracket this
-            // event (previous post, this position update, this pre-press) so the
+            // event (previous post and this pre-press) so the
             // time between simulated events matches the recording exactly — the
             // settle sleeps still run for reliability; only the gap sleep shrinks.
-            if index == 0 {
+            if prepared_index == 0 {
                 steps.push(PlannedStep::Sleep { ms: 50 });
             } else {
-                let raw_delay = (event.timestamp() - events[index - 1].timestamp()).max(0) as u64;
+                let raw_delay = (event.timestamp() - prepared[prepared_index - 1].event.timestamp())
+                    .max(0) as u64;
                 let scaled = (raw_delay as f64 / speed) as u64;
-                let credit = prev_post_ms + pos_ms + pre_ms;
+                let credit = prev_post_ms + pre_ms;
                 let min_delay = min_delay_for(event);
                 let actual = scaled.saturating_sub(credit).max(min_delay);
                 if actual > 0 {
@@ -108,16 +134,20 @@ impl PlaybackPlan {
                 continue;
             }
             push_simulate(&mut steps, event);
-            // Post-event settle sleep. High-frequency scroll ticks skip it so a
-            // burst replays near real-time; discrete events keep the 10ms settle.
-            let post_ms = if matches!(event, InputEvent::Scroll { .. }) {
+            // Pointer samples have no fixed settle, scroll ticks use only 1ms,
+            // and discrete events retain the reliability settle.
+            let post_ms = if matches!(event, InputEvent::MouseMove { .. }) {
+                0
+            } else if matches!(event, InputEvent::Scroll { .. }) {
                 1
             } else if speed <= 2.0 {
                 10
             } else {
                 1
             };
-            steps.push(PlannedStep::Sleep { ms: post_ms });
+            if post_ms > 0 {
+                steps.push(PlannedStep::Sleep { ms: post_ms });
+            }
             prev_post_ms = post_ms;
         }
         Ok(Self { steps })
@@ -134,28 +164,107 @@ fn sanitize_speed(speed: f64) -> f64 {
 
 fn min_delay_for(event: &InputEvent) -> u64 {
     match event {
-        InputEvent::MouseMove { .. } => 5,
+        InputEvent::MouseMove { .. } => 0,
         _ => 1,
     }
 }
 
-/// Should we emit a position update for the event at `index`?
-/// MouseMove events are throttled — every 3rd, plus any whose timestamp jumped
-/// >50ms over the most recent throttle window.
-fn should_update_position(events: &[InputEvent], index: usize) -> bool {
-    match events.get(index) {
-        Some(InputEvent::MouseMove { .. }) | Some(InputEvent::Scroll { .. }) => {
-            if index == 0 || index.is_multiple_of(3) {
-                true
-            } else {
-                let event_time = events[index].timestamp();
-                let check_index = index.saturating_sub(3);
-                let prev_time = events[check_index].timestamp();
-                (event_time - prev_time) > 50
+fn prepare_events(events: &[InputEvent]) -> Vec<PreparedEvent<'_>> {
+    if has_free_pointer_path(events) {
+        return events
+            .iter()
+            .enumerate()
+            .map(|(source_index, event)| PreparedEvent {
+                event: Cow::Borrowed(event),
+                source_index: Some(source_index),
+            })
+            .collect();
+    }
+
+    let mut prepared = Vec::with_capacity(events.len() * 2);
+    let mut previous_cursor = None;
+    for (source_index, event) in events.iter().enumerate() {
+        if let Some((x, y)) = cursor_position(event) {
+            if let Some((previous_x, previous_y, previous_timestamp)) = previous_cursor {
+                append_legacy_cursor_samples(
+                    &mut prepared,
+                    previous_x,
+                    previous_y,
+                    previous_timestamp,
+                    x,
+                    y,
+                    event.timestamp(),
+                );
             }
+            previous_cursor = Some((x, y, event.timestamp()));
         }
-        Some(_) => true,
-        None => false,
+        prepared.push(PreparedEvent {
+            event: Cow::Borrowed(event),
+            source_index: Some(source_index),
+        });
+    }
+    prepared.sort_by_key(|prepared_event| prepared_event.event.timestamp());
+    prepared
+}
+
+fn has_free_pointer_path(events: &[InputEvent]) -> bool {
+    let mut pressed_button_count = 0_u32;
+    for event in events {
+        match event {
+            InputEvent::ButtonPress { .. } => {
+                pressed_button_count = pressed_button_count.saturating_add(1);
+            }
+            InputEvent::ButtonRelease { .. } => {
+                pressed_button_count = pressed_button_count.saturating_sub(1);
+            }
+            InputEvent::MouseMove { .. } if pressed_button_count == 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn cursor_position(event: &InputEvent) -> Option<(f64, f64)> {
+    match event {
+        InputEvent::ButtonPress { x, y, .. }
+        | InputEvent::ButtonRelease { x, y, .. }
+        | InputEvent::MouseMove { x, y, .. } => Some((*x, *y)),
+        _ => None,
+    }
+}
+
+fn append_legacy_cursor_samples<'a>(
+    prepared: &mut Vec<PreparedEvent<'a>>,
+    from_x: f64,
+    from_y: f64,
+    from_timestamp: i64,
+    to_x: f64,
+    to_y: f64,
+    to_timestamp: i64,
+) {
+    let gap_ms = to_timestamp.saturating_sub(from_timestamp);
+    let distance = (to_x - from_x).hypot(to_y - from_y);
+    if gap_ms <= CURSOR_SAMPLE_INTERVAL_MS || distance < 1.0 {
+        return;
+    }
+
+    let ideal_duration_ms = (distance / LEGACY_CURSOR_PIXELS_PER_MS).round() as i64;
+    let duration_ms = ideal_duration_ms
+        .clamp(LEGACY_CURSOR_MIN_DURATION_MS, LEGACY_CURSOR_MAX_DURATION_MS)
+        .min(gap_ms);
+    let movement_start = to_timestamp.saturating_sub(duration_ms);
+    let mut sample_timestamp = movement_start.saturating_add(CURSOR_SAMPLE_INTERVAL_MS);
+    while sample_timestamp < to_timestamp {
+        let progress = (sample_timestamp - movement_start) as f64 / duration_ms as f64;
+        prepared.push(PreparedEvent {
+            event: Cow::Owned(InputEvent::MouseMove {
+                x: from_x + (to_x - from_x) * progress,
+                y: from_y + (to_y - from_y) * progress,
+                timestamp: sample_timestamp,
+            }),
+            source_index: None,
+        });
+        sample_timestamp = sample_timestamp.saturating_add(CURSOR_SAMPLE_INTERVAL_MS);
     }
 }
 
@@ -265,6 +374,14 @@ mod tests {
     }
     fn button_press(btn: &str, x: f64, y: f64, ts: i64) -> InputEvent {
         InputEvent::ButtonPress {
+            button: btn.into(),
+            x,
+            y,
+            timestamp: ts,
+        }
+    }
+    fn button_release(btn: &str, x: f64, y: f64, ts: i64) -> InputEvent {
+        InputEvent::ButtonRelease {
             button: btn.into(),
             x,
             y,
@@ -438,15 +555,64 @@ mod tests {
     }
 
     #[test]
-    fn mouse_move_with_button_held_throttles_position_updates() {
-        // index 0 emits, index 1,2 skip, index 3 emits (index % 3 == 0).
-        // All events have same timestamp so the >50ms-since-last fallback doesn't trip.
+    fn legacy_click_only_recording_gains_smooth_cursor_samples() {
         let events = vec![
             button_press("Left", 0.0, 0.0, 0),
-            mouse_move(10.0, 10.0, 1),
-            mouse_move(20.0, 20.0, 2),
-            mouse_move(30.0, 30.0, 3),
-            mouse_move(40.0, 40.0, 4),
+            button_release("Left", 0.0, 0.0, 10),
+            button_press("Left", 400.0, 200.0, 1_000),
+        ];
+        let prepared = prepare_events(&events);
+        let synthetic_count = prepared
+            .iter()
+            .filter(|event| event.source_index.is_none())
+            .count();
+
+        assert!(
+            synthetic_count >= 20,
+            "expected a dense compatibility path, got {synthetic_count} samples"
+        );
+    }
+
+    #[test]
+    fn legacy_synthetic_samples_do_not_emit_fake_timeline_indexes() {
+        let events = vec![
+            button_press("Left", 0.0, 0.0, 0),
+            button_release("Left", 0.0, 0.0, 10),
+            button_press("Left", 400.0, 200.0, 1_000),
+        ];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        let emitted_indexes: Vec<_> = plan
+            .steps
+            .iter()
+            .filter_map(|step| match step {
+                PlannedStep::EmitPosition { index } => Some(*index),
+                _ => None,
+            })
+            .collect();
+
+        assert!(emitted_indexes.iter().all(|index| *index < events.len()));
+    }
+
+    #[test]
+    fn recording_with_free_pointer_path_is_not_reinterpolated() {
+        let events = vec![
+            mouse_move(0.0, 0.0, 0),
+            mouse_move(10.0, 10.0, 8),
+            mouse_move(20.0, 20.0, 16),
+        ];
+        let prepared = prepare_events(&events);
+
+        assert_eq!(prepared.len(), events.len());
+    }
+
+    #[test]
+    fn mouse_move_ui_updates_are_throttled_without_dropping_input_samples() {
+        let events = vec![
+            button_press("Left", 0.0, 0.0, 0),
+            mouse_move(10.0, 10.0, 8),
+            mouse_move(20.0, 20.0, 16),
+            mouse_move(30.0, 30.0, 24),
+            mouse_move(40.0, 40.0, 41),
         ];
         let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
         let positions: Vec<usize> = plan
@@ -457,32 +623,18 @@ mod tests {
                 _ => None,
             })
             .collect();
-        // index 0 (button) emits, then for moves: index 1 skip, 2 skip, 3 emit, 4 skip
-        assert!(
-            positions.contains(&0),
-            "expected position 0: {:?}",
-            positions
-        );
-        assert!(
-            positions.contains(&3),
-            "expected position 3 (every-3rd): {:?}",
-            positions
-        );
-        assert!(
-            !positions.contains(&1),
-            "position 1 should be throttled: {:?}",
-            positions
-        );
-        assert!(
-            !positions.contains(&2),
-            "position 2 should be throttled: {:?}",
-            positions
-        );
-        assert!(
-            !positions.contains(&4),
-            "position 4 should be throttled: {:?}",
-            positions
-        );
+        assert_eq!(positions, vec![0, 1, 4]);
+        let replayed_x: Vec<f64> = plan
+            .steps
+            .iter()
+            .filter_map(|step| match step {
+                PlannedStep::Simulate(EventType::MouseMove { x, .. }) => Some(*x),
+                _ => None,
+            })
+            .collect();
+        assert!([10.0, 20.0, 30.0, 40.0]
+            .iter()
+            .all(|x| replayed_x.contains(x)));
     }
 
     #[test]
@@ -520,35 +672,14 @@ mod tests {
     }
 
     #[test]
-    fn mouse_move_has_min_5ms_delay_floor_at_high_speed() {
+    fn mouse_move_has_no_fixed_settle_delay_at_high_speed() {
         let events = vec![
-            button_press("Left", 0.0, 0.0, 0),
+            mouse_move(0.0, 0.0, 0),
             mouse_move(1.0, 1.0, 1),
             mouse_move(2.0, 2.0, 2),
         ];
-        // At very high speed the per-event delay collapses; min-delay floor protects MouseMove at 5ms.
         let plan = PlaybackPlan::compile(&events, 1000.0).unwrap();
-        // Find any timeline sleep that *precedes* a MouseMove simulate. At
-        // least one such sleep should be >= 5ms.
-        let mut found_floor = false;
-        for (i, s) in plan.steps.iter().enumerate() {
-            if matches!(s, PlannedStep::Simulate(EventType::MouseMove { .. })) {
-                // Walk backward to find the most recent inter-event wait.
-                for prev in plan.steps[..i].iter().rev() {
-                    if let PlannedStep::TimelineSleep { ms } = prev {
-                        if *ms >= 5 {
-                            found_floor = true;
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-        assert!(
-            found_floor,
-            "expected at least one >=5ms timeline sleep before a MouseMove simulate: {:?}",
-            plan.steps
-        );
+        assert_eq!(total_sleep_ms(&plan.steps), 50);
     }
 
     #[test]
@@ -563,8 +694,8 @@ mod tests {
     // walk past.
 
     #[test]
-    fn min_delay_for_mouse_move_returns_5_others_return_1() {
-        assert_eq!(min_delay_for(&mouse_move(0.0, 0.0, 0)), 5);
+    fn min_delay_for_mouse_move_returns_zero_others_return_one() {
+        assert_eq!(min_delay_for(&mouse_move(0.0, 0.0, 0)), 0);
         assert_eq!(min_delay_for(&key_press("A", 0)), 1);
         assert_eq!(min_delay_for(&key_release("A", 0)), 1);
         assert_eq!(min_delay_for(&button_press("Left", 0.0, 0.0, 0)), 1);
@@ -598,16 +729,14 @@ mod tests {
     }
 
     #[test]
-    fn mouse_move_throttle_uses_strict_greater_than_50ms() {
-        // should_update_position uses `> 50` for the "elapsed since last
-        // throttle window" check. At exactly 50ms it should NOT update;
-        // at 51ms it should.
-        let pressed = button_press("Left", 0.0, 0.0, 0);
-
-        // Index 1, delta exactly 50ms — should be throttled (skipped).
-        let events_eq = vec![pressed.clone(), mouse_move(1.0, 1.0, 50)];
-        let plan_eq = PlaybackPlan::compile(&events_eq, 1.0).unwrap();
-        let positions_eq: Vec<usize> = plan_eq
+    fn mouse_move_ui_throttle_emits_on_33ms_boundary() {
+        let events = vec![
+            mouse_move(0.0, 0.0, 0),
+            mouse_move(1.0, 1.0, 32),
+            mouse_move(2.0, 2.0, 33),
+        ];
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+        let positions: Vec<usize> = plan
             .steps
             .iter()
             .filter_map(|s| match s {
@@ -615,28 +744,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert!(
-            !positions_eq.contains(&1),
-            "delta of exactly 50ms must NOT trigger position emit: {:?}",
-            positions_eq
-        );
-
-        // Index 1, delta 51ms — must emit.
-        let events_gt = vec![pressed, mouse_move(1.0, 1.0, 51)];
-        let plan_gt = PlaybackPlan::compile(&events_gt, 1.0).unwrap();
-        let positions_gt: Vec<usize> = plan_gt
-            .steps
-            .iter()
-            .filter_map(|s| match s {
-                PlannedStep::EmitPosition { index } => Some(*index),
-                _ => None,
-            })
-            .collect();
-        assert!(
-            positions_gt.contains(&1),
-            "delta of 51ms must trigger position emit: {:?}",
-            positions_gt
-        );
+        assert_eq!(positions, vec![0, 2]);
     }
 
     #[test]
@@ -742,20 +850,16 @@ mod tests {
     }
 
     #[test]
-    fn speed_1x_has_post_position_10ms_sleep_then_inter_event_sleep() {
-        // Pins line 62: the `if speed <= 2.0 { push Sleep 10 }` branch must
-        // fire at speed 1.0. A mutant that flips <= to > would drop the
-        // leading 10ms sleep at slow speeds.
+    fn speed_1x_does_not_pause_after_position_notifications() {
         let events = vec![key_press("A", 0), key_press("B", 100)];
         let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
-        // Step 0 must be EmitPosition{0}, step 1 must be Sleep{10}.
         assert!(matches!(
             plan.steps.first(),
             Some(PlannedStep::EmitPosition { index: 0 })
         ));
         assert!(matches!(
             plan.steps.get(1),
-            Some(PlannedStep::Sleep { ms: 10 })
+            Some(PlannedStep::Sleep { ms: 50 })
         ));
     }
 
@@ -763,9 +867,8 @@ mod tests {
     fn overhead_credit_reduces_inter_event_sleep_at_slow_speed() {
         // The inter-event sleep credits the fixed settle sleeps that bracket the
         // event so the time between simulations matches the recording. For a
-        // 100ms gap between two key presses at 1x the credit is the previous
-        // event's post settle (10) + this event's position update (10) = 20, so
-        // the inter-event TimelineSleep should be exactly 80ms, not 100ms.
+        // 100ms gap between two key presses at 1x credits the previous event's
+        // 10ms post settle, so the timeline portion is exactly 90ms.
         let events = vec![key_press("A", 0), key_press("B", 100)];
         let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
         // TimelineSleep is reserved for the inter-event portion; fixed
@@ -779,8 +882,8 @@ mod tests {
             })
             .collect();
         assert!(
-            sleeps.contains(&80),
-            "expected an exact 80ms inter-event sleep (100ms - 20ms settle credit); sleeps were {:?}",
+            sleeps.contains(&90),
+            "expected an exact 90ms inter-event sleep; sleeps were {:?}",
             sleeps
         );
         assert!(
@@ -795,8 +898,8 @@ mod tests {
         // A button replays as move → 10ms settle → press, and every event ends
         // with a 10ms post settle. Those fixed sleeps are credited so the gap
         // between two clicks matches the recording: a 200ms gap credits the
-        // previous post (10) + position update (10) + pre-press settle (10) = 30,
-        // leaving a 170ms inter-event sleep.
+        // previous post (10) + pre-press settle (10) = 20, leaving a 180ms
+        // inter-event sleep.
         let events = vec![
             button_press("Left", 0.0, 0.0, 0),
             button_press("Left", 0.0, 0.0, 200),
@@ -811,23 +914,15 @@ mod tests {
             })
             .collect();
         assert!(
-            sleeps.contains(&170),
-            "expected a 170ms inter-event sleep (200ms - 30ms settle credit); sleeps were {:?}",
+            sleeps.contains(&180),
+            "expected a 180ms inter-event sleep; sleeps were {:?}",
             sleeps
         );
     }
 
     #[test]
-    fn throttle_uses_delta_not_sum_of_timestamps() {
-        // Pins line 122 `event_time - prev_time`. Picks inputs where the
-        // operator matters: delta=5ms (no emit) but sum=55ms (would emit
-        // under a + mutant). check_index = max(index-3, 0), so for index 1
-        // check_index = 0 — we need events[0].timestamp >= 25 and
-        // events[1].timestamp = events[0] + 5.
-        let events = vec![
-            button_press("Left", 0.0, 0.0, 25), // prev_time = 25
-            mouse_move(1.0, 1.0, 30),           // event_time = 30, delta = 5, sum = 55
-        ];
+    fn cursor_ui_throttle_uses_timestamp_delta() {
+        let events = vec![mouse_move(0.0, 0.0, 25), mouse_move(1.0, 1.0, 30)];
         let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
         let positions: Vec<usize> = plan
             .steps
@@ -837,13 +932,9 @@ mod tests {
                 _ => None,
             })
             .collect();
-        // Original: delta 5 <= 50, throttled, no emit. Mutant: sum 55 > 50,
-        // emits. So position 1 in the list = mutation survived.
         assert!(
             !positions.contains(&1),
-            "delta of 5ms must throttle the position emit; the `-` operator \
-             keeps it under 50 while a `+` mutant would push sum 55 over 50. \
-             positions={:?}",
+            "a 5ms delta must throttle the position emit; positions={:?}",
             positions
         );
     }

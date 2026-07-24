@@ -142,7 +142,7 @@ pub struct Recording {
 ///   - `session`: the recording-side state machine (idle / active).
 ///   - `engine`: the playback-side state machine.
 ///
-/// Modifier/button/mouse-position state for the input listener lives inside
+/// Modifier, pointer-position, and sampling state for the input listener lives inside
 /// `event_capture::EventCapture` on the listener thread itself.
 pub struct RecordingState {
     pub session: Arc<RecordingSession>,

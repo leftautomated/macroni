@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Frame, Workflow } from "lucide-react";
 import type { KindOption } from "@/components/studio/CreateTargetPopover";
 import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
 import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
@@ -24,11 +25,15 @@ export interface AuthoringDockProps {
   onAddSegment: () => void;
   onSaveTarget: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
   onSampleColor: (region: Region, timestampMs: number) => Promise<[number, number, number]>;
+  /** Macro graph rendered over the video. Omit when the dock is used standalone. */
+  canvasOverlay?: ReactNode;
 }
 
 /**
  * Bottom authoring dock for the macro editor: the real StudioPlayer and
- * StudioTimeline at full width, exactly as the main studio pairs them.
+ * StudioTimeline, with the macro canvas sharing the player's stage when an
+ * overlay is supplied. Canvas mode owns stage gestures; Frame mode hands them
+ * to the player for playback and visual-target selection.
  * Segments come from dragging on the timeline OR marking In/Out at the
  * playhead (I/O keys or the clip-row buttons); either way the shared range
  * loop-previews on the player. Enter adds the segment, Escape clears.
@@ -42,6 +47,7 @@ export function AuthoringDock({
   onAddSegment,
   onSaveTarget,
   onSampleColor,
+  canvasOverlay,
 }: AuthoringDockProps) {
   const playerRef = useRef<StudioPlayerHandle>(null);
   const [videoS, setVideoS] = useState(0);
@@ -49,6 +55,7 @@ export function AuthoringDock({
   // controlsHost pattern as StudioEditor), so the video fills the left pane
   // and scrub/transport/timeline stack together on the right.
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
+  const [interactionMode, setInteractionMode] = useState<"canvas" | "frame">("canvas");
   const { url } = useVideoAssetUrl(recording.video);
 
   const durationMs = recording.video?.duration_ms ?? 0;
@@ -113,21 +120,56 @@ export function AuthoringDock({
 
   return (
     <div className="adock-root">
-      <div className="adock-player">
-        <StudioPlayer
-          key={recording.id}
-          ref={playerRef}
-          src={url ?? ""}
-          fps={recording.video?.fps ?? 30}
-          onTimeUpdate={setVideoS}
-          onReplay={noop}
-          showReplay={false}
-          controlsHost={controlsHost}
-          loopRegion={range ? { a: range.a / 1000, b: range.b / 1000 } : null}
-          onSaveTarget={onSaveTarget}
-          onSampleColor={onSampleColor}
-          popoverKinds={DOCK_POPOVER_KINDS}
-        />
+      <div className="adock-stage" data-interaction-mode={interactionMode}>
+        <div className="adock-player">
+          {url && (
+            <StudioPlayer
+              key={recording.id}
+              ref={playerRef}
+              src={url}
+              fps={recording.video?.fps ?? 30}
+              onTimeUpdate={setVideoS}
+              onReplay={noop}
+              showReplay={false}
+              controlsHost={controlsHost}
+              loopRegion={range ? { a: range.a / 1000, b: range.b / 1000 } : null}
+              onSaveTarget={onSaveTarget}
+              onSampleColor={onSampleColor}
+              popoverKinds={DOCK_POPOVER_KINDS}
+            />
+          )}
+        </div>
+        {canvasOverlay && (
+          <div className="adock-canvas" aria-hidden={interactionMode === "frame"}>
+            {canvasOverlay}
+          </div>
+        )}
+        {canvasOverlay && (
+          <fieldset className="adock-mode-switch" aria-label="Stage interaction">
+            <button
+              type="button"
+              className="adock-mode"
+              data-active={interactionMode === "canvas"}
+              aria-pressed={interactionMode === "canvas"}
+              title="Edit and connect macro nodes"
+              onClick={() => setInteractionMode("canvas")}
+            >
+              <Workflow aria-hidden="true" />
+              Canvas
+            </button>
+            <button
+              type="button"
+              className="adock-mode"
+              data-active={interactionMode === "frame"}
+              aria-pressed={interactionMode === "frame"}
+              title="Play the video or drag a visual target"
+              onClick={() => setInteractionMode("frame")}
+            >
+              <Frame aria-hidden="true" />
+              Frame
+            </button>
+          </fieldset>
+        )}
       </div>
       <div className="adock-timeline">
         <div ref={setControlsHost} className="adock-controls" />

@@ -313,34 +313,35 @@ export function MacroEditor({
           </ResizablePanel>
           <ResizableHandle />
           <ResizablePanel defaultSize={78}>
-            <ResizablePanelGroup direction="vertical">
-              <ResizablePanel id="macro-canvas" order={1} defaultSize={60} minSize={30}>
-                <section className="macro-editor-canvas-pane" aria-label="Macro canvas">
+            {authoringRecording ? (
+              <AuthoringDock
+                key={authoringRecording.id}
+                recording={authoringRecording}
+                range={authoringRange}
+                onRangeChange={setAuthoringRange}
+                onAddSegment={handleAddSegmentFromDock}
+                onSaveTarget={handleDockSaveTarget}
+                onSampleColor={handleDockSampleColor}
+                canvasOverlay={
                   <MacroCanvas
                     doc={workingDoc}
                     liveNodeId={liveNodeId}
                     failedNodeId={isStoppedRun ? null : (failed?.nodeId ?? null)}
                     onChange={handleCanvasChange}
+                    overlay
                   />
-                </section>
-              </ResizablePanel>
-              {authoringRecording && (
-                <>
-                  <ResizableHandle />
-                  <ResizablePanel id="authoring-dock" order={2} defaultSize={40} minSize={20}>
-                    <AuthoringDock
-                      key={authoringRecording.id}
-                      recording={authoringRecording}
-                      range={authoringRange}
-                      onRangeChange={setAuthoringRange}
-                      onAddSegment={handleAddSegmentFromDock}
-                      onSaveTarget={handleDockSaveTarget}
-                      onSampleColor={handleDockSampleColor}
-                    />
-                  </ResizablePanel>
-                </>
-              )}
-            </ResizablePanelGroup>
+                }
+              />
+            ) : (
+              <section className="macro-editor-canvas-pane" aria-label="Macro canvas">
+                <MacroCanvas
+                  doc={workingDoc}
+                  liveNodeId={liveNodeId}
+                  failedNodeId={isStoppedRun ? null : (failed?.nodeId ?? null)}
+                  onChange={handleCanvasChange}
+                />
+              </section>
+            )}
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>

@@ -71,6 +71,8 @@ export interface MacroCanvasProps {
   failedNodeId: string | null;
   onChange: (doc: MacroDoc) => void;
   onSelectionChange?: (nodeId: string | null) => void;
+  /** Render the flow as a translucent interaction layer over the authoring video. */
+  overlay?: boolean;
 }
 
 export function MacroCanvas({
@@ -79,6 +81,7 @@ export function MacroCanvas({
   failedNodeId,
   onChange,
   onSelectionChange,
+  overlay = false,
 }: MacroCanvasProps) {
   // Seeded once from the initial doc; subsequent re-seeding happens explicitly
   // in the `lastEmittedRef` effect below (which skips its mount re-fire).
@@ -192,7 +195,7 @@ export function MacroCanvas({
 
   return (
     <ReactFlowProvider>
-      <div className="macro-canvas-frame">
+      <div className={`macro-canvas-frame${overlay ? " macro-canvas-frame--overlay" : ""}`}>
         {doc.nodes.length === 0 && (
           <div className="macro-canvas-empty" aria-hidden="true">
             <div className="macro-canvas-empty-title">No nodes on this macro</div>

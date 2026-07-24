@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import {
   InputEventType,
   type InputEvent,
@@ -111,12 +112,15 @@ vi.mock("@/components/studio/macros/AuthoringDock", () => ({
     onRangeChange,
     onSaveTarget,
     onAddSegment,
+    canvasOverlay,
   }: {
     onRangeChange: (r: { a: number; b: number } | null) => void;
     onSaveTarget: (target: unknown, timestampMs: number) => Promise<void>;
     onAddSegment: () => void;
+    canvasOverlay?: ReactNode;
   }) => (
     <div data-testid="authoring-dock">
+      {canvasOverlay}
       <button type="button" onClick={() => onRangeChange({ a: 2000, b: 4000 })}>
         Simulate dock range
       </button>

@@ -106,6 +106,24 @@ const baseProps = {
 };
 
 describe("AuthoringDock", () => {
+  it("stacks the canvas over the frame and lets the user hand gestures to either layer", async () => {
+    const user = userEvent.setup();
+    render(
+      <AuthoringDock
+        {...baseProps}
+        canvasOverlay={<div data-testid="canvas-overlay">Canvas overlay</div>}
+      />,
+    );
+
+    const stage = screen.getByTestId("canvas-overlay").closest(".adock-stage");
+    expect(stage).toHaveAttribute("data-interaction-mode", "canvas");
+    expect(screen.getByRole("button", { name: "Canvas" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: "Frame" }));
+    expect(stage).toHaveAttribute("data-interaction-mode", "frame");
+    expect(screen.getByRole("button", { name: "Frame" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("rounds a timeline drag to whole ms before emitting onRangeChange", () => {
     const onRangeChange = vi.fn();
     const { container } = render(<AuthoringDock {...baseProps} onRangeChange={onRangeChange} />);

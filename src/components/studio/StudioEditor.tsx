@@ -14,6 +14,7 @@ import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import { invoke, logEvent } from "@/lib/observability";
 import { recordingDuration, recordingTitle } from "@/lib/recording-format";
 import { fullTrim, projectWithTrim, trimFromProject, type TrimRange } from "@/lib/recording-trim";
+import { publishReplaySelection } from "@/lib/replay-selection";
 import type { Observation, ObservationResult, PerceptionTarget, Recording, Region } from "@/types";
 import { defaultProjectDoc, type ProjectDoc } from "@/types/project";
 
@@ -100,6 +101,15 @@ export function StudioEditor() {
     () => recordings.find((r) => r.id === selectedId) ?? null,
     [recordings, selectedId],
   );
+
+  // The control bar owns OS-level input playback. Keep its Play target synced
+  // without routing through Tauri's webview manager during startup. A global
+  // Tauri event here can deadlock while the sibling webview is still loading.
+  useEffect(() => {
+    if (!selected) return;
+    publishReplaySelection(selected.id);
+  }, [selected]);
+
   const title = selected ? recordingTitle(selected) : "Studio";
   const { url } = useVideoAssetUrl(selected?.video);
   const sync = usePlaybackSync({ events: selected?.events ?? [], video: selected?.video });
@@ -219,25 +229,6 @@ export function StudioEditor() {
       setConfirmDeleteId(id);
     }
   };
-
-  // Replay runs from the main control panel (focus-safe). Hand it the recording;
-  // the main window comes forward with it loaded, ready for the user to play.
-  const handleReplay = useCallback(
-    (id: string, loopForever: boolean) => {
-      void invoke("request_replay", {
-        id,
-        loopForever,
-        trimStartMs: Math.round(effectiveTrim.a),
-        trimEndMs: Math.round(effectiveTrim.b),
-      }).catch((e) =>
-        logEvent("error", "studio", "request_replay_failed", {
-          error: e,
-          fields: { recordingId: id, loopForever },
-        }),
-      );
-    },
-    [effectiveTrim],
-  );
 
   const handleTrimCommit = useCallback(
     (next: TrimRange) => {
@@ -436,7 +427,7 @@ export function StudioEditor() {
                   src={url}
                   fps={selected.video.fps}
                   onTimeUpdate={sync.onVideoTime}
-                  onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
+                  showReplay={false}
                   loopRegion={loop ? { a: loop.a / 1000, b: loop.b / 1000 } : null}
                   trimRegion={{ a: effectiveTrim.a / 1000, b: effectiveTrim.b / 1000 }}
                   controlsHost={controlsHost}
@@ -451,11 +442,7 @@ export function StudioEditor() {
                     : {})}
                 />
               ) : (
-                <InputOnlyRecording
-                  key={selected.id}
-                  recording={selected}
-                  onReplay={(loopForever) => handleReplay(selected.id, loopForever)}
-                />
+                <InputOnlyRecording key={selected.id} recording={selected} showReplay={false} />
               )}
             </div>
             {/* Bottom: transport controls + all the events */}

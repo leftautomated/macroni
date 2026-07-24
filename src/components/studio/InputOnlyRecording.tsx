@@ -5,10 +5,15 @@ import type { Recording } from "@/types";
 
 interface InputOnlyRecordingProps {
   recording: Recording;
-  onReplay: (loopForever: boolean) => void;
+  onReplay?: (loopForever: boolean) => void;
+  showReplay?: boolean;
 }
 
-export function InputOnlyRecording({ recording, onReplay }: InputOnlyRecordingProps) {
+export function InputOnlyRecording({
+  recording,
+  onReplay,
+  showReplay = true,
+}: InputOnlyRecordingProps) {
   const [loop, setLoop] = useState(true);
   const actionCount = recording.events.length;
 
@@ -73,20 +78,22 @@ export function InputOnlyRecording({ recording, onReplay }: InputOnlyRecordingPr
           {formatDuration(recordingDuration(recording))}
         </p>
 
-        <div className="ior-actions">
-          <button
-            type="button"
-            className={`ior-loop${loop ? " on" : ""}`}
-            aria-label={loop ? "Loop on" : "Loop off"}
-            title={loop ? "Looping (click to turn off)" : "Loop off (click to loop)"}
-            onClick={() => setLoop((enabled) => !enabled)}
-          >
-            <Repeat size={15} />
-          </button>
-          <button type="button" className="ior-replay" onClick={() => onReplay(loop)}>
-            <Play size={14} /> Replay macro
-          </button>
-        </div>
+        {showReplay && onReplay && (
+          <div className="ior-actions">
+            <button
+              type="button"
+              className={`ior-loop${loop ? " on" : ""}`}
+              aria-label={loop ? "Loop on" : "Loop off"}
+              title={loop ? "Looping (click to turn off)" : "Loop off (click to loop)"}
+              onClick={() => setLoop((enabled) => !enabled)}
+            >
+              <Repeat size={15} />
+            </button>
+            <button type="button" className="ior-replay" onClick={() => onReplay(loop)}>
+              <Play size={14} /> Replay macro
+            </button>
+          </div>
+        )}
       </section>
     </div>
   );

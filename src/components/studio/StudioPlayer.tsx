@@ -16,7 +16,7 @@ interface StudioPlayerProps {
   src: string;
   fps: number;
   onTimeUpdate: (seconds: number) => void;
-  onReplay: (loopForever: boolean) => void;
+  onReplay?: (loopForever: boolean) => void;
   /** When set (seconds), playback repeats over [a, b]. */
   loopRegion?: { a: number; b: number } | null;
   /** Non-destructive kept range, in source-video seconds. */
@@ -460,7 +460,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
       {/* Right: replay (kept as an empty cell when hidden so the center
           cluster stays centered in the 1fr auto 1fr grid) */}
       <div style={{ display: "flex", alignItems: "center", justifySelf: "end" }}>
-        {showReplay && (
+        {showReplay && onReplay && (
           <button
             type="button"
             className="sp-replay"

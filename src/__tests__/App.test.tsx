@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Recording } from "@/types";
+import { publishReplaySelection } from "@/lib/replay-selection";
 
 const tauri = vi.hoisted(() => {
   type Listener = (event: { payload: unknown }) => void | Promise<void>;
@@ -54,6 +55,7 @@ describe("App (integration root)", () => {
   beforeEach(() => {
     tauri.state.recordings = [];
     tauri.state.listeners.clear();
+    localStorage.clear();
     vi.clearAllMocks();
 
     // jsdom doesn't implement ResizeObserver; useAutoResize uses it.
@@ -182,6 +184,35 @@ describe("App (integration root)", () => {
           events: recording.events,
           loopForever: false,
           speed: 1,
+          traceId: expect.any(String),
+        }),
+      );
+    });
+  });
+
+  it("plays the recording currently selected in Studio instead of the latest recording", async () => {
+    const current = makeRecording("rec-current");
+    current.name = "Current selection";
+    current.events = [{ type: "KeyPress", key: "KeyB", timestamp: 0 }] as Recording["events"];
+    const latest = makeRecording("rec-latest");
+    latest.name = "Latest recording";
+    latest.created_at = 2;
+    tauri.state.recordings = [latest, current];
+
+    render(<App />);
+    await screen.findByRole("button", { name: "Play current macro" });
+
+    act(() => {
+      publishReplaySelection(current.id);
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Play current macro" }));
+
+    await waitFor(() => {
+      expect(tauri.invoke).toHaveBeenCalledWith(
+        "play_recording",
+        expect.objectContaining({
+          events: current.events,
+          speed: current.playback_speed,
           traceId: expect.any(String),
         }),
       );

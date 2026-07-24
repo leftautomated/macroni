@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { invoke, logEvent } from "@/lib/observability";
 import { recordingWithinTrim } from "@/lib/recording-trim";
+import { subscribeReplaySelection } from "@/lib/replay-selection";
 import type { Recording } from "@/types";
 import { Clapperboard, GripVertical, MousePointerClick } from "lucide-react";
 
@@ -245,29 +246,39 @@ const App = () => {
     };
   }, []);
 
-  // The Studio hands a recording here as the current replay target. The
-  // overlay's non-activating panel is the focus-safe surface; the user starts
-  // it explicitly with the separate Play button when their target is ready.
-  useEffect(() => {
-    const unlisten = listen<ReplayRecordingPayload>("replay-recording", async (event) => {
-      const { id, loopForever, trimStartMs, trimEndMs } = normalizeReplayPayload(event.payload);
-      const all = await invoke<Recording[]>("load_recordings");
-      const rec = all.find((r) => r.id === id);
-      if (rec) {
-        replayTrimRef.current =
-          trimStartMs != null && trimEndMs != null ? { id, a: trimStartMs, b: trimEndMs } : null;
-        const replayRecording =
-          trimStartMs != null && trimEndMs != null
-            ? recordingWithinTrim(rec, { a: trimStartMs, b: trimEndMs })
-            : rec;
-        setCurrentRecording(replayRecording);
-        replayLoopForeverRef.current = loopForever;
-      }
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
+  const selectReplayRecording = useCallback(async (payload: ReplayRecordingPayload) => {
+    const { id, loopForever, trimStartMs, trimEndMs } = normalizeReplayPayload(payload);
+    const all = await invoke<Recording[]>("load_recordings");
+    const rec = all.find((r) => r.id === id);
+    if (rec) {
+      replayTrimRef.current =
+        trimStartMs != null && trimEndMs != null ? { id, a: trimStartMs, b: trimEndMs } : null;
+      const replayRecording =
+        trimStartMs != null && trimEndMs != null
+          ? recordingWithinTrim(rec, { a: trimStartMs, b: trimEndMs })
+          : rec;
+      setCurrentRecording(replayRecording);
+      replayLoopForeverRef.current = loopForever;
+    }
   }, []);
+
+  // Explicit replay requests still arrive from the backend. Selection-only
+  // synchronization stays in the web layer so it cannot deadlock Tauri while
+  // the sibling Studio webview is loading.
+  useEffect(() => {
+    const unlistenReplay = listen<ReplayRecordingPayload>(
+      "replay-recording",
+      (event) => void selectReplayRecording(event.payload),
+    );
+    return () => {
+      unlistenReplay.then((fn) => fn());
+    };
+  }, [selectReplayRecording]);
+
+  useEffect(
+    () => subscribeReplaySelection((recordingId) => void selectReplayRecording(recordingId)),
+    [selectReplayRecording],
+  );
 
   const handlePlayCurrent = useCallback(() => {
     if (currentRecording) {

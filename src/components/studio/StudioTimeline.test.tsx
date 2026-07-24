@@ -117,7 +117,7 @@ describe("StudioTimeline", () => {
   it("cuts and extends the kept recording range with draggable handles", () => {
     const onTrimChange = vi.fn();
     const onTrimCommit = vi.fn();
-    const { rerender } = render(
+    const { container, rerender } = render(
       <StudioTimeline
         {...base}
         trim={{ a: 0, b: 2000 }}
@@ -143,6 +143,8 @@ describe("StudioTimeline", () => {
         onLoopChange={noop}
       />,
     );
+    expect(container.querySelectorAll(".tl-clip-bed")).toHaveLength(1);
+    expect(container.querySelector(".tl-cut")).not.toBeInTheDocument();
     expect(screen.getByText("Clip")).toBeInTheDocument();
     expect(screen.getByText("1.1s")).toBeInTheDocument();
     expect(screen.getByText("1×")).toBeInTheDocument();

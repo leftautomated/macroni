@@ -537,14 +537,14 @@ export function StudioTimeline({
         .tl-slider:focus-visible { border-color: var(--studio-accent); }
         .tl-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance:none; width: 11px; height: 11px; border-radius: 50%; background: var(--studio-accent-fill); cursor: pointer; }
         .tl-slider::-webkit-slider-thumb:hover { background: var(--studio-accent-fill-hover); }
-        .tl-clip-region { position: absolute; z-index: 1; top: 22px; bottom: 0; overflow: hidden; border: 1px solid var(--studio-accent); border-radius: 9px; background: linear-gradient(180deg, color-mix(in srgb, var(--timeline-clip-fill) 88%, white) 0%, var(--timeline-clip-fill) 100%); box-shadow: 0 1px 0 rgb(255 255 255 / 18%) inset; pointer-events: none; }
+        .tl-clip-bed { position: absolute; z-index: 1; inset: 22px 0 0; overflow: hidden; border: 1px solid var(--studio-border); border-radius: 9px; background: var(--timeline-cut); box-shadow: 0 1px 0 rgb(255 255 255 / 8%) inset; pointer-events: none; }
+        .tl-clip-region { position: absolute; z-index: 1; top: 22px; bottom: 0; overflow: hidden; border: 1px solid var(--studio-accent); border-radius: 9px; background: linear-gradient(180deg, color-mix(in srgb, var(--timeline-clip-fill) 88%, white) 0%, var(--timeline-clip-fill) 100%); box-shadow: 0 1px 0 rgb(255 255 255 / 18%) inset, 0 2px 5px rgb(0 0 0 / 18%); pointer-events: none; }
         .tl-clip-meta-overlay { position: absolute; z-index: 4; top: 22px; bottom: 0; overflow: hidden; container-type: inline-size; pointer-events: none; }
         .tl-clip-meta { position: absolute; top: 10px; right: 14px; display: none; min-width: 74px; color: var(--timeline-clip-text); text-align: right; text-shadow: 0 1px 1px rgb(0 0 0 / 25%); }
         .tl-clip-name { display: block; opacity: 0.58; font-size: 10px; font-weight: 650; line-height: 1; }
         .tl-clip-details { display: flex; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 5px; font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 650; line-height: 1; }
         .tl-clip-rate { display: inline-flex; align-items: center; gap: 3px; }
         @container (min-width: 132px) { .tl-clip-meta { display: block; } }
-        .tl-cut { position: absolute; z-index: 5; top: 22px; bottom: 0; background: var(--timeline-cut); pointer-events: none; }
         .tl-trim-handle { position: absolute; z-index: 8; top: 23px; bottom: 1px; width: 12px; padding: 0; border: 1px solid color-mix(in srgb, var(--studio-accent) 75%, white); background: var(--studio-accent-fill); color: #201b0f; cursor: ew-resize; touch-action: none; box-shadow: 0 1px 0 rgb(255 255 255 / 16%) inset; }
         .tl-trim-handle.start { border-radius: 8px 3px 3px 8px; }
         .tl-trim-handle.end { border-radius: 3px 8px 8px 3px; }
@@ -719,6 +719,7 @@ export function StudioTimeline({
             )}
             {trim && (
               <>
+                <div className="tl-clip-bed" />
                 <div
                   className="tl-clip-region"
                   style={{ left: `${pctOf(trim.a)}%`, width: `${pctOf(trim.b - trim.a)}%` }}
@@ -737,8 +738,6 @@ export function StudioTimeline({
                     </span>
                   </div>
                 </div>
-                <div className="tl-cut" style={{ left: 0, width: `${pctOf(trim.a)}%` }} />
-                <div className="tl-cut" style={{ left: `${pctOf(trim.b)}%`, right: 0 }} />
                 <button
                   type="button"
                   className="tl-trim-handle start"

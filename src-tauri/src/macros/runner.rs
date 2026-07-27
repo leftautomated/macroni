@@ -54,7 +54,9 @@ pub trait MacroClock: Send + 'static {
 
 /// UI/telemetry sink for run progress. Every run emits exactly one terminal
 /// event: `run_finished` on success (Stop rule fired), `run_failed` on any
-/// abort (manual stop, probe error, compile error).
+/// abort (manual stop, probe error, compile error). `index` is the rule's
+/// position in `doc.rules` (not its position among only the enabled rules),
+/// so a UI can index straight into the saved doc to highlight it.
 pub trait MacroEmitter: Send + 'static {
     fn rule_fired(&self, macro_id: &str, rule_id: &str, index: usize);
     fn rule_settled(&self, macro_id: &str, rule_id: &str, index: usize);
@@ -89,7 +91,17 @@ pub fn run_rules(
     emitter: &impl MacroEmitter,
 ) -> Result<(), ()> {
     let macro_id = doc.id.as_str();
-    let rules: Vec<&MacroRule> = doc.rules.iter().filter(|r| r.enabled).collect();
+    // Pairs each enabled rule with its ORIGINAL position in `doc.rules` —
+    // `armed`/`fired`/the loop counter `i` below all index into this
+    // filtered vec (that's the cleanest bookkeeping), but every emitted
+    // `index` uses the paired `doc_index` so the UI can highlight the right
+    // row even when a disabled rule sits earlier in the doc.
+    let rules: Vec<(usize, &MacroRule)> = doc
+        .rules
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.enabled)
+        .collect();
     if rules.is_empty() {
         // Pre-validated by MacroRunner::start; still emit one terminal event
         // so a malformed direct call can't end silently.
@@ -107,7 +119,7 @@ pub fn run_rules(
         // Evaluate top-to-bottom; stop at the first armed match. Rules seen
         // NOT matching re-arm; rules after a fired one keep their state.
         let mut fired: Option<usize> = None;
-        for (i, rule) in rules.iter().enumerate() {
+        for (i, (_, rule)) in rules.iter().enumerate() {
             match probe.evaluate(&rule.trigger) {
                 Err(e) => {
                     emitter.run_failed(macro_id, &rule.id, &format!("evaluation-error: {e}"));
@@ -124,11 +136,11 @@ pub fn run_rules(
         }
 
         if let Some(i) = fired {
-            let rule = rules[i];
-            emitter.rule_fired(macro_id, &rule.id, i);
+            let (doc_index, rule) = rules[i];
+            emitter.rule_fired(macro_id, &rule.id, doc_index);
             match &rule.action {
                 RuleAction::Stop => {
-                    emitter.rule_settled(macro_id, &rule.id, i);
+                    emitter.rule_settled(macro_id, &rule.id, doc_index);
                     emitter.run_finished(macro_id, true);
                     return Ok(());
                 }
@@ -146,7 +158,7 @@ pub fn run_rules(
                         return Err(());
                     }
                     armed[i] = false;
-                    emitter.rule_settled(macro_id, &rule.id, i);
+                    emitter.rule_settled(macro_id, &rule.id, doc_index);
                 }
             }
         }
@@ -398,14 +410,17 @@ mod tests {
         }
     }
     impl MacroEmitter for RecordingEmitter {
-        fn rule_fired(&self, _macro_id: &str, rule_id: &str, _index: usize) {
-            self.calls.lock().unwrap().push(format!("fired:{rule_id}"));
-        }
-        fn rule_settled(&self, _macro_id: &str, rule_id: &str, _index: usize) {
+        fn rule_fired(&self, _macro_id: &str, rule_id: &str, index: usize) {
             self.calls
                 .lock()
                 .unwrap()
-                .push(format!("settled:{rule_id}"));
+                .push(format!("fired:{rule_id}:{index}"));
+        }
+        fn rule_settled(&self, _macro_id: &str, rule_id: &str, index: usize) {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("settled:{rule_id}:{index}"));
         }
         fn run_finished(&self, _macro_id: &str, ok: bool) {
             self.calls
@@ -503,7 +518,8 @@ mod tests {
             .into_iter()
             .filter(|c| c.starts_with("fired:"))
             .collect();
-        assert_eq!(fired, vec!["fired:r1"]);
+        // Both rules are enabled, so filtered position == doc.rules position.
+        assert_eq!(fired, vec!["fired:r1:0"]);
         assert!(!eval_log.lock().unwrap().contains(&"t2".to_string()));
     }
 
@@ -553,6 +569,10 @@ mod tests {
 
     #[test]
     fn disabled_rules_are_skipped_and_never_evaluated() {
+        // r1 (index 0) is disabled, r2 (index 1) is enabled and fires. The
+        // emitted index must be r2's position in doc.rules (1) — NOT its
+        // position among only the enabled rules (0) — so a UI indexing
+        // straight into doc.rules highlights r2, not the disabled r1.
         let mut r1 = play_rule("r1", "t1", "A");
         r1.enabled = false;
         let r2 = play_rule("r2", "t2", "B");
@@ -574,7 +594,7 @@ mod tests {
             .into_iter()
             .filter(|c| c.starts_with("fired:"))
             .collect();
-        assert_eq!(fired, vec!["fired:r2"]);
+        assert_eq!(fired, vec!["fired:r2:1"]);
         assert!(!eval_log.lock().unwrap().contains(&"t1".to_string()));
     }
 
@@ -592,8 +612,8 @@ mod tests {
         assert_eq!(
             emitter.log(),
             vec![
-                "fired:r1".to_string(),
-                "settled:r1".to_string(),
+                "fired:r1:0".to_string(),
+                "settled:r1:0".to_string(),
                 "run_finished:true".to_string(),
             ]
         );
@@ -670,7 +690,8 @@ mod tests {
     #[test]
     fn play_inputs_replays_through_the_simulator_then_disarms() {
         // Match, miss, match: fires twice, each firing replaying the rule's
-        // single KeyPress (auto-completed with a release by the compiler).
+        // single KeyPress 1:1 through the simulator (compile doesn't
+        // synthesize a matching release — it's a straight event translation).
         let d = doc(vec![play_rule("r1", "t1", "A")]);
         let cancel = AtomicBool::new(true);
         let sim = FakeSimulator::default();
@@ -691,9 +712,7 @@ mod tests {
             sim.calls.lock().unwrap().clone(),
             vec![
                 EventType::KeyPress(Key::KeyA),
-                EventType::KeyRelease(Key::KeyA),
-                EventType::KeyPress(Key::KeyA),
-                EventType::KeyRelease(Key::KeyA),
+                EventType::KeyPress(Key::KeyA)
             ]
         );
     }

@@ -20,6 +20,7 @@ describe("TriggerPicker", () => {
   it("shows a scanning state while spans are null", () => {
     render(<TriggerPicker spans={null} onPickSpan={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.getByText(/scanning/i)).toBeInTheDocument();
+    expect(screen.queryAllByRole("button", { name: /use text/i })).toEqual([]);
   });
 
   it("renders a positioned, clickable box per span", () => {

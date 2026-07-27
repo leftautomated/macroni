@@ -1229,6 +1229,10 @@
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--macro-accent) 14%, transparent);
 }
 
+.tp-span:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--macro-accent) 14%, transparent);
+}
+
 .tp-chip {
   position: absolute;
   bottom: 12px;

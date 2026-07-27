@@ -25,6 +25,11 @@ const keyRelease = (k: string, t: number): InputEvent => ({
   key: k,
   timestamp: t,
 });
+const keyRepeat = (k: string, t: number): InputEvent => ({
+  type: InputEventType.KeyRepeat,
+  key: k,
+  timestamp: t,
+});
 const press = (button: string, x: number, y: number, t: number): InputEvent => ({
   type: InputEventType.ButtonPress,
   button,
@@ -140,6 +145,38 @@ describe("groupEvents", () => {
     ]);
     expect(rows.map((r) => r.kind)).toEqual(["keystroke", "keystroke"]);
     expect(rows[1]).toMatchObject({ kind: "keystroke", key: "B", startIndex: 2, endIndex: 3 });
+  });
+
+  it("groups a press, autorepeats, and release into one key hold", () => {
+    const rows = groupEvents([
+      keyPress("E", 0),
+      keyRepeat("E", 500),
+      keyRepeat("E", 584),
+      keyRelease("E", 916),
+    ]);
+
+    expect(rows).toEqual([
+      {
+        kind: "keystroke",
+        startIndex: 0,
+        endIndex: 3,
+        key: "E",
+        timestamp: 0,
+        durationMs: 916,
+        repeatCount: 2,
+      },
+    ]);
+  });
+
+  it("infers repeats in recordings saved before KeyRepeat existed", () => {
+    const rows = groupEvents([
+      keyPress("E", 0),
+      keyPress("E", 500),
+      keyPress("E", 584),
+      keyRelease("E", 916),
+    ]);
+
+    expect(rows[0]).toMatchObject({ kind: "keystroke", durationMs: 916, repeatCount: 2 });
   });
 
   it("does not group a release whose key differs from the preceding press", () => {

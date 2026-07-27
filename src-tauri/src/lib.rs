@@ -905,7 +905,8 @@ pub fn run() {
             std::thread::spawn(move || {
                 while let Ok(event) = rx.recv() {
                     match &event {
-                        InputEvent::KeyPress { key, timestamp } => {
+                        InputEvent::KeyPress { key, timestamp }
+                        | InputEvent::KeyRepeat { key, timestamp } => {
                             dedup.note_key_press(key, *timestamp)
                         }
                         InputEvent::KeyRelease { key, .. } => dedup.note_key_release(key),

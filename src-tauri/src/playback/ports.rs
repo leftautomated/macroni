@@ -1,10 +1,14 @@
 //! Ports for playback I/O: input simulation and UI event emission.
 
-use rdev::EventType;
+use rdev::{EventType, Key};
 use tauri::{AppHandle, Emitter as _};
 
 pub trait Simulator: Send + 'static {
     fn simulate(&self, event_type: EventType) -> Result<(), String>;
+
+    fn simulate_key_repeat(&self, key: Key) -> Result<(), String> {
+        self.simulate(EventType::KeyPress(key))
+    }
 }
 
 pub trait Emitter: Send + 'static {
@@ -23,6 +27,11 @@ impl Simulator for RdevSimulator {
             return simulate_windows_mouse_move(x, y);
         }
         rdev::simulate(&event_type).map_err(|e| format!("{:?}", e))
+    }
+
+    #[cfg(target_os = "macos")]
+    fn simulate_key_repeat(&self, key: Key) -> Result<(), String> {
+        super::macos::simulate_key_repeat(key)
     }
 }
 

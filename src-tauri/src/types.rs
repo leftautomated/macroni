@@ -14,6 +14,11 @@ pub enum InputEvent {
         key: String,
         timestamp: i64,
     },
+    /// An operating-system autorepeat emitted while `key` remains down.
+    KeyRepeat {
+        key: String,
+        timestamp: i64,
+    },
     KeyRelease {
         key: String,
         timestamp: i64,
@@ -167,6 +172,7 @@ impl InputEventTimestamp for InputEvent {
     fn timestamp(&self) -> i64 {
         match self {
             InputEvent::KeyPress { timestamp, .. } => *timestamp,
+            InputEvent::KeyRepeat { timestamp, .. } => *timestamp,
             InputEvent::KeyRelease { timestamp, .. } => *timestamp,
             InputEvent::KeyCombo { timestamp, .. } => *timestamp,
             InputEvent::ButtonPress { timestamp, .. } => *timestamp,

@@ -6,8 +6,9 @@
 //! iteration. The engine handles warmup, inter-iteration gaps, and stop.
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 
-use rdev::EventType;
+use rdev::{EventType, Key};
 
 use crate::key_mapping::{string_to_button, string_to_key};
 use crate::types::{InputEvent, InputEventTimestamp};
@@ -35,6 +36,9 @@ pub enum PlannedStep {
     TimelineSleep { ms: u64 },
     /// Drive an OS-level input simulation.
     Simulate(EventType),
+    /// Repeat a key that is already down. The simulator may preserve a native
+    /// autorepeat marker when its platform API exposes one.
+    SimulateKeyRepeat(Key),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,7 +73,8 @@ impl PlaybackPlan {
             return Err(PlanError::AllKeyCombos);
         }
         let speed = sanitize_speed(speed);
-        let prepared = prepare_events(events);
+        let mut prepared = prepare_events(events);
+        infer_legacy_key_repeats(&mut prepared);
 
         let mut steps = Vec::with_capacity(prepared.len() * 3);
         // The settle sleep that ran after the previous simulated event. It's
@@ -151,6 +156,32 @@ impl PlaybackPlan {
             prev_post_ms = post_ms;
         }
         Ok(Self { steps })
+    }
+}
+
+fn infer_legacy_key_repeats(events: &mut [PreparedEvent<'_>]) {
+    let mut pressed = HashSet::<String>::new();
+    for prepared in events {
+        let replacement = match prepared.event.as_ref() {
+            InputEvent::KeyPress { key, timestamp } if !pressed.insert(key.clone()) => {
+                Some(InputEvent::KeyRepeat {
+                    key: key.clone(),
+                    timestamp: *timestamp,
+                })
+            }
+            InputEvent::KeyRepeat { key, .. } => {
+                pressed.insert(key.clone());
+                None
+            }
+            InputEvent::KeyRelease { key, .. } => {
+                pressed.remove(key);
+                None
+            }
+            _ => None,
+        };
+        if let Some(event) = replacement {
+            prepared.event = Cow::Owned(event);
+        }
     }
 }
 
@@ -275,6 +306,13 @@ fn push_simulate(steps: &mut Vec<PlannedStep>, event: &InputEvent) {
                 steps.push(PlannedStep::Simulate(EventType::KeyPress(k)));
             } else {
                 log::warn!(target: "macroni::playback_plan", "unknown key: {key}");
+            }
+        }
+        InputEvent::KeyRepeat { key, .. } => {
+            if let Some(k) = string_to_key(key) {
+                steps.push(PlannedStep::SimulateKeyRepeat(k));
+            } else {
+                log::warn!(target: "macroni::playback_plan", "unknown repeated key: {key}");
             }
         }
         InputEvent::KeyRelease { key, .. } => {
@@ -482,6 +520,41 @@ mod tests {
             .steps
             .iter()
             .any(|s| matches!(s, PlannedStep::Simulate(EventType::KeyRelease(Key::KeyA)))));
+    }
+
+    #[test]
+    fn key_repeat_is_planned_as_repeat_not_an_initial_press() {
+        let events = vec![
+            key_press("A", 0),
+            InputEvent::KeyRepeat {
+                key: "A".into(),
+                timestamp: 500,
+            },
+            key_release("A", 600),
+        ];
+
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+
+        assert!(plan
+            .steps
+            .iter()
+            .any(|step| matches!(step, PlannedStep::SimulateKeyRepeat(Key::KeyA))));
+    }
+
+    #[test]
+    fn duplicate_press_from_a_legacy_recording_is_inferred_as_repeat() {
+        let events = vec![
+            key_press("A", 0),
+            key_press("A", 500),
+            key_release("A", 600),
+        ];
+
+        let plan = PlaybackPlan::compile(&events, 1.0).unwrap();
+
+        assert!(plan
+            .steps
+            .iter()
+            .any(|step| matches!(step, PlannedStep::SimulateKeyRepeat(Key::KeyA))));
     }
 
     #[test]

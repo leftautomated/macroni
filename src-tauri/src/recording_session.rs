@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use crate::capture::ScreenCaptureSession;
-use crate::types::InputEvent;
+use crate::types::{InputEvent, InputEventTimestamp};
 
 pub struct RecordingSession {
     recording: AtomicBool,
@@ -41,6 +41,146 @@ pub struct StoppedSession {
 pub enum SessionError {
     AlreadyActive,
     NotActive,
+}
+
+#[derive(Debug)]
+enum OpenInput {
+    Key(String),
+    Button { button: String, x: f64, y: f64 },
+}
+
+#[cfg(any(target_os = "linux", test))]
+const X11_AUTOREPEAT_PAIR_MAX_MS: i64 = 5;
+
+/// X11 normally represents autorepeat as a synthetic release immediately
+/// followed by another press. Collapse that pair after capture so recordings
+/// retain the physical down state. See XKB DetectableAutorepeat:
+/// https://www.x.org/releases/X11R7.7/doc/libX11/XKB/xkblib.html
+#[cfg(any(target_os = "linux", test))]
+fn collapse_x11_autorepeat_pairs(events: &mut Vec<InputEvent>) {
+    let mut normalized = Vec::with_capacity(events.len());
+    let mut iter = std::mem::take(events).into_iter().peekable();
+    while let Some(event) = iter.next() {
+        let repeat = match (&event, iter.peek()) {
+            (
+                InputEvent::KeyRelease {
+                    key: released_key,
+                    timestamp: released_at,
+                },
+                Some(InputEvent::KeyPress {
+                    key: pressed_key,
+                    timestamp: pressed_at,
+                }),
+            ) if released_key == pressed_key
+                && (0..=X11_AUTOREPEAT_PAIR_MAX_MS)
+                    .contains(&pressed_at.saturating_sub(*released_at)) =>
+            {
+                Some((pressed_key.clone(), *pressed_at))
+            }
+            _ => None,
+        };
+
+        let Some((key, timestamp)) = repeat else {
+            normalized.push(event);
+            continue;
+        };
+        let Some(InputEvent::KeyPress { .. }) = iter.next() else {
+            normalized.push(event);
+            continue;
+        };
+        normalized.push(InputEvent::KeyRepeat {
+            key: key.clone(),
+            timestamp,
+        });
+        if matches!(
+            iter.peek(),
+            Some(InputEvent::KeyCombo {
+                key: combo_key,
+                timestamp: combo_at,
+                ..
+            }) if combo_key == &key && *combo_at == timestamp
+        ) {
+            iter.next();
+        }
+    }
+    *events = normalized;
+}
+
+fn close_open_inputs(events: &mut Vec<InputEvent>, stopped_at: i64) {
+    let mut open = Vec::<OpenInput>::new();
+    for event in events.iter() {
+        match event {
+            InputEvent::KeyPress { key, .. } => {
+                if !open
+                    .iter()
+                    .any(|input| matches!(input, OpenInput::Key(open_key) if open_key == key))
+                {
+                    open.push(OpenInput::Key(key.clone()));
+                }
+            }
+            InputEvent::KeyRepeat { .. } => {}
+            InputEvent::KeyRelease { key, .. } => {
+                if let Some(index) = open
+                    .iter()
+                    .rposition(|input| matches!(input, OpenInput::Key(open_key) if open_key == key))
+                {
+                    open.remove(index);
+                }
+            }
+            InputEvent::ButtonPress { button, x, y, .. } => {
+                if !open.iter().any(
+                    |input| matches!(input, OpenInput::Button { button: open_button, .. } if open_button == button),
+                ) {
+                    open.push(OpenInput::Button {
+                        button: button.clone(),
+                        x: *x,
+                        y: *y,
+                    });
+                }
+            }
+            InputEvent::ButtonRelease { button, .. } => {
+                if let Some(index) = open.iter().rposition(
+                    |input| matches!(input, OpenInput::Button { button: open_button, .. } if open_button == button),
+                ) {
+                    open.remove(index);
+                }
+            }
+            InputEvent::MouseMove { x, y, .. } => {
+                for input in &mut open {
+                    if let OpenInput::Button {
+                        x: open_x,
+                        y: open_y,
+                        ..
+                    } = input
+                    {
+                        *open_x = *x;
+                        *open_y = *y;
+                    }
+                }
+            }
+            InputEvent::KeyCombo { .. }
+            | InputEvent::Scroll { .. }
+            | InputEvent::SpaceSwitch { .. } => {}
+        }
+    }
+
+    let release_timestamp = events
+        .last()
+        .map_or(stopped_at, |event| stopped_at.max(event.timestamp()));
+    for input in open.into_iter().rev() {
+        events.push(match input {
+            OpenInput::Key(key) => InputEvent::KeyRelease {
+                key,
+                timestamp: release_timestamp,
+            },
+            OpenInput::Button { button, x, y } => InputEvent::ButtonRelease {
+                button,
+                x,
+                y,
+                timestamp: release_timestamp,
+            },
+        });
+    }
 }
 
 impl std::fmt::Display for SessionError {
@@ -108,15 +248,20 @@ impl RecordingSession {
         match std::mem::replace(&mut *state, SessionState::Idle) {
             SessionState::Active {
                 id,
-                events,
+                mut events,
                 capture,
                 perception,
-            } => Ok(StoppedSession {
-                id,
-                events,
-                capture,
-                perception,
-            }),
+            } => {
+                #[cfg(target_os = "linux")]
+                collapse_x11_autorepeat_pairs(&mut events);
+                close_open_inputs(&mut events, chrono::Utc::now().timestamp_millis());
+                Ok(StoppedSession {
+                    id,
+                    events,
+                    capture,
+                    perception,
+                })
+            }
             SessionState::Idle => Err(SessionError::NotActive),
         }
     }
@@ -144,8 +289,9 @@ mod tests {
     use crate::types::InputEventTimestamp;
 
     fn ev(ts: i64) -> InputEvent {
-        InputEvent::KeyPress {
-            key: "A".into(),
+        InputEvent::Scroll {
+            delta_x: 0,
+            delta_y: 0,
             timestamp: ts,
         }
     }
@@ -227,6 +373,85 @@ mod tests {
         assert_eq!(stopped.id, "rec-1");
         assert_eq!(stopped.events.len(), 1);
         assert!(!s.is_active(), "stop should return to idle");
+    }
+
+    #[test]
+    fn close_open_inputs_releases_a_key_at_stop_time() {
+        let mut events = vec![
+            InputEvent::KeyPress {
+                key: "E".into(),
+                timestamp: 100,
+            },
+            InputEvent::KeyRepeat {
+                key: "E".into(),
+                timestamp: 600,
+            },
+        ];
+
+        close_open_inputs(&mut events, 900);
+
+        assert!(matches!(
+            events.last(),
+            Some(InputEvent::KeyRelease { key, timestamp })
+                if key == "E" && *timestamp == 900
+        ));
+    }
+
+    #[test]
+    fn close_open_inputs_does_not_duplicate_an_existing_release() {
+        let mut events = vec![
+            InputEvent::KeyPress {
+                key: "E".into(),
+                timestamp: 100,
+            },
+            InputEvent::KeyRelease {
+                key: "E".into(),
+                timestamp: 200,
+            },
+        ];
+
+        close_open_inputs(&mut events, 900);
+
+        assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn collapse_x11_autorepeat_pairs_preserves_one_hold_and_drops_repeat_combo() {
+        let mut events = vec![
+            InputEvent::KeyPress {
+                key: "E".into(),
+                timestamp: 100,
+            },
+            InputEvent::KeyRelease {
+                key: "E".into(),
+                timestamp: 600,
+            },
+            InputEvent::KeyPress {
+                key: "E".into(),
+                timestamp: 600,
+            },
+            InputEvent::KeyCombo {
+                char: "e".into(),
+                key: "E".into(),
+                modifiers: Vec::new(),
+                timestamp: 600,
+            },
+            InputEvent::KeyRelease {
+                key: "E".into(),
+                timestamp: 700,
+            },
+        ];
+
+        collapse_x11_autorepeat_pairs(&mut events);
+
+        assert!(matches!(
+            events.as_slice(),
+            [
+                InputEvent::KeyPress { .. },
+                InputEvent::KeyRepeat { .. },
+                InputEvent::KeyRelease { .. }
+            ]
+        ));
     }
 
     #[test]

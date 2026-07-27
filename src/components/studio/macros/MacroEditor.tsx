@@ -103,14 +103,33 @@ export function MacroEditor({
   // does. A ref (not state) — this ticks every animation frame while playing
   // and is only ever read on click.
   const playheadMsRef = useRef(0);
+  // Bumped by every transition that invalidates the open draft (start, cancel,
+  // confirm, recording change). Async continuations capture it on entry and
+  // bail if it moved, so a slow frame OCR or image capture can never
+  // repopulate — or resurrect — a draft the user has already left behind.
+  const draftEpochRef = useRef(0);
 
   const authoringRecording =
     recordings.find((r) => r.id === authoringRecordingId && r.video) ?? null;
 
-  const handleSelectRecording = useCallback((id: string) => {
-    setAuthoringRecordingId(id);
+  const handleCancelDraft = useCallback(() => {
+    draftEpochRef.current += 1;
+    setDraft(null);
+    setDraftError(null);
     setAuthoringRange(null);
   }, []);
+
+  // Changing the recording always drops the draft: its trigger was cut from
+  // the outgoing recording's frame, and confirming it afterwards would build a
+  // rule whose anchor and replayed events came from a *different* recording
+  // than the trigger that fires it.
+  const handleSelectRecording = useCallback(
+    (id: string) => {
+      setAuthoringRecordingId(id);
+      handleCancelDraft();
+    },
+    [handleCancelDraft],
+  );
 
   // The recording selector lives inside the dock, and the dock only renders
   // once a recording is picked — so default to the first video-bearing one
@@ -118,8 +137,8 @@ export function MacroEditor({
   useEffect(() => {
     if (recordings.some((r) => r.id === authoringRecordingId && r.video)) return;
     const first = recordings.find((r) => r.video);
-    if (first) setAuthoringRecordingId(first.id);
-  }, [recordings, authoringRecordingId]);
+    if (first) handleSelectRecording(first.id);
+  }, [recordings, authoringRecordingId, handleSelectRecording]);
 
   // The editor always opens onto *something* editable — a throwaway blank
   // draft until the saved list arrives. Once it does, hand off from that
@@ -132,12 +151,6 @@ export function MacroEditor({
     handedOffRef.current = true;
     setWorkingDoc(macros[0]);
   }, [macros, dirty, workingDoc.id]);
-
-  const handleCancelDraft = useCallback(() => {
-    setDraft(null);
-    setDraftError(null);
-    setAuthoringRange(null);
-  }, []);
 
   const handleSelect = useCallback(
     (id: string) => {
@@ -256,6 +269,8 @@ export function MacroEditor({
     async (timestampMs: number) => {
       if (!authoringRecording) return;
       const anchorMs = Math.round(timestampMs);
+      // Starting a draft supersedes any earlier one, in-flight OCR included.
+      const epoch = ++draftEpochRef.current;
       setDraftError(null);
       setDraft({ anchorMs, trigger: null, spans: null, actionType: "PlayInputs" });
       try {
@@ -268,9 +283,11 @@ export function MacroEditor({
           region: { x: 0, y: 0, w: 1, h: 1 },
           kind: { type: "TextOcr", expect: null },
         });
+        if (draftEpochRef.current !== epoch) return;
         setDraft((d) => (d ? { ...d, spans: res.type === "Text" ? res.spans : [] } : d));
       } catch (e) {
         logEvent("error", "macros", "frame_ocr_failed", { error: e });
+        if (draftEpochRef.current !== epoch) return;
         setDraft((d) => (d ? { ...d, spans: [] } : d));
       }
     },
@@ -318,17 +335,22 @@ export function MacroEditor({
     async (target: PerceptionTarget, timestampMs: number) => {
       if (!authoringRecording) return;
       const anchorMs = Math.round(timestampMs);
+      // The crop can outlive the frame it was dragged on (recording switch,
+      // draft cancelled) — neither branch may touch state if it has.
+      const epoch = draftEpochRef.current;
       try {
         const resolved =
           target.kind.type === "TemplateMatch"
             ? await captureImageWait(authoringRecording.id, target, timestampMs)
             : target;
+        if (draftEpochRef.current !== epoch) return;
         setDraftError(null);
         applyDraftTrigger(resolved, anchorMs);
       } catch {
         // captureImageWait already logged it — surface it where the user is
         // looking, opening a draft card to hold the message if the drag was
         // the entry point.
+        if (draftEpochRef.current !== epoch) return;
         setDraftError("Couldn't capture that — try again");
         setDraft(
           (d) => d ?? { anchorMs, trigger: null, spans: [], actionType: "PlayInputs" as const },
@@ -363,6 +385,7 @@ export function MacroEditor({
     }
     setWorkingDoc((doc) => ({ ...doc, rules: [...doc.rules, rule] }));
     setDirty(true);
+    draftEpochRef.current += 1;
     setDraft(null);
     setDraftError(null);
     setAuthoringRange(null);
@@ -396,13 +419,15 @@ export function MacroEditor({
       const rule = workingDoc.rules.find((r) => r.id === ruleId);
       if (!rule?.anchor) return;
       if (rule.anchor.recording_id !== authoringRecordingId) {
-        setAuthoringRecordingId(rule.anchor.recording_id);
+        // Same rule as the selector: a draft can't survive the recording it
+        // was cut from. Its range reset is immediately overwritten below.
+        handleSelectRecording(rule.anchor.recording_id);
       }
       setPendingSeekMs(rule.anchor.timestamp_ms);
       const prov = rule.action.type === "PlayInputs" ? rule.action.provenance : null;
       setAuthoringRange(prov ? { a: prov.start_ms, b: prov.end_ms } : null);
     },
-    [workingDoc, authoringRecordingId],
+    [workingDoc, authoringRecordingId, handleSelectRecording],
   );
 
   const handleSeekConsumed = useCallback(() => setPendingSeekMs(null), []);

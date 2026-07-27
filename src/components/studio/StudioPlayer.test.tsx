@@ -78,6 +78,37 @@ describe("StudioPlayer", () => {
     expect(screen.getByText("1.5×")).toBeInTheDocument();
   });
 
+  it("fires onReady after loadedmetadata has parked currentTime, so a listener's seek wins", () => {
+    // The macro dock defers its anchor seek to onReady precisely because
+    // loadedmetadata resets currentTime — assert the ordering the fix relies
+    // on: by the time onReady runs, the reset has already happened, so a
+    // seek() from the callback is the last write.
+    const seen: number[] = [];
+    const { container } = render(
+      <StudioPlayer
+        src="asset://clip.mp4"
+        fps={30}
+        trimRegion={{ a: 2, b: 8 }}
+        onTimeUpdate={noop}
+        onReplay={noop}
+        onReady={() => {
+          const v = container.querySelector("video") as HTMLVideoElement;
+          seen.push(v.currentTime);
+          v.currentTime = 5;
+        }}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "duration", { value: 10, configurable: true });
+    Object.defineProperty(video, "videoWidth", { value: 1920, configurable: true });
+    Object.defineProperty(video, "videoHeight", { value: 1080, configurable: true });
+
+    fireEvent.loadedMetadata(video);
+
+    expect(seen).toEqual([2]);
+    expect(video.currentTime).toBe(5);
+  });
+
   it("starts at the trim boundary and enforces the kept video range", async () => {
     const onTimeUpdate = vi.fn();
     const { container } = render(

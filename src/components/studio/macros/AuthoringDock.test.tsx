@@ -31,10 +31,12 @@ vi.mock("@/components/studio/StudioPlayer", async () => {
           loopRegion,
           onSaveTarget,
           onTimeUpdate,
+          onReady,
         }: {
           loopRegion?: { a: number; b: number } | null;
           onSaveTarget?: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
           onTimeUpdate: (seconds: number) => void;
+          onReady?: () => void;
         },
         ref: React.Ref<{ seek: (s: number) => void; pause: () => void }>,
       ) => {
@@ -61,6 +63,11 @@ vi.mock("@/components/studio/StudioPlayer", async () => {
             </button>
             <button type="button" onClick={() => onTimeUpdate(5)}>
               Seek 5s
+            </button>
+            {/* Stands in for the real player's loadedmetadata, which jsdom
+                never fires (no media stack). */}
+            <button type="button" onClick={() => onReady?.()}>
+              Simulate metadata load
             </button>
           </div>
         );
@@ -275,10 +282,32 @@ describe("AuthoringDock", () => {
       expect(onCancelDraft).not.toHaveBeenCalled();
     });
 
-    it("seeks once for a pendingSeekMs and reports it consumed", () => {
+    it("holds an anchor seek until the player reports its metadata loaded", async () => {
       const onSeekConsumed = vi.fn();
       render(<AuthoringDock {...baseProps} pendingSeekMs={2500} onSeekConsumed={onSeekConsumed} />);
+
+      // Fresh mount (what a cross-recording card click produces): seeking now
+      // would be wiped by the player's own loadedmetadata bounds reset, so the
+      // request must be held — and crucially NOT consumed, or nothing retries.
+      expect(fixtures.seeks).toEqual([]);
+      expect(onSeekConsumed).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByRole("button", { name: /simulate metadata load/i }));
+
       expect(fixtures.seeks).toEqual([2.5]);
+      expect(onSeekConsumed).toHaveBeenCalledTimes(1);
+    });
+
+    it("seeks straight away once the player is already loaded", async () => {
+      const onSeekConsumed = vi.fn();
+      const { rerender } = render(<AuthoringDock {...baseProps} onSeekConsumed={onSeekConsumed} />);
+      await userEvent.click(screen.getByRole("button", { name: /simulate metadata load/i }));
+      expect(fixtures.seeks).toEqual([]);
+
+      rerender(
+        <AuthoringDock {...baseProps} pendingSeekMs={1200} onSeekConsumed={onSeekConsumed} />,
+      );
+      expect(fixtures.seeks).toEqual([1.2]);
       expect(onSeekConsumed).toHaveBeenCalledTimes(1);
     });
 

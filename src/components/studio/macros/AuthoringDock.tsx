@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import type { KindOption } from "@/components/studio/CreateTargetPopover";
 import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
@@ -64,9 +64,8 @@ export interface AuthoringDockProps {
  * open the trigger picker over the frame; the action range comes from
  * dragging on the timeline OR marking In/Out at the playhead (I/O keys or the
  * clip-row buttons), and loop-previews on the player either way. Escape
- * cancels an open draft, else clears the range; Enter adds the range-only
- * (no-draft) selection. Dragging a box on the frame authors an Image/Color
- * trigger through the player's existing popover flow.
+ * cancels an open draft, else clears the range. Dragging a box on the frame
+ * authors an Image/Color trigger through the player's existing popover flow.
  */
 export function AuthoringDock({
   recording,
@@ -128,12 +127,25 @@ export function AuthoringDock({
     if (picking) playerRef.current?.pause();
   }, [picking]);
 
+  // A cross-recording rule-card click switches the recording, which remounts
+  // this dock with the seek already pending — before the new video has any
+  // metadata. Seeking then would be silently undone by the player's own
+  // loadedmetadata reset to the playback bounds, so hold the request (do NOT
+  // consume it) until the player says it's ready.
+  // (The inner StudioPlayer is keyed by recording id too, so reset on a
+  // recording change even when this dock itself is not remounted.)
+  const [playerReady, setPlayerReady] = useState(false);
+  const handlePlayerReady = useCallback(() => setPlayerReady(true), []);
+  useEffect(() => {
+    setPlayerReady(false);
+  }, [recording.id]);
+
   // One-shot seek from a rule-card click.
   useEffect(() => {
-    if (pendingSeekMs === null) return;
+    if (pendingSeekMs === null || !playerReady) return;
     playerRef.current?.seek(pendingSeekMs / 1000);
     onSeekConsumed();
-  }, [pendingSeekMs, onSeekConsumed]);
+  }, [pendingSeekMs, playerReady, onSeekConsumed]);
 
   const recordingsWithVideo = useMemo(() => recordings.filter((r) => r.video), [recordings]);
 
@@ -221,6 +233,7 @@ export function AuthoringDock({
               fps={recording.video?.fps ?? 30}
               onTimeUpdate={handleTimeUpdate}
               onReplay={noop}
+              onReady={handlePlayerReady}
               showReplay={false}
               controlsHost={controlsHost}
               loopRegion={range ? { a: range.a / 1000, b: range.b / 1000 } : null}

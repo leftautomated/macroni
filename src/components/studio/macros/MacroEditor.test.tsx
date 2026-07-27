@@ -29,6 +29,12 @@ const fake = {
   rejectOcr: false,
   rejectSaveTarget: false,
   spans: [] as TextSpan[],
+  // Per-OCR-call control, for the stale-resolution guard: `holdFirstOcr` gates
+  // the first extract_region until the test releases it, and `spansPerCall`
+  // gives each call distinguishable text.
+  ocrCalls: 0,
+  holdFirstOcr: null as Promise<void> | null,
+  spansPerCall: null as TextSpan[][] | null,
 };
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -61,7 +67,9 @@ vi.mock("@tauri-apps/api/core", () => ({
         if (fake.rejectOcr) throw new Error("ocr backend exploded");
         const kind = args?.kind as { type: string };
         if (kind.type === "ColorSample") return { type: "Color", rgb: [1, 2, 3], matched: true };
-        return { type: "Text", spans: fake.spans };
+        const call = fake.ocrCalls++;
+        if (call === 0 && fake.holdFirstOcr) await fake.holdFirstOcr;
+        return { type: "Text", spans: fake.spansPerCall?.[call] ?? fake.spans };
       }
       case "save_target": {
         if (fake.rejectSaveTarget) throw new Error("crop failed");
@@ -89,20 +97,29 @@ vi.mock("@tauri-apps/api/event", () => ({
 // element underneath is stubbed, exposing onTimeUpdate so tests can move the
 // playhead and onSaveTarget so a frame drag can be simulated.
 vi.mock("@/components/studio/StudioPlayer", async () => {
-  const { forwardRef, useImperativeHandle } = await import("react");
+  const { forwardRef, useEffect, useImperativeHandle } = await import("react");
   return {
     StudioPlayer: forwardRef(
       (
         {
           onTimeUpdate,
           onSaveTarget,
+          onReady,
         }: {
           onTimeUpdate: (seconds: number) => void;
           onSaveTarget?: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
+          onReady?: () => void;
         },
         ref: React.Ref<{ seek: (s: number) => void; pause: () => void }>,
       ) => {
         useImperativeHandle(ref, () => ({ seek: () => {}, pause: () => {} }));
+        // Stand in for loadedmetadata, which jsdom never fires — otherwise the
+        // dock would hold every anchor seek forever. Mount-only: the real
+        // player fires this once per src load, and the dock keys us by
+        // recording id.
+        useEffect(() => {
+          onReady?.();
+        }, [onReady]);
         return (
           <div data-testid="player-stub">
             <button type="button" onClick={() => onTimeUpdate(2)}>
@@ -282,6 +299,9 @@ describe("MacroEditor", () => {
     fake.rejectOcr = false;
     fake.rejectSaveTarget = false;
     fake.spans = [span("climb the stairs"), span("quit")];
+    fake.ocrCalls = 0;
+    fake.holdFirstOcr = null;
+    fake.spansPerCall = null;
     state.listeners.clear();
     vi.clearAllMocks();
   });
@@ -420,6 +440,96 @@ describe("MacroEditor", () => {
 
       expect(await screen.findByText("Couldn't capture that — try again")).toBeInTheDocument();
       expect(cardLabels()).toHaveLength(0);
+    });
+
+    // A trigger is cut out of one recording's frame, but the action's events
+    // and anchor come from whatever recording is selected at confirm time.
+    // Letting a draft outlive a recording switch would silently build a rule
+    // that mixes the two.
+    describe("a draft never survives a recording change", () => {
+      async function openDraftWithTrigger() {
+        await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+        await userEvent.click(
+          await screen.findByRole("button", {
+            name: 'Use text "climb the stairs" as the trigger',
+          }),
+        );
+        expect(document.querySelector(".rd-draft")).not.toBeNull();
+        expect(
+          screen.getByRole("button", { name: 'Add rule: "climb the stairs"' }),
+        ).toBeInTheDocument();
+      }
+
+      it("drops it when the dock's recording selector changes", async () => {
+        render(<Wrapper recordings={[recordingOne, recordingTwo]} />);
+        await screen.findByRole("button", { name: "Add rule" });
+        await openDraftWithTrigger();
+
+        await userEvent.click(screen.getByRole("combobox", { name: "Recording" }));
+        await userEvent.click(await screen.findByRole("option", { name: "Recording Two" }));
+
+        await waitFor(() => expect(document.querySelector(".rd-draft")).toBeNull());
+        // Confirm is unreachable, so no cross-recording rule can be built.
+        expect(
+          screen.queryByRole("button", { name: 'Add rule: "climb the stairs"' }),
+        ).not.toBeInTheDocument();
+        expect(cardLabels()).toHaveLength(0);
+        expect(
+          screen.queryByRole("button", { name: "Save unsaved changes" }),
+        ).not.toBeInTheDocument();
+      });
+
+      it("drops it when a card click switches recordings", async () => {
+        fake.macros = [
+          mkDoc("m1", [mkRule("r2", { anchor: { recording_id: "rec-2", timestamp_ms: 1200 } })]),
+        ];
+        render(<Wrapper recordings={[recordingOne, recordingTwo]} />);
+        await waitFor(() => expect(cardLabels()).toHaveLength(1));
+        await openDraftWithTrigger();
+
+        await userEvent.click(screen.getByText('When "open the door"'));
+
+        await waitFor(() => expect(document.querySelector(".rd-draft")).toBeNull());
+        expect(
+          screen.queryByRole("button", { name: 'Add rule: "climb the stairs"' }),
+        ).not.toBeInTheDocument();
+        // Only the pre-existing rule remains — nothing was appended.
+        expect(cardLabels()).toEqual(['When "open the door"']);
+      });
+    });
+
+    it("a late OCR resolution never repopulates a newer draft", async () => {
+      let release = () => {};
+      fake.holdFirstOcr = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      fake.spansPerCall = [[span("stale text")], [span("fresh text")]];
+
+      render(<Wrapper recordings={[recordingOne]} />);
+      await screen.findByRole("button", { name: "Add rule" });
+
+      // Draft 1's scan is still in flight…
+      await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+      expect(await screen.findByText(/scanning frame for text/i)).toBeInTheDocument();
+
+      // …when draft 2 supersedes it and resolves first.
+      await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+      expect(
+        await screen.findByRole("button", { name: 'Use text "fresh text" as the trigger' }),
+      ).toBeInTheDocument();
+
+      await act(async () => {
+        release();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(
+        screen.getByRole("button", { name: 'Use text "fresh text" as the trigger' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: 'Use text "stale text" as the trigger' }),
+      ).not.toBeInTheDocument();
     });
 
     it("Cancel drops the draft without touching the doc", async () => {

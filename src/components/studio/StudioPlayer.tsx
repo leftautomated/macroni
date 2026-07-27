@@ -18,6 +18,12 @@ interface StudioPlayerProps {
   fps: number;
   onTimeUpdate: (seconds: number) => void;
   onReplay?: (loopForever: boolean) => void;
+  /**
+   * Fired once the video's metadata has landed and `currentTime` has been
+   * parked at the playback bounds. Callers with a seek to apply must wait for
+   * this — a `seek()` before metadata is overwritten by that reset.
+   */
+  onReady?: () => void;
   /** When set (seconds), playback repeats over [a, b]. */
   loopRegion?: { a: number; b: number } | null;
   /** Non-destructive kept range, in source-video seconds. */
@@ -123,6 +129,7 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
     fps,
     onTimeUpdate,
     onReplay,
+    onReady,
     loopRegion,
     trimRegion,
     controlsHost,
@@ -548,6 +555,9 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
                   fps,
                 },
               });
+              // Last, so a listener that seeks lands *after* the bounds reset
+              // above rather than being overwritten by it.
+              onReady?.();
             }
           }}
           onError={() => {

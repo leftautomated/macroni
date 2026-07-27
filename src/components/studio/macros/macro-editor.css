@@ -437,10 +437,16 @@
   background: #070709;
 }
 
+/* `display: flex` here is load-bearing, not cosmetic: StudioPlayer's own root
+   carries an inline `flex: 1` and only fills its parent when that parent is a
+   flex container. As a plain block this box would height-collapse, and the
+   picker overlay — which measures against it — would put its span boxes off
+   the video. */
 .adock-player {
   position: absolute;
   inset: 0;
   z-index: 0;
+  display: flex;
 }
 
 /* Picker chrome, absolutely positioned onto the video's contain-fit content

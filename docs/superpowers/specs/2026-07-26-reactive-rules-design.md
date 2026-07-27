@@ -1,7 +1,7 @@
 # Reactive Rules — macro model & authoring redesign
 
 **Date:** 2026-07-26
-**Status:** Approved pending user review
+**Status:** Approved (user directed autonomous continuation 2026-07-26)
 **Supersedes (as user-facing model):** macro-graph-runtime, macro-canvas, macro-snip, macro-visual-wait, macro-authoring-dock specs. The perception layer (targets, extractors, `save_target`, `extract_region`) and the playback engine are reused unchanged.
 
 ## Problem
@@ -23,7 +23,7 @@ Surveyed: Keyboard Maestro, MacroDroid, IFTTT, SikuliX/Sikuli (UIST '09), AirTes
 ## Decisions (user-confirmed)
 
 - **Run model: reactive rules.** A macro is a set of when/then rules; the runner watches the screen and fires whichever rule matches. Not a linear chain.
-- **Replace entirely.** Segment/WaitFor/edges/canvas are removed as user-facing concepts. Fix-forward: **no migration** of previously saved macros — the store bumps a schema version and ignores old docs (logged, not crashed).
+- **Replace entirely.** Segment/WaitFor/edges/canvas are removed as user-facing concepts. Fix-forward: **no migration** of previously saved macros — docs that no longer deserialize against the new shape are skipped at load (logged, not crashed).
 - **Termination: manual Stop plus an optional Stop rule** ("when screen shows X → stop the macro"). No per-rule timeouts, no max duration.
 - **No empty-state copy.** An empty rule deck renders nothing but the always-present Add affordance (explicit user request; applies in place of the old "No nodes on this macro" text, which is deleted with the canvas).
 
@@ -51,7 +51,7 @@ type RuleAction =
   | { type: "Stop" }
 ```
 
-Removed: `MacroNode`, `MacroNodeKind` (`Segment`, `WaitFor`), `MacroEdge`, node `x`/`y`, `timeout_ms`, `poll_interval_ms` per-wait (now doc-level). `PerceptionTarget`, `TargetKind`, `Observation*`, `MacroProvenance`, and `Recording` are unchanged. Rust mirrors the same shape (serde), with a store schema-version bump.
+Removed: `MacroNode`, `MacroNodeKind` (`Segment`, `WaitFor`), `MacroEdge`, node `x`/`y`, `timeout_ms`, `poll_interval_ms` per-wait (now doc-level; default 250, not exposed in the UI in v1). `PerceptionTarget`, `TargetKind`, `Observation*`, `MacroProvenance`, and `Recording` are unchanged. Rust mirrors the same shape (serde); stored docs that fail to deserialize are skipped with a warning.
 
 A TextOcr trigger authored from a span is **region-scoped** to that span's box (padded), which makes matching more precise than today's full-frame text waits. The card exposes the region and expect-text for editing.
 
@@ -79,11 +79,12 @@ The recording selector (previously in AddNodePanel) moves into the dock's contro
 
 **Rule deck** (sidebar, replaces AddNodePanel): one card per rule, sentence-shaped:
 
-> [trigger thumbnail] **When** "climb the stairs" → **Play** 17 events · 8.2s
+> [trigger badge] **When** "climb the stairs" → **Play** 17 events · 8.2s
 
+- The trigger badge needs no new machinery: TextOcr shows a kind icon + the expect text, TemplateMatch shows its already-captured template image, ColorSample shows a color swatch. (A video-frame thumbnail for text/color triggers is a possible later polish, not v1.)
 - Enable/disable toggle, delete, drag-to-reorder (order = priority).
 - Click card → seek player to `anchor.timestamp_ms` (switching the dock recording if the anchor names another one) and highlight the rule's provenance range on the timeline.
-- Run state: firing card highlighted; failed card red; armed cards show a subtle watching state while a run is live.
+- Run state: firing card highlighted; failed card red; enabled cards show a subtle watching state while a run is live (arm/disarm is runtime-internal and not surfaced per-card).
 - Stop rules render as "**When** … → **Stop macro**".
 - Empty deck: no copy, only the Add affordance.
 
@@ -99,7 +100,7 @@ Timeline shows a marker at each rule anchor for the selected recording.
 
 Delete: `MacroCanvas.tsx`, `SegmentNodeView.tsx`, `WaitNodeView.tsx`, `AddNodePanel.tsx` (+tests), `macro-flow.ts`, `macro-chain.ts` (+tests), `@xyflow/react` dependency, canvas CSS, Rust `chain_order`/linear validation.
 
-Adapt: `MacroEditor.tsx` (owns rule-draft state machine instead of canvas/panel state), `AuthoringDock.tsx` (Add-rule button, trigger-picker overlay host, anchor markers; In/Out & range machinery unchanged), `macro-wait.ts` → rule builders (`ruleFromTrigger`, `stopRule`), `macro-segment.ts` reused as-is for event carving, Rust `runner.rs` → `run_rules`, `macros/mod.rs` types, `store.rs` schema version.
+Adapt: `MacroEditor.tsx` (owns rule-draft state machine instead of canvas/panel state), `AuthoringDock.tsx` (recording selector, Add-rule button, trigger-picker overlay host, anchor markers; In/Out & range machinery unchanged), `useMacros.ts` + `StudioEditor.tsx` (event payloads: `liveNodeId` → `liveRuleId`, failed node → failed rule; the lifted-hook pattern stays), `macro-wait.ts` → rule builders (`ruleFromTrigger`, `stopRule`), `macro-segment.ts` reused as-is for event carving, `macro-editor.css` (canvas styles out, deck/picker styles in), Rust `runner.rs` → `run_rules`, `macros/mod.rs` types, `commands.rs` (validation + emitter event names), `store.rs` (skip-on-deserialize-failure).
 
 New: `RuleDeck.tsx`, `RuleCard.tsx`, `TriggerPicker.tsx` (OCR-span overlay + drag box), `macro-rules.ts` (doc utilities: reorder, arm/disarm bookkeeping helpers for UI state).
 

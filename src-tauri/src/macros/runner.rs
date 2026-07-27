@@ -18,13 +18,13 @@ use crate::playback::engine::{execute_steps, sleep_cancellable};
 use crate::playback::ports::Simulator;
 use crate::playback::{PlaybackEngine, PlaybackPlan};
 
-/// Evaluates whether a wait node's perception target is currently satisfied.
+/// Evaluates whether a rule trigger's perception target is currently satisfied.
 /// `&mut` so a live implementation can hold a screen-capture/OCR pipeline.
 pub trait WaitProbe: Send + 'static {
     fn evaluate(&mut self, target: &Target) -> Result<bool, String>;
 }
 
-/// Pure mapping from an extractor's raw result to the wait node's pass/fail
+/// Pure mapping from an extractor's raw result to a rule trigger's pass/fail
 /// verdict — shared by the live probe (`probe.rs`) and unit tests here so the
 /// matching rules are tested without a screen-capture/OCR dependency.
 /// `expect_of_text` is `TargetKind::TextOcr { expect }`'s payload; `None` for

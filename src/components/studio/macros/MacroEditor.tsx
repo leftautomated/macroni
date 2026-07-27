@@ -10,6 +10,7 @@ import type { useMacros } from "@/hooks/useMacros";
 import {
   anchorTicks,
   defaultActionRange,
+  editRuleExpect,
   isRunnableRulesDoc,
   moveRule,
   playInputsRule,
@@ -301,6 +302,10 @@ export function MacroEditor({
 
   const applyDraftTrigger = useCallback(
     (trigger: PerceptionTarget, anchorMs: number) => {
+      // A span pick lands here too, and unlike the drag-target path it never
+      // touched draftError itself — clear it here so a stale capture-failure
+      // message never sits next to a trigger that just landed successfully.
+      setDraftError(null);
       setDraft((d) => ({
         anchorMs,
         trigger,
@@ -407,6 +412,11 @@ export function MacroEditor({
 
   const handleMoveRule = useCallback((ruleId: string, delta: -1 | 1) => {
     setWorkingDoc((doc) => moveRule(doc, ruleId, delta));
+    setDirty(true);
+  }, []);
+
+  const handleEditExpect = useCallback((ruleId: string, expect: string) => {
+    setWorkingDoc((doc) => editRuleExpect(doc, ruleId, expect));
     setDirty(true);
   }, []);
 
@@ -529,6 +539,7 @@ export function MacroEditor({
                   onToggle={handleToggleRule}
                   onDelete={handleDeleteRule}
                   onMove={handleMoveRule}
+                  onEditExpect={handleEditExpect}
                 />
               </div>
             </aside>
@@ -601,6 +612,14 @@ function DraftCard({
 }: DraftCardProps) {
   const hasRange = !!range && range.b > range.a;
   const label = draft.trigger ? triggerLabel(draft.trigger) : null;
+  // A range with zero events would append a PlayInputs rule that silently
+  // disables Run for the whole macro (validate_runnable rejects any enabled
+  // PlayInputs rule with no events) — gate confirm on the range actually
+  // containing something to play.
+  const eventCount =
+    hasRange && recording && range
+      ? eventsInRange(recording.events, segmentBasis(recording), range.a, range.b).length
+      : 0;
 
   if (!draft.trigger) {
     return (
@@ -621,15 +640,14 @@ function DraftCard({
     );
   }
 
-  const canConfirm = draft.actionType === "Stop" || hasRange;
+  const canConfirm = draft.actionType === "Stop" || (hasRange && eventCount > 0);
 
   return (
     <div className="rd-draft">
       <div className="rd-draft-when">When {label}</div>
       {draft.actionType === "PlayInputs" && hasRange && recording && range && (
         <div className="rd-draft-chip">
-          {fmtMmSs(range.a)}–{fmtMmSs(range.b)} ·{" "}
-          {eventsInRange(recording.events, segmentBasis(recording), range.a, range.b).length} events
+          {fmtMmSs(range.a)}–{fmtMmSs(range.b)} · {eventCount} events
         </div>
       )}
       <div className="rd-draft-toggle">

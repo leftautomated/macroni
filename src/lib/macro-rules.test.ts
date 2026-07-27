@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   anchorTicks,
   defaultActionRange,
+  editRuleExpect,
   isRunnableRulesDoc,
   moveRule,
   playInputsRule,
@@ -90,6 +91,10 @@ describe("summaries", () => {
     const rule = playInputsRule(spanTrigger(span), recording, 0, 1000, 9000);
     expect(ruleSummary(rule)).toBe("3 events · 8s");
   });
+  it("uses singular 'event' for exactly one event", () => {
+    const rule = playInputsRule(spanTrigger(span), recording, 0, 1000, 1000);
+    expect(ruleSummary(rule)).toBe("1 event · 0s");
+  });
   it("summarizes Stop", () => {
     expect(ruleSummary(stopRule(spanTrigger(span), "rec1", 0))).toBe("Stop macro");
   });
@@ -122,6 +127,35 @@ describe("doc utilities", () => {
   it("toggleRule flips enabled; removeRule drops the rule", () => {
     expect(toggleRule(doc, r1.id).rules[0].enabled).toBe(false);
     expect(removeRule(doc, r1.id).rules.map((r) => r.id)).toEqual([r2.id]);
+  });
+
+  it("editRuleExpect updates a TextOcr rule's expect and name, leaves other rules and unknown ids untouched", () => {
+    const edited = editRuleExpect(doc, r1.id, "board the train");
+    if (edited.rules[0].trigger.kind.type !== "TextOcr") throw new Error("expected TextOcr");
+    expect(edited.rules[0].trigger.kind.expect).toBe("board the train");
+    expect(edited.rules[0].trigger.name).toBe("board the train");
+    // r2 doesn't match the id — untouched.
+    expect(edited.rules[1]).toEqual(r2);
+
+    // Unknown rule id: whole doc unchanged.
+    expect(editRuleExpect(doc, "nope", "x")).toEqual(doc);
+  });
+
+  it("editRuleExpect no-ops for a non-TextOcr trigger", () => {
+    const imageRule: MacroRule = {
+      ...r1,
+      id: "r-image",
+      trigger: {
+        id: "t-image",
+        name: "boss health bar",
+        modality: "visual",
+        region: { x: 0.1, y: 0.1, w: 0.2, h: 0.05 },
+        kind: { type: "TemplateMatch", image: "assets/t.png", threshold: 0.8, source_px: [0, 0] },
+        created_at: 1,
+      },
+    };
+    const withImage = { rules: [imageRule] };
+    expect(editRuleExpect(withImage, "r-image", "anything")).toEqual(withImage);
   });
 
   it("defaultActionRange runs from the anchor to the next anchor on the same recording", () => {

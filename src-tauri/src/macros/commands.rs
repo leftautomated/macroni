@@ -113,10 +113,10 @@ impl MacroEmitter for TauriMacroEmitter {
 
 /// Non-macOS stand-in for `LiveWaitProbe`. Never actually evaluated:
 /// `MacroRunner::start` runs `validate_runnable` before it ever spawns the
-/// run, and that already rejects any doc containing a `WaitFor` node on
-/// this platform — so a probe is never invoked here. It still has to exist
-/// as a concrete `WaitProbe` for `run_macro` to type-check on non-macOS
-/// targets.
+/// run, and off macOS that rejects every doc — every rule needs the
+/// perception probe, which doesn't exist on this platform — so a probe is
+/// never invoked here. It still has to exist as a concrete `WaitProbe` for
+/// `run_macro` to type-check on non-macOS targets.
 #[cfg(not(target_os = "macos"))]
 struct NoWaitProbe;
 

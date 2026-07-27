@@ -442,6 +442,43 @@ describe("MacroEditor", () => {
       expect(cardLabels()).toHaveLength(0);
     });
 
+    it("clears a stale draft error once a span pick lands a trigger", async () => {
+      fake.rejectSaveTarget = true;
+      render(<Wrapper recordings={[recordingOne]} />);
+      await screen.findByRole("button", { name: "Add rule" });
+
+      // Open a draft with real OCR spans available…
+      await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+      await screen.findByRole("button", { name: 'Use text "climb the stairs" as the trigger' });
+
+      // …then a drag-authored capture on the same open draft fails, leaving
+      // an inline error while the trigger is still unpicked (picker stays up).
+      await userEvent.click(screen.getByRole("button", { name: /simulate frame drag/i }));
+      expect(await screen.findByText("Couldn't capture that — try again")).toBeInTheDocument();
+
+      // Picking a span afterwards lands a trigger and must clear the stale
+      // error, not leave it sitting next to a trigger that landed fine.
+      await userEvent.click(
+        screen.getByRole("button", { name: 'Use text "climb the stairs" as the trigger' }),
+      );
+      expect(screen.queryByText("Couldn't capture that — try again")).not.toBeInTheDocument();
+    });
+
+    it("disables Add rule when the drafted range has no events", async () => {
+      render(<Wrapper recordings={[recordingTwo]} />);
+      await screen.findByRole("button", { name: "Add rule" });
+
+      await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+      await userEvent.click(
+        await screen.findByRole("button", { name: 'Use text "climb the stairs" as the trigger' }),
+      );
+
+      // recordingTwo has zero events, so the pre-selected range (anchor →
+      // recording end) contains none either — confirming here would append a
+      // PlayInputs rule with events: [] and silently disable Run.
+      expect(screen.getByRole("button", { name: 'Add rule: "climb the stairs"' })).toBeDisabled();
+    });
+
     // A trigger is cut out of one recording's frame, but the action's events
     // and anchor come from whatever recording is selected at confirm time.
     // Letting a draft outlive a recording switch would silently build a rule
@@ -567,6 +604,28 @@ describe("MacroEditor", () => {
 
       await userEvent.click(screen.getByRole("button", { name: 'Delete rule: "open the door"' }));
       expect(cardLabels()).toEqual(['When "climb the stairs"']);
+    });
+
+    it("edits a TextOcr rule's expect text from the card, updating the doc and marking it dirty", async () => {
+      fake.macros = [mkDoc("m1", [mkRule("r1")])];
+      render(<Wrapper recordings={[recordingOne]} />);
+      await waitFor(() => expect(cardLabels()).toHaveLength(1));
+      expect(
+        screen.queryByRole("button", { name: /save unsaved changes/i }),
+      ).not.toBeInTheDocument();
+
+      await userEvent.click(
+        screen.getByRole("button", { name: 'Edit trigger text: "climb the stairs"' }),
+      );
+      const input = screen.getByRole("textbox", {
+        name: 'Edit trigger text: "climb the stairs"',
+      });
+      await userEvent.clear(input);
+      await userEvent.type(input, "board the train");
+      await userEvent.tab();
+
+      await waitFor(() => expect(cardLabels()).toEqual(['When "board the train"']));
+      expect(screen.getByRole("button", { name: "Save unsaved changes" })).toBeInTheDocument();
     });
 
     it("clicking a card anchored on another recording switches the dock's recording", async () => {

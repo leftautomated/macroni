@@ -166,7 +166,10 @@ describe("StudioTimeline", () => {
         perceptionTicks={[{ ms: 500, label: "Submit" }]}
       />,
     );
-    const tick = screen.getByRole("button", { name: /Text snapshot, Submit/ });
+    // The tick's own label (e.g. an OCR span's text, or an image/color rule's
+    // trigger name) is the tooltip label — there's no fixed "Text snapshot"
+    // category since anchors can now come from any trigger kind.
+    const tick = screen.getByRole("button", { name: /Submit/ });
     // A real click is pointerdown → pointerup → click. The tick stops
     // pointerdown, so the track's own click-seek never arms — otherwise the
     // track would derive 1.0s from clientX 50 over the 100px/2000ms track and

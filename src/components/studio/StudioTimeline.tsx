@@ -678,8 +678,7 @@ export function StudioTimeline({
                   <TimelineTooltip
                     key={`p${i}`}
                     color="var(--studio-accent)"
-                    label="Text snapshot"
-                    value={t.label}
+                    label={t.label}
                     time={fmtPrecise(t.ms)}
                   >
                     <button

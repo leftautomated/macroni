@@ -35,6 +35,7 @@ const noHandlers = {
   onToggle: vi.fn(),
   onDelete: vi.fn(),
   onMove: vi.fn(),
+  onEditExpect: vi.fn(),
 };
 
 describe("RuleDeck", () => {
@@ -89,6 +90,7 @@ describe("RuleDeck", () => {
         onToggle={onToggle}
         onDelete={onDelete}
         onMove={onMove}
+        onEditExpect={vi.fn()}
       />,
     );
     fireEvent.click(screen.getAllByText(/"climb the stairs"/)[0]);
@@ -188,5 +190,121 @@ describe("RuleDeck", () => {
       />,
     );
     expect(screen.getByTestId("draft")).toBeInTheDocument();
+  });
+
+  describe("expect-text editing (TextOcr only)", () => {
+    it("edits a TextOcr rule's expect text and commits the trimmed value on blur", () => {
+      const onEditExpect = vi.fn();
+      render(
+        <RuleDeck
+          rules={[rule("r1")]}
+          liveRuleId={null}
+          failed={null}
+          running={false}
+          draft={null}
+          {...noHandlers}
+          onEditExpect={onEditExpect}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: 'Edit trigger text: "climb the stairs"' }),
+      );
+      const input = screen.getByRole("textbox", { name: 'Edit trigger text: "climb the stairs"' });
+      fireEvent.change(input, { target: { value: "  board the train  " } });
+      fireEvent.blur(input);
+
+      expect(onEditExpect).toHaveBeenCalledWith("r1", "board the train");
+    });
+
+    it("commits on Enter as well as blur", () => {
+      const onEditExpect = vi.fn();
+      render(
+        <RuleDeck
+          rules={[rule("r1")]}
+          liveRuleId={null}
+          failed={null}
+          running={false}
+          draft={null}
+          {...noHandlers}
+          onEditExpect={onEditExpect}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: 'Edit trigger text: "climb the stairs"' }),
+      );
+      const input = screen.getByRole("textbox", { name: 'Edit trigger text: "climb the stairs"' });
+      fireEvent.change(input, { target: { value: "quit" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(onEditExpect).toHaveBeenCalledWith("r1", "quit");
+    });
+
+    it("no-ops on empty or unchanged text", () => {
+      const onEditExpect = vi.fn();
+      render(
+        <RuleDeck
+          rules={[rule("r1")]}
+          liveRuleId={null}
+          failed={null}
+          running={false}
+          draft={null}
+          {...noHandlers}
+          onEditExpect={onEditExpect}
+        />,
+      );
+
+      const editLabel = 'Edit trigger text: "climb the stairs"';
+      fireEvent.click(screen.getByRole("button", { name: editLabel }));
+      fireEvent.blur(screen.getByRole("textbox", { name: editLabel })); // unchanged
+      expect(onEditExpect).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: editLabel }));
+      const input = screen.getByRole("textbox", { name: editLabel });
+      fireEvent.change(input, { target: { value: "   " } });
+      fireEvent.blur(input); // blank after trim
+      expect(onEditExpect).not.toHaveBeenCalled();
+    });
+
+    it("offers no edit affordance for Image or Color triggers", () => {
+      render(
+        <RuleDeck
+          rules={[
+            rule("r1", {
+              trigger: {
+                id: "t-r1",
+                name: "boss health bar",
+                modality: "visual",
+                region: { x: 0.1, y: 0.1, w: 0.2, h: 0.05 },
+                kind: {
+                  type: "TemplateMatch",
+                  image: "assets/t.png",
+                  threshold: 0.8,
+                  source_px: [0, 0],
+                },
+                created_at: 1,
+              },
+            }),
+            rule("r2", {
+              trigger: {
+                id: "t-r2",
+                name: "red flash",
+                modality: "visual",
+                region: { x: 0.1, y: 0.1, w: 0.2, h: 0.05 },
+                kind: { type: "ColorSample", rgb: [255, 0, 0], tolerance: 10 },
+                created_at: 1,
+              },
+            }),
+          ]}
+          liveRuleId={null}
+          failed={null}
+          running={false}
+          draft={null}
+          {...noHandlers}
+        />,
+      );
+      expect(screen.queryByRole("button", { name: /Edit trigger text/ })).not.toBeInTheDocument();
+    });
   });
 });

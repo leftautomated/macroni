@@ -71,7 +71,7 @@ export function ruleSummary(rule: MacroRule): string {
     const last = events[events.length - 1];
     dur = Math.round(((last.timestamp - first.timestamp) / 1000) * 10) / 10;
   }
-  return `${events.length} events · ${dur}s`;
+  return `${events.length} ${events.length === 1 ? "event" : "events"} · ${dur}s`;
 }
 
 export function triggerLabel(target: PerceptionTarget): string {
@@ -104,6 +104,24 @@ export function toggleRule<T extends RulesDoc>(doc: T, ruleId: string): T {
 
 export function removeRule<T extends RulesDoc>(doc: T, ruleId: string): T {
   return { ...doc, rules: doc.rules.filter((r) => r.id !== ruleId) };
+}
+
+/**
+ * Updates a TextOcr rule's expect text, mirroring it into the trigger's
+ * `name` too (matches `triggerLabel`'s use of `expect` for the display
+ * label). No-op for a rule whose trigger isn't TextOcr.
+ */
+export function editRuleExpect<T extends RulesDoc>(doc: T, ruleId: string, expect: string): T {
+  return {
+    ...doc,
+    rules: doc.rules.map((r) => {
+      if (r.id !== ruleId || r.trigger.kind.type !== "TextOcr") return r;
+      return {
+        ...r,
+        trigger: { ...r.trigger, name: expect, kind: { ...r.trigger.kind, expect } },
+      };
+    }),
+  };
 }
 
 /**

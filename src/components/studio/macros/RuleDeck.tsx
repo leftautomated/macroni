@@ -14,6 +14,7 @@ export interface RuleDeckProps {
   onToggle: (ruleId: string) => void;
   onDelete: (ruleId: string) => void;
   onMove: (ruleId: string, delta: -1 | 1) => void;
+  onEditExpect: (ruleId: string, expect: string) => void;
 }
 
 /**
@@ -32,6 +33,7 @@ export function RuleDeck({
   onToggle,
   onDelete,
   onMove,
+  onEditExpect,
 }: RuleDeckProps) {
   return (
     <div className="rd-root">
@@ -53,6 +55,7 @@ export function RuleDeck({
           onToggle={onToggle}
           onDelete={onDelete}
           onMove={onMove}
+          onEditExpect={onEditExpect}
         />
       ))}
     </div>

@@ -106,7 +106,7 @@ New: `RuleDeck.tsx`, `RuleCard.tsx`, `TriggerPicker.tsx` (OCR-span overlay + dra
 
 ## Error handling
 
-- Image-crop / color-sample failure during authoring: abort rule creation, toast + log (also resolves the standing "capture failure invisible to user" backlog item).
+- Image-crop / color-sample failure during authoring: the draft stays open and shows an inline error line on the draft card ("Couldn't capture that — try again"), plus a log (resolves the standing "capture failure invisible to user" backlog item; the repo has no toast system and this doesn't justify adding one).
 - OCR of the paused frame returns nothing: degrade to drag-a-box mode within the picker (inline hint, not a blocking error).
 - Run-time probe error: `run_failed` with the rule id; card flagged; run ends (same policy as today's wait probe).
 - Old-schema macro docs at load: skipped with a logged warning; never crash the store.

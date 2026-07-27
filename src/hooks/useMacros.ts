@@ -6,19 +6,15 @@ import type { MacroDoc } from "@/types";
 export type MacroRunState = "idle" | "running";
 
 export interface MacroRunFailure {
-  nodeId: string;
+  ruleId: string;
   reason: string;
 }
 
-interface MacroNodeStartedPayload {
+/** Shared payload of `macro-rule-fired` / `macro-rule-settled`. */
+interface RuleEventPayload {
   macroId: string;
-  nodeId: string;
-  index: number;
-}
-
-interface MacroNodeFinishedPayload {
-  macroId: string;
-  nodeId: string;
+  ruleId: string;
+  /** Position in `doc.rules` — not filtered by `enabled`. */
   index: number;
 }
 
@@ -29,14 +25,14 @@ interface MacroRunFinishedPayload {
 
 interface MacroRunFailedPayload {
   macroId: string;
-  nodeId: string;
+  ruleId: string;
   reason: string;
 }
 
 export const useMacros = () => {
   const [macros, setMacros] = useState<MacroDoc[]>([]);
   const [runState, setRunState] = useState<MacroRunState>("idle");
-  const [liveNodeId, setLiveNodeId] = useState<string | null>(null);
+  const [liveRuleId, setLiveRuleId] = useState<string | null>(null);
   const [failed, setFailed] = useState<MacroRunFailure | null>(null);
 
   const load = useCallback(async () => {
@@ -91,27 +87,29 @@ export const useMacros = () => {
   }, [load]);
 
   useEffect(() => {
-    const unlistenStarted = listen<MacroNodeStartedPayload>("macro-node-started", (event) => {
-      setLiveNodeId(event.payload.nodeId);
+    const unlistenFired = listen<RuleEventPayload>("macro-rule-fired", (event) => {
+      setLiveRuleId(event.payload.ruleId);
       setRunState("running");
       setFailed(null);
     });
-    const unlistenFinished = listen<MacroNodeFinishedPayload>("macro-node-finished", () => {
-      // No-op: liveNodeId persists until the next node starts.
+    const unlistenSettled = listen<RuleEventPayload>("macro-rule-settled", () => {
+      // The rule's action finished — the run is back to watching between
+      // fires, so nothing is live until the next trigger matches.
+      setLiveRuleId(null);
     });
     const unlistenRunFinished = listen<MacroRunFinishedPayload>("macro-run-finished", () => {
       setRunState("idle");
-      setLiveNodeId(null);
+      setLiveRuleId(null);
     });
     const unlistenRunFailed = listen<MacroRunFailedPayload>("macro-run-failed", (event) => {
       setRunState("idle");
-      setLiveNodeId(null);
-      setFailed({ nodeId: event.payload.nodeId, reason: event.payload.reason });
+      setLiveRuleId(null);
+      setFailed({ ruleId: event.payload.ruleId, reason: event.payload.reason });
     });
 
     return () => {
-      unlistenStarted.then((fn) => fn()).catch(() => {});
-      unlistenFinished.then((fn) => fn()).catch(() => {});
+      unlistenFired.then((fn) => fn()).catch(() => {});
+      unlistenSettled.then((fn) => fn()).catch(() => {});
       unlistenRunFinished.then((fn) => fn()).catch(() => {});
       unlistenRunFailed.then((fn) => fn()).catch(() => {});
     };
@@ -125,7 +123,7 @@ export const useMacros = () => {
     run,
     stop,
     runState,
-    liveNodeId,
+    liveRuleId,
     failed,
     clearFailed,
   } as const;

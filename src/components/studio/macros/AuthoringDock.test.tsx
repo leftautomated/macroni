@@ -4,10 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { InputEventType, type InputEvent, type PerceptionTarget, type Recording } from "@/types";
 
 // The dock's unit under test is its wiring: range→loopRegion conversion,
-// drag→rounded onRangeChange, In/Out marking from the playhead, and
-// passthrough of the target-authoring hooks. StudioPlayer is stubbed to
-// expose those props (including onTimeUpdate so tests can move the
-// playhead); StudioTimeline renders for real so drag math is exercised.
+// drag→rounded onRangeChange, In/Out marking from the playhead, the Add-rule
+// affordances, and passthrough of the target-authoring hooks. StudioPlayer is
+// stubbed to expose those props (including onTimeUpdate so tests can move the
+// playhead, and seek/pause so imperative calls are observable); StudioTimeline
+// renders for real so drag math is exercised.
 const fixtures = vi.hoisted(() => ({
   target: {
     id: "t1",
@@ -17,38 +18,56 @@ const fixtures = vi.hoisted(() => ({
     kind: { type: "TemplateMatch", image: "", threshold: 0.8, source_px: [0, 0] },
     created_at: 1,
   },
+  seeks: [] as number[],
+  pauses: 0,
 }));
 
-vi.mock("@/components/studio/StudioPlayer", () => ({
-  StudioPlayer: ({
-    loopRegion,
-    onSaveTarget,
-    onTimeUpdate,
-  }: {
-    loopRegion?: { a: number; b: number } | null;
-    onSaveTarget?: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
-    onTimeUpdate: (seconds: number) => void;
-  }) => (
-    <div data-testid="player-stub">
-      <div>loop: {loopRegion ? `${loopRegion.a}-${loopRegion.b}` : "none"}</div>
-      <button
-        type="button"
-        onClick={() => onSaveTarget?.(fixtures.target as PerceptionTarget, 4200)}
-      >
-        Simulate save
-      </button>
-      <button type="button" onClick={() => onTimeUpdate(1)}>
-        Seek 1s
-      </button>
-      <button type="button" onClick={() => onTimeUpdate(3)}>
-        Seek 3s
-      </button>
-      <button type="button" onClick={() => onTimeUpdate(5)}>
-        Seek 5s
-      </button>
-    </div>
-  ),
-}));
+vi.mock("@/components/studio/StudioPlayer", async () => {
+  const { forwardRef, useImperativeHandle } = await import("react");
+  return {
+    StudioPlayer: forwardRef(
+      (
+        {
+          loopRegion,
+          onSaveTarget,
+          onTimeUpdate,
+        }: {
+          loopRegion?: { a: number; b: number } | null;
+          onSaveTarget?: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
+          onTimeUpdate: (seconds: number) => void;
+        },
+        ref: React.Ref<{ seek: (s: number) => void; pause: () => void }>,
+      ) => {
+        useImperativeHandle(ref, () => ({
+          seek: (s: number) => fixtures.seeks.push(s),
+          pause: () => {
+            fixtures.pauses += 1;
+          },
+        }));
+        return (
+          <div data-testid="player-stub">
+            <div>loop: {loopRegion ? `${loopRegion.a}-${loopRegion.b}` : "none"}</div>
+            <button
+              type="button"
+              onClick={() => onSaveTarget?.(fixtures.target as PerceptionTarget, 4200)}
+            >
+              Simulate save
+            </button>
+            <button type="button" onClick={() => onTimeUpdate(1)}>
+              Seek 1s
+            </button>
+            <button type="button" onClick={() => onTimeUpdate(3)}>
+              Seek 3s
+            </button>
+            <button type="button" onClick={() => onTimeUpdate(5)}>
+              Seek 5s
+            </button>
+          </div>
+        );
+      },
+    ),
+  };
+});
 
 vi.mock("@/hooks/useVideoAssetUrl", () => ({
   useVideoAssetUrl: () => ({ url: "asset://video.mp4", error: null }),
@@ -57,6 +76,8 @@ vi.mock("@/hooks/useVideoAssetUrl", () => ({
 import { AuthoringDock } from "./AuthoringDock";
 
 beforeEach(() => {
+  fixtures.seeks = [];
+  fixtures.pauses = 0;
   Element.prototype.getBoundingClientRect = vi.fn(
     () =>
       ({
@@ -96,34 +117,31 @@ const recording: Recording = {
   },
 };
 
+const otherRecording: Recording = {
+  ...recording,
+  id: "rec-2",
+  name: "Recording Two",
+  events: [],
+};
+
 const baseProps = {
   recording,
+  recordings: [recording, otherRecording],
+  onSelectRecording: () => {},
   range: null,
   onRangeChange: () => {},
-  onAddSegment: () => {},
+  anchorTicks: [],
+  pendingSeekMs: null,
+  onSeekConsumed: () => {},
+  onAddRule: () => {},
+  picking: false,
   onSaveTarget: async () => {},
   onSampleColor: async (): Promise<[number, number, number]> => [0, 0, 0],
+  onCancelDraft: () => {},
+  hasDraft: false,
 };
 
 describe("AuthoringDock", () => {
-  it("stacks the canvas over the frame and lets the user hand gestures to either layer", async () => {
-    const user = userEvent.setup();
-    render(
-      <AuthoringDock
-        {...baseProps}
-        canvasOverlay={<div data-testid="canvas-overlay">Canvas overlay</div>}
-      />,
-    );
-
-    const stage = screen.getByTestId("canvas-overlay").closest(".adock-stage");
-    expect(stage).toHaveAttribute("data-interaction-mode", "canvas");
-    expect(screen.getByRole("button", { name: "Canvas" })).toHaveAttribute("aria-pressed", "true");
-
-    await user.click(screen.getByRole("button", { name: "Frame" }));
-    expect(stage).toHaveAttribute("data-interaction-mode", "frame");
-    expect(screen.getByRole("button", { name: "Frame" })).toHaveAttribute("aria-pressed", "true");
-  });
-
   it("rounds a timeline drag to whole ms before emitting onRangeChange", () => {
     const onRangeChange = vi.fn();
     const { container } = render(<AuthoringDock {...baseProps} onRangeChange={onRangeChange} />);
@@ -152,6 +170,140 @@ describe("AuthoringDock", () => {
     render(<AuthoringDock {...baseProps} onSaveTarget={onSaveTarget} />);
     await userEvent.click(screen.getByRole("button", { name: /simulate save/i }));
     expect(onSaveTarget).toHaveBeenCalledWith(fixtures.target, 4200);
+  });
+
+  describe("recording selector", () => {
+    it("offers the video-bearing recordings and reports the pick", async () => {
+      const onSelectRecording = vi.fn();
+      render(<AuthoringDock {...baseProps} onSelectRecording={onSelectRecording} />);
+
+      const trigger = screen.getByRole("combobox", { name: "Recording" });
+      expect(trigger).toHaveTextContent("Recording One");
+
+      await userEvent.click(trigger);
+      await userEvent.click(await screen.findByRole("option", { name: "Recording Two" }));
+      expect(onSelectRecording).toHaveBeenCalledWith("rec-2");
+    });
+
+    it("hides recordings without video", () => {
+      render(
+        <AuthoringDock
+          {...baseProps}
+          recordings={[recording, { ...otherRecording, video: undefined }]}
+        />,
+      );
+      // Only the video-bearing one is selectable; the trigger shows it.
+      expect(screen.getByRole("combobox", { name: "Recording" })).toHaveTextContent(
+        "Recording One",
+      );
+    });
+  });
+
+  describe("rule authoring", () => {
+    it("the Add rule button and R both fire onAddRule with the rounded playhead", async () => {
+      const onAddRule = vi.fn();
+      render(<AuthoringDock {...baseProps} onAddRule={onAddRule} />);
+
+      await userEvent.click(screen.getByRole("button", { name: "Seek 3s" }));
+      await userEvent.click(screen.getByRole("button", { name: /add rule at the playhead/i }));
+      expect(onAddRule).toHaveBeenLastCalledWith(3000);
+
+      fireEvent.keyDown(window, { key: "r" });
+      expect(onAddRule).toHaveBeenLastCalledWith(3000);
+      expect(onAddRule).toHaveBeenCalledTimes(2);
+    });
+
+    it("R respects the same form-field and modifier exemptions as I/O", async () => {
+      const onAddRule = vi.fn();
+      render(
+        <>
+          <AuthoringDock {...baseProps} onAddRule={onAddRule} />
+          <input aria-label="Some sidebar field" />
+        </>,
+      );
+
+      fireEvent.keyDown(screen.getByLabelText("Some sidebar field"), { key: "r" });
+      fireEvent.keyDown(window, { key: "r", metaKey: true });
+      fireEvent.keyDown(window, { key: "R", ctrlKey: true });
+      expect(onAddRule).not.toHaveBeenCalled();
+    });
+
+    it("renders the picker overlay only when one is supplied, and pauses while picking", () => {
+      const { rerender } = render(<AuthoringDock {...baseProps} />);
+      expect(screen.queryByTestId("picker")).not.toBeInTheDocument();
+      expect(fixtures.pauses).toBe(0);
+
+      rerender(
+        <AuthoringDock {...baseProps} picking pickerOverlay={<div data-testid="picker" />} />,
+      );
+      expect(screen.getByTestId("picker")).toBeInTheDocument();
+      expect(fixtures.pauses).toBe(1);
+    });
+
+    it("Escape cancels an open draft instead of clearing the range", () => {
+      const onCancelDraft = vi.fn();
+      const onRangeChange = vi.fn();
+      render(
+        <AuthoringDock
+          {...baseProps}
+          hasDraft
+          range={{ a: 0, b: 2000 }}
+          onCancelDraft={onCancelDraft}
+          onRangeChange={onRangeChange}
+        />,
+      );
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onCancelDraft).toHaveBeenCalledTimes(1);
+      expect(onRangeChange).not.toHaveBeenCalled();
+    });
+
+    it("Escape with no draft still clears the range", () => {
+      const onCancelDraft = vi.fn();
+      const onRangeChange = vi.fn();
+      render(
+        <AuthoringDock
+          {...baseProps}
+          range={{ a: 0, b: 2000 }}
+          onCancelDraft={onCancelDraft}
+          onRangeChange={onRangeChange}
+        />,
+      );
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onRangeChange).toHaveBeenCalledWith(null);
+      expect(onCancelDraft).not.toHaveBeenCalled();
+    });
+
+    it("seeks once for a pendingSeekMs and reports it consumed", () => {
+      const onSeekConsumed = vi.fn();
+      render(<AuthoringDock {...baseProps} pendingSeekMs={2500} onSeekConsumed={onSeekConsumed} />);
+      expect(fixtures.seeks).toEqual([2.5]);
+      expect(onSeekConsumed).toHaveBeenCalledTimes(1);
+    });
+
+    it("passes anchor ticks to the timeline, which opens its extra lane for them", () => {
+      const { container, rerender } = render(<AuthoringDock {...baseProps} />);
+      const lanesWithout = container.querySelectorAll(".tl-lane").length;
+
+      rerender(
+        <AuthoringDock
+          {...baseProps}
+          anchorTicks={[
+            { ms: 1000, label: '"go"' },
+            { ms: 4000, label: '"stop"' },
+          ]}
+        />,
+      );
+      expect(container.querySelectorAll(".tl-lane").length).toBe(lanesWithout + 1);
+    });
+
+    it("reports the playhead in whole ms", async () => {
+      const onPlayheadMs = vi.fn();
+      render(<AuthoringDock {...baseProps} onPlayheadMs={onPlayheadMs} />);
+      await userEvent.click(screen.getByRole("button", { name: "Seek 3s" }));
+      expect(onPlayheadMs).toHaveBeenLastCalledWith(3000);
+    });
   });
 
   describe("In/Out marking", () => {
@@ -243,93 +395,24 @@ describe("AuthoringDock", () => {
   });
 
   describe("clip row", () => {
-    it("Enter adds only when a range exists; Escape clears it", () => {
-      const onAddSegment = vi.fn();
-      const onRangeChange = vi.fn();
-      const { rerender } = render(
-        <AuthoringDock {...baseProps} onAddSegment={onAddSegment} onRangeChange={onRangeChange} />,
-      );
-
-      fireEvent.keyDown(window, { key: "Enter" });
-      fireEvent.keyDown(window, { key: "Escape" });
-      expect(onAddSegment).not.toHaveBeenCalled();
-      expect(onRangeChange).not.toHaveBeenCalled();
-
-      rerender(
-        <AuthoringDock
-          {...baseProps}
-          range={{ a: 0, b: 2000 }}
-          onAddSegment={onAddSegment}
-          onRangeChange={onRangeChange}
-        />,
-      );
-      fireEvent.keyDown(window, { key: "Enter" });
-      expect(onAddSegment).toHaveBeenCalledTimes(1);
-      fireEvent.keyDown(window, { key: "Escape" });
-      expect(onRangeChange).toHaveBeenCalledWith(null);
-    });
-
-    it("Enter yields to focused buttons and role=option targets", () => {
-      const onAddSegment = vi.fn();
-      render(
-        <>
-          <AuthoringDock {...baseProps} range={{ a: 0, b: 2000 }} onAddSegment={onAddSegment} />
-          <button type="button">Sidebar action</button>
-          <div role="option" aria-selected="false" tabIndex={0}>
-            Recording One
-          </div>
-        </>,
-      );
-
-      fireEvent.keyDown(screen.getByRole("button", { name: "Sidebar action" }), { key: "Enter" });
-      fireEvent.keyDown(screen.getByRole("option"), { key: "Enter" });
-      expect(onAddSegment).not.toHaveBeenCalled();
-    });
-
-    it("Enter ignores repeats, already-handled events, and zero-width ranges", () => {
-      const onAddSegment = vi.fn();
-      const { rerender } = render(
-        <AuthoringDock {...baseProps} range={{ a: 0, b: 2000 }} onAddSegment={onAddSegment} />,
-      );
-
-      fireEvent.keyDown(window, { key: "Enter", repeat: true });
-      expect(onAddSegment).not.toHaveBeenCalled();
-
-      // Zero-width range (timeline can emit {a: x, b: x} on a return-to-origin
-      // drag): Enter must fall through, and no Add button is offered.
-      rerender(
-        <AuthoringDock {...baseProps} range={{ a: 1000, b: 1000 }} onAddSegment={onAddSegment} />,
-      );
-      fireEvent.keyDown(window, { key: "Enter" });
-      expect(onAddSegment).not.toHaveBeenCalled();
-      expect(screen.queryByRole("button", { name: /add segment/i })).not.toBeInTheDocument();
-    });
-
-    it("renders the chip with the event count, a clear button, and Add Segment", async () => {
-      const onAddSegment = vi.fn();
+    it("renders the chip with the event count and a clear button", async () => {
       const onRangeChange = vi.fn();
       render(
-        <AuthoringDock
-          {...baseProps}
-          range={{ a: 0, b: 2000 }}
-          onAddSegment={onAddSegment}
-          onRangeChange={onRangeChange}
-        />,
+        <AuthoringDock {...baseProps} range={{ a: 0, b: 2000 }} onRangeChange={onRangeChange} />,
       );
 
       // Events at rel 100 and 292 are both inside [0, 2000].
       expect(screen.getByText(/0:00–0:02 · 2 events/)).toBeInTheDocument();
 
-      await userEvent.click(screen.getByRole("button", { name: /add segment/i }));
-      expect(onAddSegment).toHaveBeenCalledTimes(1);
-
       await userEvent.click(screen.getByRole("button", { name: /clear range/i }));
       expect(onRangeChange).toHaveBeenCalledWith(null);
     });
 
-    it("shows no chip or Add button without a range", () => {
-      render(<AuthoringDock {...baseProps} />);
-      expect(screen.queryByRole("button", { name: /add segment/i })).not.toBeInTheDocument();
+    it("shows no chip without a range, or for a zero-width one", () => {
+      const { rerender } = render(<AuthoringDock {...baseProps} />);
+      expect(screen.queryByText(/events/)).not.toBeInTheDocument();
+
+      rerender(<AuthoringDock {...baseProps} range={{ a: 1000, b: 1000 }} />);
       expect(screen.queryByText(/events/)).not.toBeInTheDocument();
     });
   });

@@ -30,8 +30,8 @@ function makeMacro(id: string): MacroDoc {
   return {
     id,
     name: `Macro ${id}`,
-    nodes: [],
-    edges: [],
+    rules: [],
+    poll_interval_ms: 250,
     created_at: 1,
   };
 }
@@ -57,67 +57,69 @@ describe("useMacros", () => {
     renderHook(() => useMacros());
 
     await waitFor(() => {
-      expect(state.listeners.has("macro-node-started")).toBe(true);
-      expect(state.listeners.has("macro-node-finished")).toBe(true);
+      expect(state.listeners.has("macro-rule-fired")).toBe(true);
+      expect(state.listeners.has("macro-rule-settled")).toBe(true);
       expect(state.listeners.has("macro-run-finished")).toBe(true);
       expect(state.listeners.has("macro-run-failed")).toBe(true);
     });
   });
 
-  it("macro-node-started sets liveNodeId, runState=running, and clears failed", async () => {
+  it("macro-rule-fired sets liveRuleId, runState=running, and clears failed", async () => {
     invokeMock.mockResolvedValueOnce([]);
     const { result } = renderHook(() => useMacros());
-    await waitFor(() => expect(state.listeners.get("macro-node-started")).toBeDefined());
+    await waitFor(() => expect(state.listeners.get("macro-rule-fired")).toBeDefined());
 
     // Seed a prior failure to prove it gets cleared.
     await act(async () => {
       await state.listeners.get("macro-run-failed")?.({
-        payload: { macroId: "m1", nodeId: "n1", reason: "boom" },
+        payload: { macroId: "m1", ruleId: "r1", reason: "boom" },
       });
     });
-    expect(result.current.failed).toEqual({ nodeId: "n1", reason: "boom" });
+    expect(result.current.failed).toEqual({ ruleId: "r1", reason: "boom" });
 
     await act(async () => {
-      await state.listeners.get("macro-node-started")?.({
-        payload: { macroId: "m1", nodeId: "n2", index: 1 },
+      await state.listeners.get("macro-rule-fired")?.({
+        payload: { macroId: "m1", ruleId: "r2", index: 1 },
       });
     });
 
-    expect(result.current.liveNodeId).toBe("n2");
+    expect(result.current.liveRuleId).toBe("r2");
     expect(result.current.runState).toBe("running");
     expect(result.current.failed).toBeNull();
   });
 
-  it("macro-node-finished is a no-op (liveNodeId persists until next start)", async () => {
+  it("macro-rule-settled clears liveRuleId but leaves the run running", async () => {
     invokeMock.mockResolvedValueOnce([]);
     const { result } = renderHook(() => useMacros());
-    await waitFor(() => expect(state.listeners.get("macro-node-started")).toBeDefined());
+    await waitFor(() => expect(state.listeners.get("macro-rule-fired")).toBeDefined());
 
     await act(async () => {
-      await state.listeners.get("macro-node-started")?.({
-        payload: { macroId: "m1", nodeId: "n2", index: 1 },
+      await state.listeners.get("macro-rule-fired")?.({
+        payload: { macroId: "m1", ruleId: "r2", index: 1 },
       });
     });
-    expect(result.current.liveNodeId).toBe("n2");
+    expect(result.current.liveRuleId).toBe("r2");
 
     await act(async () => {
-      await state.listeners.get("macro-node-finished")?.({
-        payload: { macroId: "m1", nodeId: "n2", index: 1 },
+      await state.listeners.get("macro-rule-settled")?.({
+        payload: { macroId: "m1", ruleId: "r2", index: 1 },
       });
     });
 
-    expect(result.current.liveNodeId).toBe("n2");
+    // Back to watching between fires: nothing is live, but the watcher is
+    // still up — only run-finished/run-failed end the run.
+    expect(result.current.liveRuleId).toBeNull();
     expect(result.current.runState).toBe("running");
   });
 
-  it("macro-run-finished resets runState to idle and clears liveNodeId", async () => {
+  it("macro-run-finished resets runState to idle and clears liveRuleId", async () => {
     invokeMock.mockResolvedValueOnce([]);
     const { result } = renderHook(() => useMacros());
-    await waitFor(() => expect(state.listeners.get("macro-node-started")).toBeDefined());
+    await waitFor(() => expect(state.listeners.get("macro-rule-fired")).toBeDefined());
 
     await act(async () => {
-      await state.listeners.get("macro-node-started")?.({
-        payload: { macroId: "m1", nodeId: "n2", index: 1 },
+      await state.listeners.get("macro-rule-fired")?.({
+        payload: { macroId: "m1", ruleId: "r2", index: 1 },
       });
     });
     expect(result.current.runState).toBe("running");
@@ -129,29 +131,29 @@ describe("useMacros", () => {
     });
 
     expect(result.current.runState).toBe("idle");
-    expect(result.current.liveNodeId).toBeNull();
+    expect(result.current.liveRuleId).toBeNull();
   });
 
-  it("macro-run-failed sets failed and resets runState to idle, clears liveNodeId", async () => {
+  it("macro-run-failed sets failed and resets runState to idle, clears liveRuleId", async () => {
     invokeMock.mockResolvedValueOnce([]);
     const { result } = renderHook(() => useMacros());
-    await waitFor(() => expect(state.listeners.get("macro-node-started")).toBeDefined());
+    await waitFor(() => expect(state.listeners.get("macro-rule-fired")).toBeDefined());
 
     await act(async () => {
-      await state.listeners.get("macro-node-started")?.({
-        payload: { macroId: "m1", nodeId: "n2", index: 1 },
+      await state.listeners.get("macro-rule-fired")?.({
+        payload: { macroId: "m1", ruleId: "r2", index: 1 },
       });
     });
 
     await act(async () => {
       await state.listeners.get("macro-run-failed")?.({
-        payload: { macroId: "m1", nodeId: "n2", reason: "timeout" },
+        payload: { macroId: "m1", ruleId: "r2", reason: "timeout" },
       });
     });
 
-    expect(result.current.failed).toEqual({ nodeId: "n2", reason: "timeout" });
+    expect(result.current.failed).toEqual({ ruleId: "r2", reason: "timeout" });
     expect(result.current.runState).toBe("idle");
-    expect(result.current.liveNodeId).toBeNull();
+    expect(result.current.liveRuleId).toBeNull();
   });
 
   it("save calls save_macro with { doc } and returns the resolved doc, refreshing the list", async () => {
@@ -244,10 +246,10 @@ describe("useMacros", () => {
 
     await act(async () => {
       await state.listeners.get("macro-run-failed")?.({
-        payload: { macroId: "m1", nodeId: "n1", reason: "boom" },
+        payload: { macroId: "m1", ruleId: "r1", reason: "boom" },
       });
     });
-    expect(result.current.failed).toEqual({ nodeId: "n1", reason: "boom" });
+    expect(result.current.failed).toEqual({ ruleId: "r1", reason: "boom" });
 
     act(() => {
       result.current.clearFailed();

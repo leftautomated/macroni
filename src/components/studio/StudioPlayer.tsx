@@ -10,6 +10,7 @@ import type { PerceptionTarget, Region, TargetKind, TextSpan } from "@/types";
 
 export interface StudioPlayerHandle {
   seek: (seconds: number) => void;
+  pause: () => void;
 }
 
 interface StudioPlayerProps {
@@ -199,6 +200,9 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
       seek(seconds: number) {
         const v = videoRef.current;
         if (v) v.currentTime = seconds;
+      },
+      pause() {
+        videoRef.current?.pause();
       },
     }),
     [],

@@ -95,7 +95,7 @@ export function MacrosMenu({
                   <button type="button" className="mm-pick" onClick={() => pick(m.id)}>
                     <div className="mm-name">{m.name}</div>
                     <div className="mm-meta">
-                      {m.nodes.length} node{m.nodes.length === 1 ? "" : "s"}
+                      {m.rules.length} rule{m.rules.length === 1 ? "" : "s"}
                     </div>
                   </button>
                   <button

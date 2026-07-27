@@ -1,15 +1,24 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { Frame, Workflow } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Plus } from "lucide-react";
 import type { KindOption } from "@/components/studio/CreateTargetPopover";
 import { StudioPlayer, type StudioPlayerHandle } from "@/components/studio/StudioPlayer";
 import { type LoopRegion, StudioTimeline } from "@/components/studio/StudioTimeline";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useVideoAssetUrl } from "@/hooks/useVideoAssetUrl";
 import { eventsInRange, segmentBasis } from "@/lib/macro-segment";
 import { fmtMmSs } from "@/lib/time-format";
+import { videoDisplayRect } from "@/lib/video-rect";
 import type { PerceptionTarget, Recording, Region } from "@/types";
 
-// Visual Wait authoring in the dock is Image/Color only — Text waits have
-// their own dedicated sidebar form (mirrors the old embedded-player scoping).
+// Trigger authoring by dragging on the frame is Image/Color only — text
+// triggers come from clicking a span in the TriggerPicker overlay instead.
 const DOCK_POPOVER_KINDS: KindOption[] = ["Image", "Color"];
 
 const noop = () => {};
@@ -17,48 +26,116 @@ const noop = () => {};
 export interface AuthoringDockProps {
   /** Selected recording; callers only render the dock when `video` is set. */
   recording: Recording;
-  /** Shared segment range, video-relative ms (integers). */
+  /** Selector options — callers pass the video-bearing recordings. */
+  recordings: Recording[];
+  onSelectRecording: (id: string) => void;
+  /** Shared action range, video-relative ms (integers). */
   range: LoopRegion | null;
   /** Fires with whole-ms values (rounded here) or null on clear. */
   onRangeChange: (range: LoopRegion | null) => void;
-  /** Build + add a Segment node from the current shared range. */
-  onAddSegment: () => void;
+  /** Rule-anchor markers for the timeline's tick lane. */
+  anchorTicks: Array<{ ms: number; label: string }>;
+  /** Seek request from outside (rule card click), consumed once. */
+  pendingSeekMs: number | null;
+  onSeekConsumed: () => void;
+  /**
+   * Latest playhead in whole ms. Lets the deck's own Add rule anchor exactly
+   * where this dock's would — callers should park it in a ref, it ticks every
+   * animation frame during playback.
+   */
+  onPlayheadMs?: (ms: number) => void;
+  /** Start a rule draft at the playhead (Add rule button / R key). */
+  onAddRule: (timestampMs: number) => void;
+  /** True while the trigger picker should be shown; the dock pauses. */
+  picking: boolean;
+  /** Picker overlay, rendered over the video's content rect. */
+  pickerOverlay?: ReactNode;
   onSaveTarget: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
   onSampleColor: (region: Region, timestampMs: number) => Promise<[number, number, number]>;
-  /** Macro graph rendered over the video. Omit when the dock is used standalone. */
-  canvasOverlay?: ReactNode;
+  /** Escape pressed with a draft open. */
+  onCancelDraft: () => void;
+  hasDraft: boolean;
 }
 
 /**
  * Bottom authoring dock for the macro editor: the real StudioPlayer and
- * StudioTimeline, with the macro canvas sharing the player's stage when an
- * overlay is supplied. Canvas mode owns stage gestures; Frame mode hands them
- * to the player for playback and visual-target selection.
- * Segments come from dragging on the timeline OR marking In/Out at the
- * playhead (I/O keys or the clip-row buttons); either way the shared range
- * loop-previews on the player. Enter adds the segment, Escape clears.
- * Dragging a box on the frame authors an Image/Color wait through the
- * player's existing popover flow.
+ * StudioTimeline, plus the clip row that drives rule authoring.
+ * Scrub to the frame where the trigger appears, press "+ Add rule" (or R) to
+ * open the trigger picker over the frame; the action range comes from
+ * dragging on the timeline OR marking In/Out at the playhead (I/O keys or the
+ * clip-row buttons), and loop-previews on the player either way. Escape
+ * cancels an open draft, else clears the range; Enter adds the range-only
+ * (no-draft) selection. Dragging a box on the frame authors an Image/Color
+ * trigger through the player's existing popover flow.
  */
 export function AuthoringDock({
   recording,
+  recordings,
+  onSelectRecording,
   range,
   onRangeChange,
-  onAddSegment,
+  anchorTicks,
+  pendingSeekMs,
+  onSeekConsumed,
+  onPlayheadMs,
+  onAddRule,
+  picking,
+  pickerOverlay,
   onSaveTarget,
   onSampleColor,
-  canvasOverlay,
+  onCancelDraft,
+  hasDraft,
 }: AuthoringDockProps) {
   const playerRef = useRef<StudioPlayerHandle>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const [videoS, setVideoS] = useState(0);
+  const onPlayheadMsRef = useRef(onPlayheadMs);
+  onPlayheadMsRef.current = onPlayheadMs;
   // The player's transport bar renders into the timeline column (same
   // controlsHost pattern as StudioEditor), so the video fills the left pane
   // and scrub/transport/timeline stack together on the right.
   const [controlsHost, setControlsHost] = useState<HTMLElement | null>(null);
-  const [interactionMode, setInteractionMode] = useState<"canvas" | "frame">("canvas");
   const { url } = useVideoAssetUrl(recording.video);
 
   const durationMs = recording.video?.duration_ms ?? 0;
+
+  // The overlay must line up with the video's *displayed* pixels, not the
+  // stage box — same contain-fit math StudioPlayer runs internally, measured
+  // here against the identically sized `.adock-player` wrapper.
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setBox({ width: r.width, height: r.height });
+    };
+    update();
+    // jsdom has no ResizeObserver — the overlay just sits on a zero rect there.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const contentRect = videoDisplayRect(box, {
+    width: recording.video?.width ?? 0,
+    height: recording.video?.height ?? 0,
+  });
+
+  // Picking pauses playback: the picker's boxes are pinned to the frame that
+  // was OCR'd, so the video must not move underneath them.
+  useEffect(() => {
+    if (picking) playerRef.current?.pause();
+  }, [picking]);
+
+  // One-shot seek from a rule-card click.
+  useEffect(() => {
+    if (pendingSeekMs === null) return;
+    playerRef.current?.seek(pendingSeekMs / 1000);
+    onSeekConsumed();
+  }, [pendingSeekMs, onSeekConsumed]);
+
+  const recordingsWithVideo = useMemo(() => recordings.filter((r) => r.video), [recordings]);
 
   // Marks always emit a complete, valid range (b > a, whole ms): a lone In
   // runs to the end of the video, a lone Out starts at 0, and a mark that
@@ -74,7 +151,14 @@ export function AuthoringDock({
     if (p > a) onRangeChange({ a, b: p });
   };
 
-  // I/O/Enter/Escape while the dock is open. The window listener is bound
+  const handleTimeUpdate = (seconds: number) => {
+    setVideoS(seconds);
+    onPlayheadMsRef.current?.(Math.round(seconds * 1000));
+  };
+
+  const addRuleAtPlayhead = () => onAddRule(Math.round(videoS * 1000));
+
+  // I/O/R/Enter/Escape while the dock is open. The window listener is bound
   // once; the ref indirection lets it read the latest playhead/range without
   // re-binding on every onTimeUpdate tick. Form fields and modifier chords
   // are ignored so typing in the sidebar (or app shortcuts) never marks, and
@@ -97,19 +181,26 @@ export function AuthoringDock({
       markIn();
     } else if (e.key === "o" || e.key === "O") {
       markOut();
+    } else if (e.key === "r" || e.key === "R") {
+      addRuleAtPlayhead();
     } else if (e.key === "Enter" || e.key === "Escape") {
       // Enter/Escape must never steal activation from a focused control —
       // a focused button keeps its native Enter, an open Radix listbox
-      // keeps its option selection. I/O marking deliberately still works
-      // with a button focused (mark, then keep marking).
+      // keeps its option selection. I/O/R deliberately still work with a
+      // button focused (mark, then keep marking).
       if (t instanceof HTMLElement && t.closest("button, [role='option']")) return;
-      if (e.key === "Enter" && range && range.b > range.a) {
+      if (e.key === "Escape" && hasDraft) {
+        // A draft outranks the range: Escape backs out of authoring first.
         e.preventDefault();
-        onAddSegment();
+        onCancelDraft();
       } else if (e.key === "Escape" && range) {
         e.preventDefault();
         onRangeChange(null);
       }
+      // Enter is deliberately never claimed here. A range on its own no
+      // longer creates anything (rules need a trigger), and confirming a
+      // draft belongs to the draft card's own Add button — where a focused
+      // Enter already works natively.
     }
   };
   useEffect(() => {
@@ -120,15 +211,15 @@ export function AuthoringDock({
 
   return (
     <div className="adock-root">
-      <div className="adock-stage" data-interaction-mode={interactionMode}>
-        <div className="adock-player">
+      <div className="adock-stage">
+        <div ref={stageRef} className="adock-player">
           {url && (
             <StudioPlayer
               key={recording.id}
               ref={playerRef}
               src={url}
               fps={recording.video?.fps ?? 30}
-              onTimeUpdate={setVideoS}
+              onTimeUpdate={handleTimeUpdate}
               onReplay={noop}
               showReplay={false}
               controlsHost={controlsHost}
@@ -139,41 +230,40 @@ export function AuthoringDock({
             />
           )}
         </div>
-        {canvasOverlay && (
-          <div className="adock-canvas" aria-hidden={interactionMode === "frame"}>
-            {canvasOverlay}
+        {pickerOverlay && (
+          <div
+            className="adock-overlay"
+            style={{
+              left: contentRect.left,
+              top: contentRect.top,
+              width: contentRect.width,
+              height: contentRect.height,
+            }}
+          >
+            {pickerOverlay}
           </div>
-        )}
-        {canvasOverlay && (
-          <fieldset className="adock-mode-switch" aria-label="Stage interaction">
-            <button
-              type="button"
-              className="adock-mode"
-              data-active={interactionMode === "canvas"}
-              aria-pressed={interactionMode === "canvas"}
-              title="Edit and connect macro nodes"
-              onClick={() => setInteractionMode("canvas")}
-            >
-              <Workflow aria-hidden="true" />
-              Canvas
-            </button>
-            <button
-              type="button"
-              className="adock-mode"
-              data-active={interactionMode === "frame"}
-              aria-pressed={interactionMode === "frame"}
-              title="Play the video or drag a visual target"
-              onClick={() => setInteractionMode("frame")}
-            >
-              <Frame aria-hidden="true" />
-              Frame
-            </button>
-          </fieldset>
         )}
       </div>
       <div className="adock-timeline">
         <div ref={setControlsHost} className="adock-controls" />
         <div className="adock-cliprow">
+          <Select value={recording.id} onValueChange={onSelectRecording}>
+            <SelectTrigger
+              aria-label="Recording"
+              className="h-7 w-44 shrink-0 text-xs focus-visible:border-ring"
+            >
+              <SelectValue placeholder="Select recording..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {recordingsWithVideo.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name || r.id}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
           <button
             type="button"
             className="adock-mark"
@@ -192,35 +282,32 @@ export function AuthoringDock({
           >
             ⌋ Out
           </button>
+          <button
+            type="button"
+            className="adock-add"
+            title="Start a rule at the playhead (R)"
+            aria-label="Add rule at the playhead"
+            onClick={addRuleAtPlayhead}
+          >
+            <Plus aria-hidden="true" />
+            Add rule
+          </button>
           {range && range.b > range.a && (
-            <>
-              <div className="anp-chip adock-chip">
-                <span>
-                  {fmtMmSs(range.a)}–{fmtMmSs(range.b)} ·{" "}
-                  {
-                    eventsInRange(recording.events, segmentBasis(recording), range.a, range.b)
-                      .length
-                  }{" "}
-                  events
-                </span>
-                <button
-                  type="button"
-                  className="anp-chip-clear"
-                  aria-label="Clear range"
-                  onClick={() => onRangeChange(null)}
-                >
-                  ✕
-                </button>
-              </div>
+            <div className="adock-chip">
+              <span>
+                {fmtMmSs(range.a)}–{fmtMmSs(range.b)} ·{" "}
+                {eventsInRange(recording.events, segmentBasis(recording), range.a, range.b).length}{" "}
+                events
+              </span>
               <button
                 type="button"
-                className="adock-add"
-                title="Add this range as a Segment node (Enter)"
-                onClick={onAddSegment}
+                className="adock-chip-clear"
+                aria-label="Clear range"
+                onClick={() => onRangeChange(null)}
               >
-                + Add Segment
+                ✕
               </button>
-            </>
+            </div>
           )}
         </div>
         <StudioTimeline
@@ -231,11 +318,12 @@ export function AuthoringDock({
           onSeekSeconds={(s) => playerRef.current?.seek(s)}
           loop={range}
           onLoopChange={(l) =>
-            // Round where the drag lands in shared state, so the sidebar's
-            // event summary and segmentNodeFromRange (which rounds
-            // internally) always filter on identical bounds.
+            // Round where the drag lands in shared state, so the clip row's
+            // event summary and playInputsRule (which rounds internally)
+            // always filter on identical bounds.
             onRangeChange(l ? { a: Math.round(l.a), b: Math.round(l.b) } : null)
           }
+          perceptionTicks={anchorTicks}
           rangeWord="selection"
         />
       </div>

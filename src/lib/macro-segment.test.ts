@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eventsInRange, segmentBasis, segmentNodeFromRange } from "./macro-segment";
+import { eventsInRange, segmentBasis } from "./macro-segment";
 import type { InputEvent, Recording } from "@/types";
 
 const ev = (t: number): InputEvent =>
@@ -33,16 +33,5 @@ describe("macro-segment", () => {
     const r = rec();
     const inRange = eventsInRange(r.events, 1000, 1000, 3000); // rel 1000..3000
     expect(inRange.map((e) => e.timestamp)).toEqual([2000, 3000, 4000]);
-  });
-
-  it("segmentNodeFromRange builds the exact node with rounded provenance", () => {
-    const node = segmentNodeFromRange(rec(), 1000.4, 3000.6);
-    expect(node.kind.type).toBe("Segment");
-    if (node.kind.type !== "Segment") throw new Error();
-    expect(node.kind.speed).toBe(1);
-    expect(node.kind.provenance).toEqual({ recording_id: "r1", start_ms: 1000, end_ms: 3001 });
-    expect(node.kind.events.map((e) => e.timestamp)).toEqual([2000, 3000, 4000]);
-    expect(node.x).toBe(40);
-    expect(node.y).toBe(40);
   });
 });

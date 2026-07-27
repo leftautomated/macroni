@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import type { MacroRunFailure, MacroRunState } from "@/hooks/useMacros";
 import {
   InputEventType,
   type InputEvent,
   type MacroDoc,
-  type MacroNode,
+  type MacroRule,
+  type PerceptionTarget,
   type Recording,
+  type TextSpan,
 } from "@/types";
 
 type Listener = (event: { payload: unknown }) => void | Promise<void>;
@@ -24,6 +26,9 @@ const fake = {
   macros: [] as MacroDoc[],
   rejectStop: null as string | null,
   rejectRun: null as string | null,
+  rejectOcr: false,
+  rejectSaveTarget: false,
+  spans: [] as TextSpan[],
 };
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -52,7 +57,14 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "stop_macro":
         if (fake.rejectStop) throw new Error(fake.rejectStop);
         return undefined;
+      case "extract_region": {
+        if (fake.rejectOcr) throw new Error("ocr backend exploded");
+        const kind = args?.kind as { type: string };
+        if (kind.type === "ColorSample") return { type: "Color", rgb: [1, 2, 3], matched: true };
+        return { type: "Text", spans: fake.spans };
+      }
       case "save_target": {
+        if (fake.rejectSaveTarget) throw new Error("crop failed");
         const target = args?.target as { id: string; kind: Record<string, unknown> };
         return {
           id: args?.recordingId,
@@ -72,93 +84,67 @@ vi.mock("@tauri-apps/api/event", () => ({
   }),
 }));
 
-// The real MacroCanvas renders react-flow, which isn't exercised under jsdom
-// here — a stub exposes just enough surface (node count, the failed-node id,
-// and a button that fires onChange) to test MacroEditor's dirty/save/run-state
-// wiring without it.
-vi.mock("@/components/studio/macros/MacroCanvas", () => ({
-  MacroCanvas: ({
-    doc,
-    onChange,
-    failedNodeId,
-  }: {
-    doc: MacroDoc;
-    onChange: (doc: MacroDoc) => void;
-    failedNodeId?: string | null;
-  }) => (
-    <div>
-      <div>canvas: {doc.nodes.length} node(s)</div>
-      <div>failed node: {failedNodeId ?? "none"}</div>
-      <div>
-        segment events:{" "}
-        {doc.nodes[0]?.kind?.type === "Segment" ? doc.nodes[0].kind.events.length : "n/a"}
-      </div>
-      <button
-        type="button"
-        onClick={() => onChange({ ...doc, nodes: doc.nodes.map((n) => ({ ...n, x: n.x + 1 })) })}
-      >
-        Simulate drag
-      </button>
-    </div>
-  ),
+// The real AuthoringDock renders for real (its selector, Add rule button and
+// picker slot are what the authoring flow is driven through); only the video
+// element underneath is stubbed, exposing onTimeUpdate so tests can move the
+// playhead and onSaveTarget so a frame drag can be simulated.
+vi.mock("@/components/studio/StudioPlayer", async () => {
+  const { forwardRef, useImperativeHandle } = await import("react");
+  return {
+    StudioPlayer: forwardRef(
+      (
+        {
+          onTimeUpdate,
+          onSaveTarget,
+        }: {
+          onTimeUpdate: (seconds: number) => void;
+          onSaveTarget?: (target: PerceptionTarget, timestampMs: number) => Promise<void>;
+        },
+        ref: React.Ref<{ seek: (s: number) => void; pause: () => void }>,
+      ) => {
+        useImperativeHandle(ref, () => ({ seek: () => {}, pause: () => {} }));
+        return (
+          <div data-testid="player-stub">
+            <button type="button" onClick={() => onTimeUpdate(2)}>
+              Simulate scrub to 2s
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                onSaveTarget?.(
+                  {
+                    id: "t-img",
+                    name: "Health bar",
+                    modality: "visual",
+                    region: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+                    kind: { type: "TemplateMatch", image: "", threshold: 0.8, source_px: [0, 0] },
+                    created_at: 1,
+                  },
+                  1500,
+                )
+              }
+            >
+              Simulate frame drag
+            </button>
+          </div>
+        );
+      },
+    ),
+  };
+});
+
+vi.mock("@/hooks/useVideoAssetUrl", () => ({
+  useVideoAssetUrl: () => ({ url: "asset://video.mp4", error: null }),
 }));
 
-// The real AuthoringDock renders StudioPlayer/StudioTimeline (video, drag
-// math) — covered by its own test file. Here a stub stands in for "the user
-// dragged a range / saved a target in the dock" so the shared-state wiring
-// through MacroEditor is what's under test.
-vi.mock("@/components/studio/macros/AuthoringDock", () => ({
-  AuthoringDock: ({
-    onRangeChange,
-    onSaveTarget,
-    onAddSegment,
-    canvasOverlay,
-  }: {
-    onRangeChange: (r: { a: number; b: number } | null) => void;
-    onSaveTarget: (target: unknown, timestampMs: number) => Promise<void>;
-    onAddSegment: () => void;
-    canvasOverlay?: ReactNode;
-  }) => (
-    <div data-testid="authoring-dock">
-      {canvasOverlay}
-      <button type="button" onClick={() => onRangeChange({ a: 2000, b: 4000 })}>
-        Simulate dock range
-      </button>
-      <button
-        type="button"
-        onClick={() =>
-          onSaveTarget(
-            {
-              id: "t-img",
-              name: "Target",
-              modality: "visual",
-              region: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
-              kind: { type: "TemplateMatch", image: "", threshold: 0.8, source_px: [0, 0] },
-              created_at: 1,
-            },
-            4200,
-          )
-        }
-      >
-        Simulate dock image save
-      </button>
-      <button type="button" onClick={() => onAddSegment()}>
-        Simulate dock add segment
-      </button>
-    </div>
-  ),
-}));
-
-import { MacroEditor } from "@/components/studio/macros/MacroEditor";
+import { MacroEditor, type MacroEditorProps } from "@/components/studio/macros/MacroEditor";
 import { useMacros } from "@/hooks/useMacros";
-
-const recordings: Recording[] = [];
 
 function mkEvent(key: string, timestamp: number): InputEvent {
   return { type: InputEventType.KeyPress, key, timestamp };
 }
 
-const recordingWithVideo: Recording = {
+const recordingOne: Recording = {
   id: "rec-1",
   name: "Recording One",
   events: [
@@ -180,6 +166,50 @@ const recordingWithVideo: Recording = {
     has_audio: false,
   },
 };
+
+const recordingTwo: Recording = {
+  ...recordingOne,
+  id: "rec-2",
+  name: "Recording Two",
+  events: [],
+};
+
+const span = (text: string): TextSpan => ({
+  text,
+  region: { x: 0.4, y: 0.2, w: 0.2, h: 0.05 },
+  confidence: 0.94,
+});
+
+function textTrigger(name: string): PerceptionTarget {
+  return {
+    id: `t-${name}`,
+    name,
+    modality: "visual",
+    region: { x: 0.4, y: 0.2, w: 0.2, h: 0.05 },
+    kind: { type: "TextOcr", expect: name },
+    created_at: 1,
+  };
+}
+
+function mkRule(id: string, over: Partial<MacroRule> = {}): MacroRule {
+  return {
+    id,
+    trigger: textTrigger(id === "r1" ? "climb the stairs" : "open the door"),
+    action: {
+      type: "PlayInputs",
+      events: [mkEvent("a", 0), mkEvent("b", 1000)],
+      speed: 1,
+      provenance: { recording_id: "rec-1", start_ms: 0, end_ms: 1000 },
+    },
+    enabled: true,
+    anchor: { recording_id: "rec-1", timestamp_ms: 0 },
+    ...over,
+  };
+}
+
+function mkDoc(id: string, rules: MacroRule[], name = "Saved Macro"): MacroDoc {
+  return { id, name, rules, poll_interval_ms: 250, created_at: 1 };
+}
 
 // jsdom never lays out the page, so every element's getBoundingClientRect is
 // zeroed — including the ResizableHandle's. react-resizable-panels turns any
@@ -211,335 +241,442 @@ Element.prototype.getBoundingClientRect = function (this: Element) {
 // MacroEditor no longer calls useMacros itself (it's lifted into StudioEditor
 // so a run survives toggling away from the macros view) — it now consumes the
 // hook's return as props. This wrapper reproduces that wiring for these tests.
-function Wrapper({ recordings: recs }: { recordings: Recording[] }) {
+function Wrapper({ recordings }: { recordings: Recording[] }) {
   const macrosState = useMacros();
-  return <MacroEditor recordings={recs} {...macrosState} />;
+  return <MacroEditor recordings={recordings} {...macrosState} />;
 }
 
-async function addTextWait(text = "Loaded") {
-  await userEvent.type(screen.getByLabelText(/expect/i), text);
-  await userEvent.click(screen.getByRole("button", { name: /add text wait/i }));
+/** Static useMacros-shaped props, for the presentational assertions. */
+function macroProps(
+  over: Partial<{
+    macros: MacroDoc[];
+    runState: MacroRunState;
+    liveRuleId: string | null;
+    failed: MacroRunFailure | null;
+    clearFailed: () => void;
+  }> = {},
+): Omit<MacroEditorProps, "recordings"> {
+  return {
+    macros: [],
+    load: async () => {},
+    save: async (doc: MacroDoc) => doc,
+    remove: async () => {},
+    run: async () => {},
+    stop: async () => {},
+    runState: "idle",
+    liveRuleId: null,
+    failed: null,
+    clearFailed: () => {},
+    ...over,
+  };
 }
 
-async function saveAndWaitForRunEnabled() {
-  await userEvent.click(screen.getByRole("button", { name: /save/i }));
-  await waitFor(() => expect(screen.getByRole("button", { name: /run/i })).toBeEnabled());
-}
+const cardLabels = () =>
+  Array.from(document.querySelectorAll(".rc-when-label")).map((el) => el.textContent);
 
 describe("MacroEditor", () => {
   beforeEach(() => {
     fake.macros = [];
     fake.rejectStop = null;
     fake.rejectRun = null;
+    fake.rejectOcr = false;
+    fake.rejectSaveTarget = false;
+    fake.spans = [span("climb the stairs"), span("quit")];
     state.listeners.clear();
     vi.clearAllMocks();
   });
 
-  async function selectRecording(name: string | RegExp) {
-    await userEvent.click(screen.getByRole("combobox", { name: /recording/i }));
-    await userEvent.click(await screen.findByRole("option", { name }));
-  }
+  it("renders one deck card per rule of the selected macro", async () => {
+    render(
+      <MacroEditor
+        recordings={[recordingOne]}
+        {...macroProps({ macros: [mkDoc("m1", [mkRule("r1"), mkRule("r2")])] })}
+      />,
+    );
 
-  it("shows the authoring dock only after a recording with video is selected", async () => {
-    render(<Wrapper recordings={[recordingWithVideo]} />);
-    await screen.findByText(/0 node/i);
-    expect(screen.queryByTestId("authoring-dock")).not.toBeInTheDocument();
-
-    await selectRecording("Recording One");
-    expect(screen.getByTestId("authoring-dock")).toBeInTheDocument();
+    await waitFor(() => expect(cardLabels()).toHaveLength(2));
+    expect(cardLabels()).toEqual(['When "climb the stairs"', 'When "open the door"']);
   });
 
-  it("a dock range drives the sidebar summary and produces a matching Segment node", async () => {
-    render(<Wrapper recordings={[recordingWithVideo]} />);
-    await screen.findByText(/0 node/i);
-    await selectRecording("Recording One");
+  it("shows no empty-state copy for a macro with no rules — just the Add affordance", async () => {
+    const { container } = render(
+      <MacroEditor recordings={[recordingOne]} {...macroProps({ macros: [mkDoc("m1", [])] })} />,
+    );
 
-    await userEvent.click(screen.getByRole("button", { name: /simulate dock range/i }));
-    // rel [2000,4000] over basis 1000 → e2, e3, e4.
-    expect(screen.getByText(/0:02–0:04 · 3 events/)).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: /^add segment$/i }));
-    expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
-    expect(screen.getByText("segment events: 3")).toBeInTheDocument();
+    await screen.findByRole("button", { name: "Add rule" });
+    expect(container.querySelectorAll(".rc-root")).toHaveLength(0);
+    const copy = container.textContent?.toLowerCase() ?? "";
+    expect(copy).not.toContain("no rules");
+    expect(copy).not.toContain("no nodes");
+    expect(copy).not.toContain("nothing here");
   });
 
-  it("a dock image save captures via save_target and adds a WaitFor node", async () => {
-    render(<Wrapper recordings={[recordingWithVideo]} />);
-    await screen.findByText(/0 node/i);
-    await selectRecording("Recording One");
-
-    await userEvent.click(screen.getByRole("button", { name: /simulate dock image save/i }));
-    expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
+  it("renders a plain stage with no copy when no recording has video", () => {
+    const { container } = render(
+      <MacroEditor
+        recordings={[{ ...recordingOne, video: undefined }]}
+        {...macroProps({ macros: [mkDoc("m1", [])] })}
+      />,
+    );
+    const stage = container.querySelector(".macro-editor-canvas-pane");
+    expect(stage).not.toBeNull();
+    expect(stage?.textContent).toBe("");
   });
 
-  it("the dock's Add Segment builds the same node as the sidebar path", async () => {
-    render(<Wrapper recordings={[recordingWithVideo]} />);
-    await screen.findByText(/0 node/i);
-    await selectRecording("Recording One");
+  describe("add-rule flow", () => {
+    it("OCRs the frame, picks a span, and adds the rule from the draft card", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      render(<Wrapper recordings={[recordingOne]} />);
+      await screen.findByRole("button", { name: "Add rule" });
 
-    await userEvent.click(screen.getByRole("button", { name: /simulate dock range/i }));
-    await userEvent.click(screen.getByRole("button", { name: /simulate dock add segment/i }));
+      await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
 
-    expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
-    // rel [2000,4000] over basis 1000 → e2, e3, e4 (same invariant as the
-    // sidebar-path test; the canvas stub renders the built node's count).
-    expect(screen.getByText("segment events: 3")).toBeInTheDocument();
-  });
+      await waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith(
+          "extract_region",
+          // `traceId` rides along on every observability invoke.
+          expect.objectContaining({
+            source: { type: "Recording", recording_id: "rec-1", timestamp_ms: 0 },
+            region: { x: 0, y: 0, w: 1, h: 1 },
+            kind: { type: "TextOcr", expect: null },
+          }),
+        ),
+      );
 
-  it("starts with an empty draft macro: Run disabled (no nodes yet)", async () => {
-    render(<Wrapper recordings={recordings} />);
-    expect(await screen.findByText(/0 node/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /run/i })).toBeDisabled();
-  });
+      // Picker offers one box per detected span.
+      const spanButton = await screen.findByRole("button", {
+        name: 'Use text "climb the stairs" as the trigger',
+      });
+      await userEvent.click(spanButton);
 
-  it("adding a node marks the toolbar dirty, but Run stays disabled until saved", async () => {
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
+      // Draft card: the trigger, plus the pre-selected action range (anchor 0
+      // → end of the recording; all 5 events fall inside it).
+      const draft = document.querySelector(".rd-draft") as HTMLElement;
+      expect(within(draft).getByText(/climb the stairs/)).toBeInTheDocument();
+      expect(within(draft).getByText(/0:00–0:05 · 5 events/)).toBeInTheDocument();
 
-    await addTextWait();
+      await userEvent.click(screen.getByRole("button", { name: 'Add rule: "climb the stairs"' }));
 
-    expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save unsaved changes" })).toBeInTheDocument();
-    // Single node is trivially a valid chain, but the doc is unsaved (dirty,
-    // and not yet present in the stored macro list) — run_macro would 404.
-    const runButton = screen.getByRole("button", { name: /run/i });
-    expect(runButton).toBeDisabled();
-    expect(runButton).toHaveAttribute("title", "Save before running.");
-  });
+      await waitFor(() => expect(cardLabels()).toEqual(['When "climb the stairs"']));
+      expect(document.querySelector(".rd-draft")).toBeNull();
+      expect(screen.getByRole("button", { name: "Save unsaved changes" })).toBeInTheDocument();
+    });
 
-  it("does not persist anything until Save is clicked (explicit save, no autosave)", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
+    it("anchors at the dock playhead when the deck's Add rule is used after a scrub", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      render(<Wrapper recordings={[recordingOne]} />);
+      await screen.findByRole("button", { name: "Add rule" });
 
-    await addTextWait();
-    await screen.findByText(/1 node/i);
+      await userEvent.click(screen.getByRole("button", { name: /simulate scrub to 2s/i }));
+      await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
 
-    expect(invoke).not.toHaveBeenCalledWith("save_macro", expect.anything());
-
-    await userEvent.click(screen.getByRole("button", { name: /save/i }));
-
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith(
-        "save_macro",
-        expect.objectContaining({ doc: expect.anything() }),
+      await waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith(
+          "extract_region",
+          expect.objectContaining({
+            source: { type: "Recording", recording_id: "rec-1", timestamp_ms: 2000 },
+          }),
+        ),
       );
     });
-    await waitFor(() => {
-      expect(screen.queryByRole("status", { name: /unsaved/i })).not.toBeInTheDocument();
+
+    it("degrades to the drag-a-box hint when the frame OCR fails", async () => {
+      const { error } = await import("@tauri-apps/plugin-log");
+      fake.rejectOcr = true;
+      render(<Wrapper recordings={[recordingOne]} />);
+      await screen.findByRole("button", { name: "Add rule" });
+
+      await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+
+      expect(await screen.findByText(/no text found/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /as the trigger/ })).not.toBeInTheDocument();
+      await waitFor(() => expect(error).toHaveBeenCalled());
     });
-    // Now that it's saved and not dirty, Run is enabled.
-    expect(screen.getByRole("button", { name: /run/i })).toBeEnabled();
+
+    it("builds a Stop rule when the draft's action is toggled, with no range needed", async () => {
+      render(<Wrapper recordings={[recordingOne]} />);
+      await screen.findByRole("button", { name: "Add rule" });
+
+      await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+      await userEvent.click(
+        await screen.findByRole("button", { name: 'Use text "quit" as the trigger' }),
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Stop macro" }));
+      // The range chip is gone — a Stop action doesn't replay anything.
+      expect(document.querySelector(".rd-draft-chip")).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: 'Add rule: "quit"' }));
+
+      await waitFor(() => expect(cardLabels()).toEqual(['When "quit"']));
+      expect(screen.getByText("Stop macro", { selector: ".rc-then" })).toBeInTheDocument();
+    });
+
+    it("shows an inline error on the draft card when the frame capture fails", async () => {
+      fake.rejectSaveTarget = true;
+      render(<Wrapper recordings={[recordingOne]} />);
+      await screen.findByRole("button", { name: "Add rule" });
+
+      await userEvent.click(screen.getByRole("button", { name: /simulate frame drag/i }));
+
+      expect(await screen.findByText("Couldn't capture that — try again")).toBeInTheDocument();
+      expect(cardLabels()).toHaveLength(0);
+    });
+
+    it("Cancel drops the draft without touching the doc", async () => {
+      render(<Wrapper recordings={[recordingOne]} />);
+      await screen.findByRole("button", { name: "Add rule" });
+
+      await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+      await screen.findByRole("button", { name: 'Use text "quit" as the trigger' });
+      await userEvent.click(screen.getAllByRole("button", { name: "Cancel rule draft" })[0]);
+
+      expect(document.querySelector(".rd-draft")).toBeNull();
+      expect(cardLabels()).toHaveLength(0);
+      expect(
+        screen.queryByRole("button", { name: "Save unsaved changes" }),
+      ).not.toBeInTheDocument();
+    });
   });
 
-  it("dragging a node on the canvas (onChange) marks dirty without autosaving", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
+  describe("deck editing", () => {
+    it("reorders, toggles and deletes rules, marking the doc dirty", async () => {
+      fake.macros = [mkDoc("m1", [mkRule("r1"), mkRule("r2")])];
+      render(<Wrapper recordings={[recordingOne]} />);
+      await waitFor(() => expect(cardLabels()).toHaveLength(2));
 
-    await userEvent.click(screen.getByRole("button", { name: /simulate drag/i }));
+      await userEvent.click(screen.getByRole("button", { name: 'Move down: "climb the stairs"' }));
+      expect(cardLabels()).toEqual(['When "open the door"', 'When "climb the stairs"']);
+      expect(screen.getByRole("button", { name: "Save unsaved changes" })).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: "Save unsaved changes" })).toBeInTheDocument();
-    expect(invoke).not.toHaveBeenCalledWith("save_macro", expect.anything());
-  });
+      const toggle = screen.getByRole("switch", { name: 'Rule enabled: "open the door"' });
+      expect(toggle).toBeChecked();
+      await userEvent.click(toggle);
+      expect(
+        screen.getByRole("switch", { name: 'Rule enabled: "open the door"' }),
+      ).not.toBeChecked();
 
-  it("Run calls run_macro with the working doc's id once saved and the chain is valid", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
-    await addTextWait();
-    await screen.findByText(/1 node/i);
+      await userEvent.click(screen.getByRole("button", { name: 'Delete rule: "open the door"' }));
+      expect(cardLabels()).toEqual(['When "climb the stairs"']);
+    });
 
-    await saveAndWaitForRunEnabled();
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_macro", expect.anything()));
+    it("clicking a card anchored on another recording switches the dock's recording", async () => {
+      fake.macros = [
+        mkDoc("m1", [
+          mkRule("r2", {
+            anchor: { recording_id: "rec-2", timestamp_ms: 1200 },
+          }),
+        ]),
+      ];
+      render(<Wrapper recordings={[recordingOne, recordingTwo]} />);
+      await waitFor(() => expect(cardLabels()).toHaveLength(1));
+      expect(screen.getByRole("combobox", { name: "Recording" })).toHaveTextContent(
+        "Recording One",
+      );
 
-    await userEvent.click(screen.getByRole("button", { name: /run/i }));
+      await userEvent.click(screen.getByText('When "open the door"'));
 
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith(
-        "run_macro",
-        expect.objectContaining({ id: expect.any(String) }),
+      await waitFor(() =>
+        expect(screen.getByRole("combobox", { name: "Recording" })).toHaveTextContent(
+          "Recording Two",
+        ),
       );
     });
-    // Run disabled + Stop shown once the (unresolved-events) run is "running".
-    expect(await screen.findByRole("button", { name: /stop/i })).toBeInTheDocument();
   });
 
-  it("Stop calls stop_macro", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
-    await addTextWait();
-    await saveAndWaitForRunEnabled();
-    await userEvent.click(screen.getByRole("button", { name: /run/i }));
+  describe("run gating", () => {
+    it("disables Run with a reason while the working doc is unsaved", async () => {
+      fake.macros = [mkDoc("m1", [mkRule("r1")])];
+      render(<Wrapper recordings={[recordingOne]} />);
+      await waitFor(() => expect(cardLabels()).toHaveLength(1));
 
-    const stopButton = await screen.findByRole("button", { name: /stop/i });
-    await userEvent.click(stopButton);
+      // Loaded straight from the store: saved, not dirty → Run is available.
+      expect(screen.getByRole("button", { name: /run/i })).toBeEnabled();
 
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("stop_macro", expect.anything());
+      await userEvent.click(
+        screen.getByRole("switch", { name: 'Rule enabled: "climb the stairs"' }),
+      );
+
+      const runButton = screen.getByRole("button", { name: /run/i });
+      expect(runButton).toBeDisabled();
+      expect(runButton).toHaveAttribute("title", "Save before running.");
+    });
+
+    it("disables Run for a doc with no runnable rules", async () => {
+      fake.macros = [mkDoc("m1", [])];
+      render(<Wrapper recordings={[recordingOne]} />);
+      await screen.findByRole("button", { name: "Add rule" });
+      expect(screen.getByRole("button", { name: /run/i })).toBeDisabled();
+    });
+
+    it("Run calls run_macro and Stop calls stop_macro", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      fake.macros = [mkDoc("m1", [mkRule("r1")])];
+      render(<Wrapper recordings={[recordingOne]} />);
+      await waitFor(() => expect(cardLabels()).toHaveLength(1));
+
+      await userEvent.click(screen.getByRole("button", { name: /run/i }));
+      await waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith("run_macro", expect.objectContaining({ id: "m1" })),
+      );
+
+      await userEvent.click(await screen.findByRole("button", { name: /stop/i }));
+      await waitFor(() => expect(invoke).toHaveBeenCalledWith("stop_macro", expect.anything()));
+    });
+
+    it("does not persist anything until Save is clicked (explicit save, no autosave)", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      fake.macros = [mkDoc("m1", [mkRule("r1"), mkRule("r2")])];
+      render(<Wrapper recordings={[recordingOne]} />);
+      await waitFor(() => expect(cardLabels()).toHaveLength(2));
+
+      await userEvent.click(screen.getByRole("button", { name: 'Delete rule: "open the door"' }));
+      expect(invoke).not.toHaveBeenCalledWith("save_macro", expect.anything());
+
+      await userEvent.click(screen.getByRole("button", { name: /save/i }));
+      await waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith(
+          "save_macro",
+          expect.objectContaining({ doc: expect.objectContaining({ id: "m1" }) }),
+        ),
+      );
+      await waitFor(() => expect(screen.getByRole("button", { name: /run/i })).toBeEnabled());
     });
   });
 
-  it("does not render a removed toolbar banner when Stop fails", async () => {
-    fake.rejectStop = "engine busy";
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
-    await addTextWait();
-    await saveAndWaitForRunEnabled();
-    await userEvent.click(screen.getByRole("button", { name: /run/i }));
+  describe("run feedback", () => {
+    it("flags the live rule's card", async () => {
+      render(
+        <MacroEditor
+          recordings={[recordingOne]}
+          {...macroProps({
+            macros: [mkDoc("m1", [mkRule("r1"), mkRule("r2")])],
+            runState: "running",
+            liveRuleId: "r2",
+          })}
+        />,
+      );
 
-    const stopButton = await screen.findByRole("button", { name: /stop/i });
-    await userEvent.click(stopButton);
+      await waitFor(() => expect(document.querySelectorAll(".rc-root")).toHaveLength(2));
+      const cards = document.querySelectorAll(".rc-root");
+      expect(cards[0].getAttribute("data-live")).toBeNull();
+      expect(cards[1].getAttribute("data-live")).toBe("true");
+    });
 
-    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    it("flags a genuinely failed rule red, but never a deliberate stop", async () => {
+      const doc = mkDoc("m1", [mkRule("r1")]);
+      const { rerender } = render(
+        <MacroEditor
+          recordings={[recordingOne]}
+          {...macroProps({ macros: [doc], failed: { ruleId: "r1", reason: "stopped" } })}
+        />,
+      );
+
+      await waitFor(() => expect(document.querySelectorAll(".rc-root")).toHaveLength(1));
+      expect(document.querySelector(".rc-root")?.getAttribute("data-failed")).toBeNull();
+      expect(screen.queryByText("stopped")).not.toBeInTheDocument();
+
+      rerender(
+        <MacroEditor
+          recordings={[recordingOne]}
+          {...macroProps({
+            macros: [doc],
+            failed: { ruleId: "r1", reason: "evaluation-error: boom" },
+          })}
+        />,
+      );
+      expect(document.querySelector(".rc-root")?.getAttribute("data-failed")).toBe("true");
+      expect(screen.getByText("evaluation-error: boom")).toBeInTheDocument();
+    });
+
+    it("clears a stale failure when a different macro is selected", async () => {
+      const clearFailed = vi.fn();
+      render(
+        <MacroEditor
+          recordings={[recordingOne]}
+          {...macroProps({
+            macros: [mkDoc("m1", [mkRule("r1")]), mkDoc("m2", [mkRule("r2")], "Other Macro")],
+            failed: { ruleId: "r1", reason: "boom" },
+            clearFailed,
+          })}
+        />,
+      );
+      await waitFor(() => expect(document.querySelectorAll(".rc-root")).toHaveLength(1));
+
+      await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /other macro/i }));
+
+      expect(clearFailed).toHaveBeenCalled();
+      await waitFor(() => expect(cardLabels()).toEqual(['When "open the door"']));
+    });
   });
 
-  it("does not render a removed toolbar banner when Run fails", async () => {
-    fake.rejectRun = "Already playing";
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
-    await addTextWait();
-    await saveAndWaitForRunEnabled();
+  describe("macro management", () => {
+    it("creating a named macro via the menu seeds a fresh empty working doc", async () => {
+      render(<Wrapper recordings={[recordingOne]} />);
+      await screen.findByRole("button", { name: "Add rule" });
 
-    await userEvent.click(screen.getByRole("button", { name: /run/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /new macro/i }));
+      await userEvent.type(screen.getByLabelText(/macro name/i), "My Flow");
+      await userEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
-    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
-  });
+      expect(await screen.findByText("My Flow")).toBeInTheDocument();
+      expect(cardLabels()).toHaveLength(0);
+    });
 
-  it("does not show a status message or failed node when a run is stopped deliberately", async () => {
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
-    await waitFor(() => expect(state.listeners.get("macro-run-failed")).toBeDefined());
+    it("deletes a macro via two-click confirm and resets to a fresh draft", async () => {
+      fake.macros = [mkDoc("m1", [], "Doomed")];
+      render(<Wrapper recordings={[recordingOne]} />);
+      await screen.findByText(/doomed/i);
 
-    await act(async () => {
-      await state.listeners.get("macro-run-failed")?.({
-        payload: { macroId: "m1", nodeId: "n1", reason: "stopped" },
+      await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /doomed/i }));
+      await screen.findByText(/^doomed$/i);
+
+      await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
+      const deleteButton = screen.getByRole("button", { name: /delete macro/i });
+      await userEvent.click(deleteButton);
+      await userEvent.click(deleteButton);
+
+      await waitFor(() => expect(screen.queryByText(/^doomed$/i)).not.toBeInTheDocument());
+    });
+
+    it("does not render a removed toolbar banner when Run or Stop fails", async () => {
+      fake.rejectRun = "Already playing";
+      fake.macros = [mkDoc("m1", [mkRule("r1")])];
+      render(<Wrapper recordings={[recordingOne]} />);
+      await waitFor(() => expect(cardLabels()).toHaveLength(1));
+
+      await userEvent.click(screen.getByRole("button", { name: /run/i }));
+      await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    });
+
+    it("subscribes to the renamed rule events through useMacros", async () => {
+      render(<Wrapper recordings={[recordingOne]} />);
+      await waitFor(() => expect(state.listeners.get("macro-rule-fired")).toBeDefined());
+      expect(state.listeners.get("macro-rule-settled")).toBeDefined();
+      expect(state.listeners.get("macro-run-finished")).toBeDefined();
+      expect(state.listeners.get("macro-run-failed")).toBeDefined();
+    });
+
+    it("highlights the live card from a macro-rule-fired event", async () => {
+      fake.macros = [mkDoc("m1", [mkRule("r1")])];
+      render(<Wrapper recordings={[recordingOne]} />);
+      await waitFor(() => expect(cardLabels()).toHaveLength(1));
+
+      await act(async () => {
+        await state.listeners.get("macro-rule-fired")?.({
+          payload: { macroId: "m1", ruleId: "r1", index: 0 },
+        });
       });
-    });
+      expect(document.querySelector(".rc-root")?.getAttribute("data-live")).toBe("true");
 
-    expect(screen.queryByText(/run stopped\./i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByText(/failed node: none/i)).toBeInTheDocument();
-  });
-
-  it("highlights a genuine failed node without rendering the removed error banner", async () => {
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
-    await waitFor(() => expect(state.listeners.get("macro-run-failed")).toBeDefined());
-
-    await act(async () => {
-      await state.listeners.get("macro-run-failed")?.({
-        payload: { macroId: "m1", nodeId: "n1", reason: "timeout waiting for text" },
+      await act(async () => {
+        await state.listeners.get("macro-rule-settled")?.({
+          payload: { macroId: "m1", ruleId: "r1", index: 0 },
+        });
       });
-    });
-
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByText(/failed node: n1/i)).toBeInTheDocument();
-  });
-
-  it("clears a stale failure highlight when switching to a different macro", async () => {
-    fake.macros = [{ id: "m1", name: "Other Macro", nodes: [], edges: [], created_at: 1 }];
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
-    await waitFor(() => expect(state.listeners.get("macro-run-failed")).toBeDefined());
-
-    await act(async () => {
-      await state.listeners.get("macro-run-failed")?.({
-        payload: { macroId: "x", nodeId: "n1", reason: "boom" },
-      });
-    });
-    expect(screen.getByText(/failed node: n1/i)).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
-    await userEvent.click(screen.getByRole("button", { name: /other macro/i }));
-
-    expect(screen.getByText(/failed node: none/i)).toBeInTheDocument();
-  });
-
-  it("clears a stale failure highlight when creating a new macro", async () => {
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
-    await waitFor(() => expect(state.listeners.get("macro-run-failed")).toBeDefined());
-
-    await act(async () => {
-      await state.listeners.get("macro-run-failed")?.({
-        payload: { macroId: "x", nodeId: "n1", reason: "boom" },
-      });
-    });
-    expect(screen.getByText(/failed node: n1/i)).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
-    await userEvent.click(screen.getByRole("button", { name: /new macro/i }));
-    await userEvent.type(screen.getByLabelText(/macro name/i), "Fresh");
-    await userEvent.click(screen.getByRole("button", { name: /^create$/i }));
-
-    expect(screen.getByText(/failed node: none/i)).toBeInTheDocument();
-  });
-
-  it("creating a named macro via the menu seeds a fresh working doc", async () => {
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/0 node/i);
-
-    await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
-    await userEvent.click(screen.getByRole("button", { name: /new macro/i }));
-    await userEvent.type(screen.getByLabelText(/macro name/i), "My Flow");
-    await userEvent.click(screen.getByRole("button", { name: /^create$/i }));
-
-    expect(await screen.findByText("My Flow")).toBeInTheDocument();
-  });
-
-  it("selecting a saved macro from the menu loads it as the working doc", async () => {
-    const node: MacroNode = {
-      id: "n1",
-      kind: {
-        type: "WaitFor",
-        target: {
-          id: "t1",
-          name: "Submit",
-          modality: "visual",
-          region: { x: 0, y: 0, w: 1, h: 1 },
-          kind: { type: "TextOcr", expect: "Submit" },
-          created_at: 1,
-        },
-        timeout_ms: 5000,
-        poll_interval_ms: 500,
-      },
-      x: 0,
-      y: 0,
-    };
-    fake.macros = [{ id: "m1", name: "Saved Macro", nodes: [node], edges: [], created_at: 1 }];
-
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/saved macro/i);
-
-    await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
-    await userEvent.click(screen.getByRole("button", { name: /saved macro/i }));
-
-    expect(await screen.findByText(/1 node/i)).toBeInTheDocument();
-    expect(screen.queryByRole("status", { name: /unsaved/i })).not.toBeInTheDocument();
-    // Loaded straight from the stored list: not dirty, already "saved" — Run
-    // is immediately available (no forced re-save just to run it).
-    expect(screen.getByRole("button", { name: /run/i })).toBeEnabled();
-  });
-
-  it("deletes a macro via two-click confirm and resets to a fresh draft when it was selected", async () => {
-    fake.macros = [{ id: "m1", name: "Doomed", nodes: [], edges: [], created_at: 1 }];
-
-    render(<Wrapper recordings={recordings} />);
-    await screen.findByText(/doomed/i);
-
-    await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
-    await userEvent.click(screen.getByRole("button", { name: /doomed/i }));
-    await screen.findByText(/^doomed$/i);
-
-    await userEvent.click(screen.getByRole("button", { name: /^macros$/i }));
-    const deleteButton = screen.getByRole("button", { name: /delete macro/i });
-    await userEvent.click(deleteButton);
-    await userEvent.click(deleteButton);
-
-    await waitFor(() => {
-      expect(screen.queryByText(/^doomed$/i)).not.toBeInTheDocument();
+      expect(document.querySelector(".rc-root")?.getAttribute("data-live")).toBeNull();
     });
   });
 });

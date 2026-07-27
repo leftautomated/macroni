@@ -57,14 +57,6 @@ vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(async () => {}),
 }));
 
-// MacroCanvas renders react-flow, which isn't exercised here — these tests
-// only need to prove the macros view is reachable and the player hides, not
-// exercise the canvas itself. A stub keeps the view-switch test from paying
-// for (or risking) a react-flow mount under jsdom.
-vi.mock("@/components/studio/macros/MacroCanvas", () => ({
-  MacroCanvas: () => <div>macro canvas stub</div>,
-}));
-
 import { StudioEditor } from "@/components/studio/StudioEditor";
 
 function makeRecording(id: string, name: string): Recording {
@@ -333,10 +325,11 @@ describe("StudioEditor (recordings browser)", () => {
     expect(toggles).toHaveLength(1);
     await userEvent.click(toggles[0]);
 
-    // Player is gone; the macro editor is up (Run/Add Segment are its markers).
+    // Player is gone; the macro editor is up (Run + the rule deck's Add rule
+    // affordance are its markers).
     expect(screen.queryByRole("button", { name: /replay macro/i })).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /run/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /add segment/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add rule" })).toBeInTheDocument();
   });
 
   it("does not have two buttons sharing the name 'Macros' in the macros view", async () => {

@@ -1,4 +1,4 @@
-//! Live `WaitProbe`: evaluates a macro's `WaitFor` target against the current
+//! Live `WaitProbe`: evaluates a macro rule's trigger against the current
 //! screen through the perception extractors. macOS-only — the only platform
 //! with a live capture + Vision OCR pipeline (mirrors `LiveSource` and
 //! `validate_runnable`'s platform gate in `macros/mod.rs`).

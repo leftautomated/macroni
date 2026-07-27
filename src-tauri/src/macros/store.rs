@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager};
 
-use crate::macros::{chain_order, MacroDoc, MacroNodeKind};
+use crate::macros::MacroDoc;
 use crate::perception::commands::is_safe_relative_path;
 use crate::perception::TargetKind;
 use crate::recordings_store::{atomic_write, validate_storage_id};
@@ -84,24 +84,22 @@ impl MacroStore {
         out
     }
 
-    /// Validate the chain, copy any not-yet-macro-relative template images
-    /// into `macros/{id}/assets/` (rewriting `image` to point at the copy),
-    /// then atomically write the doc. All validation — ids (path-traversal
-    /// guard), chain shape, and source-image existence — runs before any
-    /// file is touched, so a rejected save leaves no trace on disk.
+    /// Validate ids, copy any not-yet-macro-relative template images into
+    /// `macros/{id}/assets/` (rewriting `image` to point at the copy), then
+    /// atomically write the doc. All validation — doc/rule id (path-traversal
+    /// guard) and source-image existence — runs before any file is touched,
+    /// so a rejected save leaves no trace on disk. An empty-rules doc saves
+    /// fine (drafts); `validate_runnable` gates whether a doc can actually
+    /// run, not whether it can be saved.
     pub fn save(&self, mut doc: MacroDoc) -> Result<MacroDoc, String> {
         validate_storage_id(&doc.id)?;
-        chain_order(&doc).map_err(|e| e.to_string())?;
 
         // Pass 1: no side effects. Ids become path components and every
         // pending source must exist before the first copy lands, keeping
         // save all-or-nothing.
-        for node in &doc.nodes {
-            let MacroNodeKind::WaitFor { target, .. } = &node.kind else {
-                continue;
-            };
-            validate_storage_id(&target.id)?;
-            let TargetKind::TemplateMatch { image, .. } = &target.kind else {
+        for rule in &doc.rules {
+            validate_storage_id(&rule.trigger.id)?;
+            let TargetKind::TemplateMatch { image, .. } = &rule.trigger.kind else {
                 continue;
             };
             if image.starts_with(ASSETS_PREFIX) {
@@ -120,10 +118,8 @@ impl MacroStore {
         }
 
         // Pass 2: copy + rewrite.
-        for node in &mut doc.nodes {
-            let MacroNodeKind::WaitFor { target, .. } = &mut node.kind else {
-                continue;
-            };
+        for rule in &mut doc.rules {
+            let target = &mut rule.trigger;
             let TargetKind::TemplateMatch { image, .. } = &mut target.kind else {
                 continue;
             };
@@ -188,30 +184,68 @@ impl MacroStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::macros::{MacroDoc, MacroEdge, MacroNode, MacroNodeKind};
+    use crate::macros::{MacroDoc, MacroRule, RuleAction};
     use crate::perception::{Modality, Region, Target, TargetKind};
     use crate::types::InputEvent;
     use tempfile::tempdir;
 
-    fn seg_doc(id: &str) -> MacroDoc {
+    fn play_rule(id: &str) -> MacroRule {
+        MacroRule {
+            id: id.into(),
+            trigger: Target {
+                id: format!("{id}-t"),
+                name: "t".into(),
+                modality: Modality::Visual,
+                region: None,
+                kind: TargetKind::TextOcr { expect: None },
+                created_at: 1,
+            },
+            action: RuleAction::PlayInputs {
+                events: vec![InputEvent::KeyPress {
+                    key: "A".into(),
+                    timestamp: 0,
+                }],
+                speed: 1.0,
+                provenance: None,
+            },
+            enabled: true,
+            anchor: None,
+        }
+    }
+
+    fn rules_doc(id: &str) -> MacroDoc {
         MacroDoc {
             id: id.into(),
             name: "m".into(),
-            nodes: vec![MacroNode {
-                id: "n1".into(),
-                kind: MacroNodeKind::Segment {
-                    events: vec![InputEvent::KeyPress {
-                        key: "A".into(),
-                        timestamp: 0,
-                    }],
-                    speed: 1.0,
-                    provenance: None,
-                },
-                x: 0.0,
-                y: 0.0,
-            }],
-            edges: vec![],
+            rules: vec![play_rule("r1")],
+            poll_interval_ms: 250,
             created_at: 1,
+        }
+    }
+
+    fn template_rule(rule_id: &str, target_id: &str, image: &str) -> MacroRule {
+        MacroRule {
+            id: rule_id.into(),
+            trigger: Target {
+                id: target_id.into(),
+                name: "t".into(),
+                modality: Modality::Visual,
+                region: Some(Region {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 0.5,
+                    h: 0.5,
+                }),
+                kind: TargetKind::TemplateMatch {
+                    image: image.into(),
+                    threshold: 0.8,
+                    source_px: [100, 100],
+                },
+                created_at: 1,
+            },
+            action: RuleAction::Stop,
+            enabled: true,
+            anchor: None,
         }
     }
 
@@ -219,24 +253,11 @@ mod tests {
     fn save_load_round_trips_and_skips_unreadable_files() {
         let dir = tempdir().unwrap();
         let store = MacroStore::open_at(dir.path().to_path_buf());
-        store.save(seg_doc("m1")).unwrap();
+        store.save(rules_doc("m1")).unwrap();
         std::fs::write(dir.path().join("macros/broken.json"), b"{nope").unwrap();
         let all = store.load_all();
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].id, "m1");
-    }
-
-    #[test]
-    fn save_rejects_invalid_chains() {
-        let dir = tempdir().unwrap();
-        let store = MacroStore::open_at(dir.path().to_path_buf());
-        let mut d = seg_doc("bad");
-        d.edges.push(MacroEdge {
-            from: "n1".into(),
-            to: "ghost".into(),
-        });
-        assert!(store.save(d).is_err());
-        assert!(!dir.path().join("macros/bad.json").exists());
     }
 
     #[test]
@@ -246,84 +267,24 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("targets/rec1")).unwrap();
         std::fs::write(dir.path().join("targets/rec1/t9.png"), b"png-bytes").unwrap();
         let store = MacroStore::open_at(dir.path().to_path_buf());
-        let mut d = seg_doc("m2");
-        d.nodes.push(MacroNode {
-            id: "n2".into(),
-            kind: MacroNodeKind::WaitFor {
-                target: Target {
-                    id: "t9".into(),
-                    name: "logo".into(),
-                    modality: Modality::Visual,
-                    region: Some(Region {
-                        x: 0.0,
-                        y: 0.0,
-                        w: 0.5,
-                        h: 0.5,
-                    }),
-                    kind: TargetKind::TemplateMatch {
-                        image: "targets/rec1/t9.png".into(),
-                        threshold: 0.8,
-                        source_px: [100, 100],
-                    },
-                    created_at: 1,
-                },
-                timeout_ms: 10_000,
-                poll_interval_ms: 500,
-            },
-            x: 0.0,
-            y: 0.0,
-        });
-        d.edges.push(MacroEdge {
-            from: "n1".into(),
-            to: "n2".into(),
-        });
+        let mut d = rules_doc("m2");
+        d.rules
+            .push(template_rule("r2", "t9", "targets/rec1/t9.png"));
         let saved = store.save(d).unwrap();
         assert!(dir.path().join("macros/m2/assets/t9.png").exists());
-        match &saved.nodes[1].kind {
-            MacroNodeKind::WaitFor { target, .. } => match &target.kind {
-                TargetKind::TemplateMatch { image, .. } => assert_eq!(image, "assets/t9.png"),
-                other => panic!("{other:?}"),
-            },
+        match &saved.rules[1].trigger.kind {
+            TargetKind::TemplateMatch { image, .. } => assert_eq!(image, "assets/t9.png"),
             other => panic!("{other:?}"),
         }
         // Saving again is idempotent (already assets/-relative: no re-copy, no error).
         assert!(store.save(saved).is_ok());
     }
 
-    fn wait_node(node_id: &str, target_id: &str, image: &str) -> MacroNode {
-        MacroNode {
-            id: node_id.into(),
-            kind: MacroNodeKind::WaitFor {
-                target: Target {
-                    id: target_id.into(),
-                    name: "t".into(),
-                    modality: Modality::Visual,
-                    region: Some(Region {
-                        x: 0.0,
-                        y: 0.0,
-                        w: 0.5,
-                        h: 0.5,
-                    }),
-                    kind: TargetKind::TemplateMatch {
-                        image: image.into(),
-                        threshold: 0.8,
-                        source_px: [100, 100],
-                    },
-                    created_at: 1,
-                },
-                timeout_ms: 10_000,
-                poll_interval_ms: 500,
-            },
-            x: 0.0,
-            y: 0.0,
-        }
-    }
-
     #[test]
     fn save_rejects_traversal_doc_id_and_writes_nothing() {
         let dir = tempdir().unwrap();
         let store = MacroStore::open_at(dir.path().to_path_buf());
-        let mut d = seg_doc("placeholder");
+        let mut d = rules_doc("placeholder");
         d.id = "../evil".into();
         assert!(store.save(d).is_err());
         // Nothing escaped the macros dir and nothing was written at all.
@@ -337,13 +298,9 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("targets/rec1")).unwrap();
         std::fs::write(dir.path().join("targets/rec1/t9.png"), b"png-bytes").unwrap();
         let store = MacroStore::open_at(dir.path().to_path_buf());
-        let mut d = seg_doc("m9");
-        d.nodes
-            .push(wait_node("n2", "../../x", "targets/rec1/t9.png"));
-        d.edges.push(MacroEdge {
-            from: "n1".into(),
-            to: "n2".into(),
-        });
+        let mut d = rules_doc("m9");
+        d.rules
+            .push(template_rule("r2", "../../x", "targets/rec1/t9.png"));
         assert!(store.save(d).is_err());
         assert!(!dir.path().join("macros/m9").exists());
         assert!(!dir.path().join("macros/m9.json").exists());
@@ -353,12 +310,8 @@ mod tests {
     fn save_rejects_dot_dot_escape_in_image_and_writes_nothing() {
         let dir = tempdir().unwrap();
         let store = MacroStore::open_at(dir.path().to_path_buf());
-        let mut d = seg_doc("m10");
-        d.nodes.push(wait_node("n2", "t9", "../../etc/passwd"));
-        d.edges.push(MacroEdge {
-            from: "n1".into(),
-            to: "n2".into(),
-        });
+        let mut d = rules_doc("m10");
+        d.rules.push(template_rule("r2", "t9", "../../etc/passwd"));
         let err = store.save(d).unwrap_err();
         assert!(err.contains("invalid template path"), "{err}");
         assert!(!dir.path().join("macros/m10").exists());
@@ -369,12 +322,8 @@ mod tests {
     fn save_rejects_absolute_image_path_and_writes_nothing() {
         let dir = tempdir().unwrap();
         let store = MacroStore::open_at(dir.path().to_path_buf());
-        let mut d = seg_doc("m11");
-        d.nodes.push(wait_node("n2", "t9", "/abs/path"));
-        d.edges.push(MacroEdge {
-            from: "n1".into(),
-            to: "n2".into(),
-        });
+        let mut d = rules_doc("m11");
+        d.rules.push(template_rule("r2", "t9", "/abs/path"));
         let err = store.save(d).unwrap_err();
         assert!(err.contains("invalid template path"), "{err}");
         assert!(!dir.path().join("macros/m11").exists());
@@ -390,25 +339,18 @@ mod tests {
 
     #[test]
     fn save_with_missing_second_image_leaves_no_assets_dir() {
-        // Two WaitFor nodes; the SECOND one's source image is missing. The
+        // Two template rules; the SECOND one's source image is missing. The
         // existence pre-pass must fail before the first copy lands, so the
         // whole save is all-or-nothing.
         let dir = tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("targets/rec1")).unwrap();
         std::fs::write(dir.path().join("targets/rec1/t1.png"), b"png-bytes").unwrap();
         let store = MacroStore::open_at(dir.path().to_path_buf());
-        let mut d = seg_doc("m4");
-        d.nodes.push(wait_node("n2", "t1", "targets/rec1/t1.png"));
-        d.nodes
-            .push(wait_node("n3", "t2", "targets/rec1/missing.png"));
-        d.edges.push(MacroEdge {
-            from: "n1".into(),
-            to: "n2".into(),
-        });
-        d.edges.push(MacroEdge {
-            from: "n2".into(),
-            to: "n3".into(),
-        });
+        let mut d = rules_doc("m4");
+        d.rules
+            .push(template_rule("r2", "t1", "targets/rec1/t1.png"));
+        d.rules
+            .push(template_rule("r3", "t2", "targets/rec1/missing.png"));
         let err = store.save(d).unwrap_err();
         assert!(err.contains("template image not found"), "{err}");
         assert!(!dir.path().join("macros/m4").exists());
@@ -419,7 +361,7 @@ mod tests {
     fn delete_removes_json_and_assets_dir() {
         let dir = tempdir().unwrap();
         let store = MacroStore::open_at(dir.path().to_path_buf());
-        store.save(seg_doc("m3")).unwrap();
+        store.save(rules_doc("m3")).unwrap();
         std::fs::create_dir_all(dir.path().join("macros/m3/assets")).unwrap();
         store.delete("m3").unwrap();
         assert!(!dir.path().join("macros/m3.json").exists());
@@ -431,11 +373,41 @@ mod tests {
     fn sweep_removes_asset_dirs_without_json() {
         let dir = tempdir().unwrap();
         let store = MacroStore::open_at(dir.path().to_path_buf());
-        store.save(seg_doc("keep")).unwrap();
+        store.save(rules_doc("keep")).unwrap();
         std::fs::create_dir_all(dir.path().join("macros/keep/assets")).unwrap();
         std::fs::create_dir_all(dir.path().join("macros/orphan/assets")).unwrap();
         store.sweep_orphans();
         assert!(dir.path().join("macros/keep").exists());
         assert!(!dir.path().join("macros/orphan").exists());
+    }
+
+    #[test]
+    fn save_accepts_an_empty_rules_doc() {
+        let dir = tempdir().unwrap();
+        let store = MacroStore::open_at(dir.path().to_path_buf());
+        let d = MacroDoc {
+            id: "empty".into(),
+            name: "m".into(),
+            rules: vec![],
+            poll_interval_ms: 250,
+            created_at: 1,
+        };
+        store.save(d).unwrap();
+        assert!(dir.path().join("macros/empty.json").exists());
+    }
+
+    #[test]
+    fn load_all_skips_old_node_graph_docs() {
+        let dir = tempdir().unwrap();
+        let store = MacroStore::open_at(dir.path().to_path_buf());
+        store.save(rules_doc("new1")).unwrap();
+        std::fs::write(
+            dir.path().join("macros/old.json"),
+            br#"{"id":"old","name":"o","nodes":[],"edges":[],"created_at":1}"#,
+        )
+        .unwrap();
+        let all = store.load_all();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].id, "new1");
     }
 }

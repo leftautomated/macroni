@@ -134,6 +134,28 @@ export interface Recording {
   targets?: PerceptionTarget[];
 }
 
+export interface RuleAnchor {
+  recording_id: string;
+  timestamp_ms: number;
+}
+
+export type RuleAction =
+  | {
+      type: "PlayInputs";
+      events: InputEvent[];
+      speed: number;
+      provenance?: MacroProvenance | null;
+    }
+  | { type: "Stop" };
+
+export interface MacroRule {
+  id: string;
+  trigger: PerceptionTarget;
+  action: RuleAction;
+  enabled: boolean;
+  anchor?: RuleAnchor | null;
+}
+
 export interface MacroEdge {
   from: string;
   to: string;

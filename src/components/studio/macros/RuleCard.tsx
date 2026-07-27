@@ -29,6 +29,7 @@ export function RuleCard({
   onMove,
 }: RuleCardProps) {
   const kind = rule.trigger.kind;
+  const label = triggerLabel(rule.trigger);
   return (
     <div
       className="rc-root"
@@ -48,7 +49,7 @@ export function RuleCard({
               aria-hidden="true"
             />
           )}
-          <span className="rc-when-label">When {triggerLabel(rule.trigger)}</span>
+          <span className="rc-when-label">When {label}</span>
         </span>
         <span className="rc-then">{ruleSummary(rule)}</span>
         {failedReason && <span className="rc-failed">{failedReason}</span>}
@@ -57,12 +58,12 @@ export function RuleCard({
         <Switch
           checked={rule.enabled}
           onCheckedChange={() => onToggle(rule.id)}
-          aria-label="Rule enabled"
+          aria-label={`Rule enabled: ${label}`}
         />
         <button
           type="button"
           className="rc-icon"
-          aria-label="Move up"
+          aria-label={`Move up: ${label}`}
           disabled={index === 0}
           onClick={() => onMove(rule.id, -1)}
         >
@@ -71,7 +72,7 @@ export function RuleCard({
         <button
           type="button"
           className="rc-icon"
-          aria-label="Move down"
+          aria-label={`Move down: ${label}`}
           disabled={index === count - 1}
           onClick={() => onMove(rule.id, 1)}
         >
@@ -80,7 +81,7 @@ export function RuleCard({
         <button
           type="button"
           className="rc-icon rc-delete"
-          aria-label="Delete rule"
+          aria-label={`Delete rule: ${label}`}
           onClick={() => onDelete(rule.id)}
         >
           <Trash2 aria-hidden="true" />

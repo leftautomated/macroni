@@ -133,6 +133,49 @@ describe("RuleDeck", () => {
     expect(screen.getByText(/evaluation-error: boom/)).toBeInTheDocument();
   });
 
+  it("renders TemplateMatch and ColorSample trigger badges", () => {
+    const { container } = render(
+      <RuleDeck
+        rules={[
+          rule("r1", {
+            trigger: {
+              id: "t-r1",
+              name: "boss health bar",
+              modality: "visual",
+              region: { x: 0.1, y: 0.1, w: 0.2, h: 0.05 },
+              kind: {
+                type: "TemplateMatch",
+                image: "assets/t.png",
+                threshold: 0.8,
+                source_px: [0, 0],
+              },
+              created_at: 1,
+            },
+          }),
+          rule("r2", {
+            trigger: {
+              id: "t-r2",
+              name: "red flash",
+              modality: "visual",
+              region: { x: 0.1, y: 0.1, w: 0.2, h: 0.05 },
+              kind: { type: "ColorSample", rgb: [255, 0, 0], tolerance: 10 },
+              created_at: 1,
+            },
+          }),
+        ]}
+        liveRuleId={null}
+        failed={null}
+        running={false}
+        draft={null}
+        {...noHandlers}
+      />,
+    );
+    expect(screen.getByText(/boss health bar/)).toBeInTheDocument();
+    const swatch = container.querySelector(".rc-swatch");
+    expect(swatch).not.toBeNull();
+    expect((swatch as HTMLElement).style.background).toMatch(/rgb\(255[, ]+0[, ]+0\)/);
+  });
+
   it("renders the draft slot above the cards when provided", () => {
     render(
       <RuleDeck

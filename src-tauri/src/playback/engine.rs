@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rdev::{Button, EventType, Key};
+
 use super::plan::{PlannedStep, PlaybackPlan};
 use super::ports::{Emitter, Simulator};
 
@@ -15,6 +17,53 @@ use super::ports::{Emitter, Simulator};
 const WARMUP_MS: u64 = 100;
 /// 50ms gap inserted between iterations when looping.
 const LOOP_RESTART_GAP_MS: u64 = 50;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeldInput {
+    Key(Key),
+    Button(Button),
+}
+
+fn update_held_inputs(held: &mut Vec<HeldInput>, event_type: EventType) {
+    match event_type {
+        EventType::KeyPress(key) => {
+            if !held.contains(&HeldInput::Key(key)) {
+                held.push(HeldInput::Key(key));
+            }
+        }
+        EventType::KeyRelease(key) => {
+            if let Some(index) = held.iter().rposition(|input| *input == HeldInput::Key(key)) {
+                held.remove(index);
+            }
+        }
+        EventType::ButtonPress(button) => {
+            if !held.contains(&HeldInput::Button(button)) {
+                held.push(HeldInput::Button(button));
+            }
+        }
+        EventType::ButtonRelease(button) => {
+            if let Some(index) = held
+                .iter()
+                .rposition(|input| *input == HeldInput::Button(button))
+            {
+                held.remove(index);
+            }
+        }
+        EventType::MouseMove { .. } | EventType::Wheel { .. } => {}
+    }
+}
+
+fn release_held_inputs(held: &mut Vec<HeldInput>, simulator: &impl Simulator) {
+    while let Some(input) = held.pop() {
+        let release = match input {
+            HeldInput::Key(key) => EventType::KeyRelease(key),
+            HeldInput::Button(button) => EventType::ButtonRelease(button),
+        };
+        if let Err(error) = simulator.simulate(release) {
+            crate::observability::log_error("playback", "release_held_input_failed", &error, None);
+        }
+    }
+}
 
 pub struct PlaybackEngine {
     active_run: Arc<Mutex<Option<Arc<AtomicBool>>>>,
@@ -216,6 +265,7 @@ pub(crate) fn execute_steps(
     mut on_position: impl FnMut(usize),
 ) -> bool {
     let mut completed = true;
+    let mut held_inputs = Vec::new();
     let iteration_started = Instant::now();
     let mut planned_elapsed_ms = 0_u64;
     for step in steps {
@@ -252,12 +302,42 @@ pub(crate) fn execute_steps(
                     completed = false;
                     break;
                 }
-                if let Err(e) = simulator.simulate(*event_type) {
-                    crate::observability::log_error("playback", "simulate_event_failed", &e, None);
+                match simulator.simulate(*event_type) {
+                    Ok(()) => update_held_inputs(&mut held_inputs, *event_type),
+                    Err(error) => {
+                        crate::observability::log_error(
+                            "playback",
+                            "simulate_event_failed",
+                            &error,
+                            None,
+                        );
+                    }
+                }
+            }
+            PlannedStep::SimulateKeyRepeat(key) => {
+                if !cancel.load(Ordering::Relaxed) {
+                    completed = false;
+                    break;
+                }
+                match simulator.simulate_key_repeat(*key) {
+                    Ok(()) => {
+                        if !held_inputs.contains(&HeldInput::Key(*key)) {
+                            held_inputs.push(HeldInput::Key(*key));
+                        }
+                    }
+                    Err(error) => {
+                        crate::observability::log_error(
+                            "playback",
+                            "simulate_key_repeat_failed",
+                            &error,
+                            None,
+                        );
+                    }
                 }
             }
         }
     }
+    release_held_inputs(&mut held_inputs, simulator);
     completed
 }
 
@@ -364,7 +444,7 @@ mod tests {
         PlaybackPlan {
             steps: vec![
                 PlannedStep::EmitPosition { index: 0 },
-                PlannedStep::Simulate(EventType::KeyPress(Key::KeyA)),
+                PlannedStep::Simulate(EventType::MouseMove { x: 1.0, y: 1.0 }),
             ],
         }
     }
@@ -566,7 +646,7 @@ mod tests {
         let plan = PlaybackPlan {
             steps: vec![
                 PlannedStep::Sleep { ms: 30 },
-                PlannedStep::Simulate(EventType::KeyPress(Key::KeyA)),
+                PlannedStep::Simulate(EventType::MouseMove { x: 1.0, y: 1.0 }),
             ],
         };
         engine.start(plan, false, sim, emit).unwrap();
@@ -692,7 +772,7 @@ mod tests {
         let mut positions = Vec::new();
         let steps = vec![
             PlannedStep::EmitPosition { index: 7 },
-            PlannedStep::Simulate(EventType::KeyPress(Key::KeyA)),
+            PlannedStep::Simulate(EventType::MouseMove { x: 1.0, y: 1.0 }),
         ];
         assert!(execute_steps(&steps, &cancel, &sim, |i| positions.push(i)));
         assert_eq!(calls.lock().unwrap().len(), 1);
@@ -704,6 +784,23 @@ mod tests {
             calls.lock().unwrap().len(),
             1,
             "no new simulate after cancel"
+        );
+    }
+
+    #[test]
+    fn execute_steps_releases_a_key_left_down_by_the_plan() {
+        let sim = FakeSimulator::default();
+        let calls = Arc::clone(&sim.calls);
+        let cancel = AtomicBool::new(true);
+        let steps = vec![PlannedStep::Simulate(EventType::KeyPress(Key::KeyA))];
+
+        assert!(execute_steps(&steps, &cancel, &sim, |_| {}));
+        assert_eq!(
+            calls.lock().unwrap().as_slice(),
+            [
+                EventType::KeyPress(Key::KeyA),
+                EventType::KeyRelease(Key::KeyA)
+            ]
         );
     }
 }

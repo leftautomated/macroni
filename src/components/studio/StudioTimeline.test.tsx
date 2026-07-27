@@ -43,6 +43,95 @@ describe("StudioTimeline", () => {
     expect(container.querySelectorAll(".tl-tick").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("keeps the timeline hint in the centered toolbar column", () => {
+    const { container } = render(
+      <StudioTimeline
+        {...base}
+        trim={{ a: 0, b: 2000 }}
+        onSeekSeconds={noop}
+        onLoopChange={noop}
+      />,
+    );
+
+    const toolbar = container.querySelector(".tl-toolbar");
+    expect(toolbar).toBeInTheDocument();
+    expect(screen.getByText("drag clip edges to cut or extend")).toHaveClass("tl-toolbar-center");
+    expect(toolbar?.querySelector(".tl-zoom-control")).toBeInTheDocument();
+    expect(toolbar?.querySelector(".tl-duration")).toBeInTheDocument();
+    expect((container.querySelector(".tl-clip-region") as HTMLElement).style.right).toBe("0%");
+    expect(screen.getByRole("button", { name: /trim start/i })).toHaveStyle({
+      left: "0%",
+      transform: "translateX(-100%)",
+    });
+    expect(screen.getByRole("button", { name: /trim end/i })).toHaveStyle({ left: "100%" });
+  });
+
+  it("keeps the playhead within the clip handles and below them", () => {
+    const { container, rerender } = render(
+      <StudioTimeline
+        {...base}
+        videoMs={0}
+        trim={{ a: 500, b: 1500 }}
+        onSeekSeconds={noop}
+        onLoopChange={noop}
+      />,
+    );
+
+    const playhead = container.querySelector(".tl-playhead") as HTMLElement;
+    const styles = Array.from(container.querySelectorAll("style"))
+      .map((style) => style.textContent)
+      .join("\n");
+    expect(playhead.style.left).toBe("25%");
+    expect(playhead.style.marginLeft).toBe("0px");
+    expect(styles).toContain(".tl-track.has-trim .tl-playhead { z-index: 7; top: 22px; }");
+
+    rerender(
+      <StudioTimeline
+        {...base}
+        videoMs={2000}
+        trim={{ a: 500, b: 1500 }}
+        onSeekSeconds={noop}
+        onLoopChange={noop}
+      />,
+    );
+    expect(playhead.style.left).toBe("75%");
+    expect(playhead.style.marginLeft).toBe("-2px");
+
+    rerender(
+      <StudioTimeline
+        {...base}
+        videoMs={1000}
+        trim={{ a: 500, b: 1500 }}
+        onSeekSeconds={noop}
+        onLoopChange={noop}
+      />,
+    );
+    expect(playhead.style.left).toBe("50%");
+    expect(playhead.style.marginLeft).toBe("-1px");
+  });
+
+  it("keeps endpoint events inside the external handles", () => {
+    const endpointEvents: InputEvent[] = [
+      { type: InputEventType.SpaceSwitch, direction: "left", count: 1, timestamp: 1000 },
+      { type: InputEventType.SpaceSwitch, direction: "right", count: 1, timestamp: 3000 },
+    ];
+    const { container } = render(
+      <StudioTimeline
+        {...base}
+        events={endpointEvents}
+        trim={{ a: 0, b: 2000 }}
+        onSeekSeconds={noop}
+        onLoopChange={noop}
+      />,
+    );
+
+    const ticks = Array.from(container.querySelectorAll(".tl-tick")) as HTMLElement[];
+    expect(ticks[0].style.left).toBe("0%");
+    expect(ticks[0].style.marginLeft).toBe("0px");
+    expect(ticks[1].style.left).toBe("100%");
+    expect(ticks[1].style.marginLeft).toBe("-5px");
+  });
+
   it("zooms to a 30s window and scrolls long recordings, with labeled segments", () => {
     const { container } = render(
       <StudioTimeline
@@ -56,7 +145,7 @@ describe("StudioTimeline", () => {
         onLoopChange={noop}
       />,
     );
-    const track = container.querySelector(".tl-track") as HTMLElement;
+    const track = container.querySelector(".tl-track-shell") as HTMLElement;
     // 60s at the default 30s window → track is twice the viewport (scrollable).
     expect(track.style.width).toBe("200%");
     // Labeled time segments (e.g. 0:05) appear in the ruler.
@@ -70,12 +159,12 @@ describe("StudioTimeline", () => {
     );
     // Slider at the far right = most zoomed-in = the 2s minimum window.
     fireEvent.change(screen.getByRole("slider", { name: /zoom/i }), { target: { value: "1" } });
-    const track = container.querySelector(".tl-track") as HTMLElement;
+    const track = container.querySelector(".tl-track-shell") as HTMLElement;
     // 60s / 2s window → 3000% track width.
     expect(track.style.width).toBe("3000%");
   });
 
-  it("renders a key press+release as a single keystroke tick in the keys lane", () => {
+  it("renders a key press+release as a single keystroke span in the keys lane", () => {
     const keyEvents: InputEvent[] = [
       { type: InputEventType.KeyPress, key: "a", timestamp: 1100 },
       { type: InputEventType.KeyRelease, key: "a", timestamp: 1150 },
@@ -83,8 +172,8 @@ describe("StudioTimeline", () => {
     const { container } = render(
       <StudioTimeline {...base} events={keyEvents} onSeekSeconds={noop} onLoopChange={noop} />,
     );
-    // Two raw events collapse to one tick (no separate press/release ticks).
-    expect(container.querySelectorAll(".tl-tick")).toHaveLength(1);
+    // Two raw events collapse to one duration span (no separate press/release markers).
+    expect(container.querySelectorAll(".tl-span")).toHaveLength(1);
     expect(screen.getByRole("button", { name: /Keystroke, a/ })).toBeInTheDocument();
   });
 
@@ -148,6 +237,14 @@ describe("StudioTimeline", () => {
     expect(screen.getByText("Clip")).toBeInTheDocument();
     expect(screen.getByText("1.1s")).toBeInTheDocument();
     expect(screen.getByText("1×")).toBeInTheDocument();
+    const clipRegion = container.querySelector(".tl-clip-region") as HTMLElement;
+    const clipMeta = container.querySelector(".tl-clip-meta-overlay") as HTMLElement;
+    const endHandle = screen.getByRole("button", { name: /trim end/i });
+    expect(clipRegion.style.left).toBe("25%");
+    expect(clipRegion.style.right).toBe("20%");
+    expect(clipMeta.style.right).toBe("20%");
+    expect(endHandle.style.left).toBe("80%");
+    expect(endHandle.style.transform).toBe("");
     fireEvent.keyDown(screen.getByRole("button", { name: /trim start/i }), {
       key: "ArrowLeft",
     });

@@ -689,9 +689,10 @@ mod tests {
 
     #[test]
     fn play_inputs_replays_through_the_simulator_then_disarms() {
-        // Match, miss, match: fires twice, each firing replaying the rule's
-        // single KeyPress 1:1 through the simulator (compile doesn't
-        // synthesize a matching release — it's a straight event translation).
+        // Match, miss, match: fires twice. Each firing replays the rule's
+        // single KeyPress, and `execute_steps`' stuck-key protection then
+        // releases the still-held key at plan end — so one fire is
+        // press + synthesized release.
         let d = doc(vec![play_rule("r1", "t1", "A")]);
         let cancel = AtomicBool::new(true);
         let sim = FakeSimulator::default();
@@ -712,7 +713,9 @@ mod tests {
             sim.calls.lock().unwrap().clone(),
             vec![
                 EventType::KeyPress(Key::KeyA),
-                EventType::KeyPress(Key::KeyA)
+                EventType::KeyRelease(Key::KeyA),
+                EventType::KeyPress(Key::KeyA),
+                EventType::KeyRelease(Key::KeyA)
             ]
         );
     }

@@ -107,6 +107,7 @@ const COLOR = {
 
 const KEY_TYPES = new Set<InputEventType>([
   InputEventType.KeyPress,
+  InputEventType.KeyRepeat,
   InputEventType.KeyRelease,
   InputEventType.KeyCombo,
   InputEventType.SpaceSwitch,
@@ -177,6 +178,9 @@ export function StudioTimeline({
   const trackWidthPct = Math.max(100, (durSec / secondsVisible) * 100);
 
   const playMs = Math.min(dur, Math.max(0, videoMs));
+  const visiblePlayMs = trim ? Math.min(trim.b, Math.max(trim.a, playMs)) : playMs;
+  const playheadOffsetPx =
+    trim && visiblePlayMs <= trim.a ? 0 : trim && visiblePlayMs >= trim.b ? -2 : -1;
 
   // Keep the playhead in view as it moves (and after a zoom): recenter when it
   // drifts out of the comfortable middle band.
@@ -374,6 +378,12 @@ export function StudioTimeline({
     else minorSecs.push(t);
   }
 
+  const tickEdgeOffset = (ms: number) => {
+    if (ms <= 0) return 0;
+    if (ms >= dur) return -5;
+    return undefined;
+  };
+
   const renderRow = (row: EventRow, lane: "mouse" | "keys") => {
     if (row.kind === "event") {
       const start = rel(row.event.timestamp);
@@ -396,12 +406,18 @@ export function StudioTimeline({
           <button
             type="button"
             className="tl-marker tl-tick"
-            style={{ left: `${pctOf(start)}%`, background: color }}
+            style={{
+              left: `${pctOf(start)}%`,
+              marginLeft: tickEdgeOffset(start),
+              background: color,
+            }}
           />
         </TimelineTooltip>
       );
     }
     const start = rel(events[row.startIndex].timestamp);
+    const end = rel(events[row.endIndex].timestamp);
+    const width = `max(3px, ${pctOf(end - start)}%)`;
     if (row.kind === "click") {
       return (
         <TimelineTooltip
@@ -415,30 +431,46 @@ export function StudioTimeline({
           <button
             type="button"
             className="tl-marker tl-tick"
-            style={{ left: `${pctOf(start)}%`, background: COLOR.click }}
+            style={{
+              left: `${pctOf(start)}%`,
+              marginLeft: tickEdgeOffset(start),
+              background: COLOR.click,
+            }}
           />
         </TimelineTooltip>
       );
     }
     if (row.kind === "keystroke") {
+      const isHold = row.repeatCount > 0;
+      const label = isHold ? "Key hold" : "Keystroke";
+      const repeatDetail =
+        row.repeatCount > 0
+          ? ` · ${row.repeatCount} ${row.repeatCount === 1 ? "repeat" : "repeats"}`
+          : "";
       return (
         <TimelineTooltip
           key={`k${row.startIndex}`}
           color={COLOR.key}
-          label="Keystroke"
+          label={label}
           value={row.key}
-          time={fmtPrecise(start)}
+          detail={`${row.durationMs} ms${repeatDetail}`}
+          time={`${fmtPrecise(start)}–${fmtPrecise(end)}`}
         >
           <button
             type="button"
-            className="tl-marker tl-tick"
-            style={{ left: `${pctOf(start)}%`, background: COLOR.key }}
-          />
+            className="tl-marker tl-span"
+            style={{
+              left: `${pctOf(start)}%`,
+              width,
+              transform: start >= dur ? "translateX(-100%)" : undefined,
+              background: COLOR.key,
+            }}
+          >
+            <span className="tl-span-label">{label}</span>
+          </button>
         </TimelineTooltip>
       );
     }
-    const end = rel(events[row.endIndex].timestamp);
-    const width = `max(3px, ${pctOf(end - start)}%)`;
     let label: string;
     let value: string | undefined;
     let detail: string | undefined;
@@ -468,7 +500,12 @@ export function StudioTimeline({
         <button
           type="button"
           className="tl-marker tl-span"
-          style={{ left: `${pctOf(start)}%`, width, background: COLOR[row.kind] }}
+          style={{
+            left: `${pctOf(start)}%`,
+            width,
+            transform: start >= dur ? "translateX(-100%)" : undefined,
+            background: COLOR[row.kind],
+          }}
         >
           <span className="tl-span-label">{label}</span>
         </button>
@@ -483,13 +520,15 @@ export function StudioTimeline({
         .studio-timeline {
           --timeline-cut: rgb(0 0 0 / 58%);
           --timeline-playhead: #fff;
-          --timeline-clip-fill: color-mix(in srgb, var(--studio-accent-fill) 62%, #744500);
+          --timeline-clip-fill: color-mix(in srgb, var(--studio-accent-fill) 30%, transparent);
+          --timeline-clip-fill-top: color-mix(in srgb, var(--studio-accent-fill) 38%, transparent);
           --timeline-clip-text: #fff8e8;
         }
         .light .studio-timeline {
           --timeline-cut: rgb(42 34 22 / 14%);
           --timeline-playhead: var(--studio-text);
-          --timeline-clip-fill: color-mix(in srgb, var(--studio-accent-fill) 72%, #a96800);
+          --timeline-clip-fill: color-mix(in srgb, var(--studio-accent-fill) 18%, transparent);
+          --timeline-clip-fill-top: color-mix(in srgb, var(--studio-accent-fill) 24%, transparent);
           --timeline-clip-text: #2e210a;
         }
         /* Headroom for the ruler labels, which sit just above the tick marks at
@@ -503,7 +542,8 @@ export function StudioTimeline({
         .tl-hthumb { position: absolute; top: 1px; bottom: 1px; border-radius: 999px; background: var(--studio-border-strong); transition: background 120ms ease; }
         .tl-hscroll:hover .tl-hthumb { background: var(--studio-scrollbar-hover); }
         .tl-hscroll:active .tl-hthumb { background: var(--studio-scrollbar-active); }
-        .tl-track { position: relative; user-select: none; cursor: pointer; touch-action: none; display: flex; flex-direction: column; gap: 4px; }
+        .tl-track-shell { min-width: 0; }
+        .tl-track { position: relative; width: calc(100% - 24px); margin-inline: 12px; user-select: none; cursor: pointer; touch-action: none; display: flex; flex-direction: column; gap: 4px; }
         .tl-ruler { position: relative; z-index: 4; height: 18px; }
         .tl-tickmark { position: absolute; bottom: 0; width: 1px; background: var(--studio-border-strong); pointer-events: none; }
         .tl-tickmark.major { height: 7px; }
@@ -533,45 +573,49 @@ export function StudioTimeline({
         @media (prefers-reduced-motion: reduce) { .tl-event-tooltip { animation: none; } }
         .tl-clear { border: 1px solid var(--studio-accent-border); background: var(--studio-accent-soft); color: var(--studio-accent); border-radius: 5px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
         .tl-clear:hover { background: color-mix(in oklch, var(--studio-accent) 20%, transparent); }
-        .tl-slider { -webkit-appearance: none; appearance: none; width: 90px; height: 6px; border: 1px solid transparent; border-radius: 3px; background: var(--studio-control); cursor: pointer; outline: none; }
-        .tl-slider:focus-visible { border-color: var(--studio-accent); }
-        .tl-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance:none; width: 11px; height: 11px; border-radius: 50%; background: var(--studio-accent-fill); cursor: pointer; }
+        .tl-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; font-size: 11px; color: var(--studio-text-subtle); font-variant-numeric: tabular-nums; }
+        .tl-zoom-control { display: inline-flex; align-items: center; gap: 8px; justify-self: start; }
+        .tl-toolbar-center { justify-self: center; white-space: nowrap; }
+        .tl-duration { justify-self: end; }
+        .tl-slider { -webkit-appearance: none; appearance: none; width: 90px; height: 12px; margin: 0; border: 0; background: transparent; cursor: pointer; outline: none; }
+        .tl-slider:focus-visible { outline: 1px solid var(--studio-accent); outline-offset: 3px; border-radius: 999px; }
+        .tl-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--studio-accent-fill) var(--tl-slider-progress), var(--studio-border-strong) var(--tl-slider-progress)); }
+        .tl-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance:none; width: 11px; height: 11px; margin-top: -3.5px; border: 0; border-radius: 50%; background: var(--studio-accent-fill); cursor: pointer; }
         .tl-slider::-webkit-slider-thumb:hover { background: var(--studio-accent-fill-hover); }
+        .tl-slider::-moz-range-track { height: 4px; border: 0; border-radius: 999px; background: var(--studio-border-strong); }
+        .tl-slider::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--studio-accent-fill); }
+        .tl-slider::-moz-range-thumb { width: 11px; height: 11px; border: 0; border-radius: 50%; background: var(--studio-accent-fill); cursor: pointer; }
+        .tl-slider::-moz-range-thumb:hover { background: var(--studio-accent-fill-hover); }
         .tl-clip-bed { position: absolute; z-index: 1; inset: 22px 0 0; overflow: hidden; border: 1px solid var(--studio-border); border-radius: 9px; background: var(--timeline-cut); box-shadow: 0 1px 0 rgb(255 255 255 / 8%) inset; pointer-events: none; }
-        .tl-clip-region { position: absolute; z-index: 1; top: 22px; bottom: 0; overflow: hidden; border: 1px solid var(--studio-accent); border-radius: 9px; background: linear-gradient(180deg, color-mix(in srgb, var(--timeline-clip-fill) 88%, white) 0%, var(--timeline-clip-fill) 100%); box-shadow: 0 1px 0 rgb(255 255 255 / 18%) inset, 0 2px 5px rgb(0 0 0 / 18%); pointer-events: none; }
+        .tl-clip-region { position: absolute; z-index: 1; top: 22px; bottom: 0; box-sizing: border-box; overflow: hidden; border: 1px solid color-mix(in srgb, var(--studio-accent) 68%, transparent); border-radius: 0; background: linear-gradient(180deg, var(--timeline-clip-fill-top) 0%, var(--timeline-clip-fill) 100%); box-shadow: 0 1px 0 rgb(255 255 255 / 12%) inset; pointer-events: none; }
         .tl-clip-meta-overlay { position: absolute; z-index: 4; top: 22px; bottom: 0; overflow: hidden; container-type: inline-size; pointer-events: none; }
         .tl-clip-meta { position: absolute; top: 10px; right: 14px; display: none; min-width: 74px; color: var(--timeline-clip-text); text-align: right; text-shadow: 0 1px 1px rgb(0 0 0 / 25%); }
         .tl-clip-name { display: block; opacity: 0.58; font-size: 10px; font-weight: 650; line-height: 1; }
         .tl-clip-details { display: flex; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 5px; font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 650; line-height: 1; }
         .tl-clip-rate { display: inline-flex; align-items: center; gap: 3px; }
         @container (min-width: 132px) { .tl-clip-meta { display: block; } }
-        .tl-trim-handle { position: absolute; z-index: 8; top: 23px; bottom: 1px; width: 12px; padding: 0; border: 1px solid color-mix(in srgb, var(--studio-accent) 75%, white); background: var(--studio-accent-fill); color: #201b0f; cursor: ew-resize; touch-action: none; box-shadow: 0 1px 0 rgb(255 255 255 / 16%) inset; }
-        .tl-trim-handle.start { border-radius: 8px 3px 3px 8px; }
-        .tl-trim-handle.end { border-radius: 3px 8px 8px 3px; }
+        .tl-trim-handle { position: absolute; z-index: 8; top: 22px; bottom: 0; box-sizing: border-box; width: 12px; padding: 0; border: 1px solid color-mix(in srgb, var(--studio-accent) 75%, white); background: var(--studio-accent-fill); color: #201b0f; cursor: ew-resize; touch-action: none; box-shadow: 0 1px 0 rgb(255 255 255 / 16%) inset; }
+        .tl-trim-handle.start { border-right: 0; border-radius: 9px 0 0 9px; }
+        .tl-trim-handle.end { border-left: 0; border-radius: 0 9px 9px 0; }
         .tl-trim-handle::after { content: ""; position: absolute; top: 50%; left: 50%; width: 2px; height: 16px; transform: translate(-50%, -50%); border-radius: 999px; background: rgb(255 255 255 / 82%); }
         .tl-trim-handle:hover, .tl-trim-handle:focus-visible { background: var(--studio-accent-fill-hover); border-color: var(--studio-accent); outline: none; }
         .tl-trim-status { display: inline-flex; align-items: center; gap: 7px; color: var(--studio-accent); }
         .tl-trim-reset { border: 1px solid transparent; border-radius: 4px; padding: 1px 2px; margin: -2px -3px; background: transparent; color: var(--studio-text-subtle); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
         .tl-trim-reset:hover { color: var(--studio-text); }
+        .tl-playhead { position: absolute; z-index: 9; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--timeline-playhead); box-shadow: 0 0 4px rgb(0 0 0 / 38%); pointer-events: none; }
+        .tl-track.has-trim .tl-playhead { z-index: 7; top: 22px; }
       `}</style>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            fontSize: 11,
-            color: "var(--studio-text-subtle)",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <div className="tl-toolbar">
+          <span className="tl-zoom-control">
             <input
               type="range"
               className="tl-slider"
-              style={{
-                background: `linear-gradient(to right, var(--studio-accent-fill) ${zoomPos * 100}%, var(--studio-control) ${zoomPos * 100}%)`,
-              }}
+              style={
+                {
+                  "--tl-slider-progress": `${zoomPos * 100}%`,
+                } as React.CSSProperties
+              }
               min={0}
               max={1}
               step={0.001}
@@ -583,7 +627,7 @@ export function StudioTimeline({
             <span style={{ minWidth: 26, textAlign: "right" }}>{Math.round(secondsVisible)}s</span>
           </span>
           {trim && (trim.a > 0 || trim.b < dur) ? (
-            <span className="tl-trim-status">
+            <span className="tl-toolbar-center tl-trim-status">
               <button
                 type="button"
                 className="tl-trim-reset"
@@ -598,17 +642,21 @@ export function StudioTimeline({
               </button>
             </span>
           ) : loop ? (
-            <button type="button" className="tl-clear" onClick={() => onLoopChange(null)}>
+            <button
+              type="button"
+              className="tl-toolbar-center tl-clear"
+              onClick={() => onLoopChange(null)}
+            >
               {rangeWord === "selection" ? "selection" : "⟳ loop"} {fmt(loop.a)}–{fmt(loop.b)} ✕
             </button>
           ) : (
-            <span style={{ color: "var(--studio-text-subtle)" }}>
+            <span className="tl-toolbar-center">
               {trim
                 ? "drag clip edges to cut or extend"
                 : `drag to ${rangeWord === "selection" ? "select" : "loop"} a range`}
             </span>
           )}
-          <span>{fmt(dur)}</span>
+          <span className="tl-duration">{fmt(dur)}</span>
         </div>
 
         <div style={{ display: "flex", gap: 12, fontSize: 10, color: "var(--studio-text-muted)" }}>
@@ -638,150 +686,151 @@ export function StudioTimeline({
             follow.current = false;
           }}
         >
-          <div
-            ref={trackRef}
-            className={`tl-track${trim ? " has-trim" : ""}`}
-            style={{ width: `${trackWidthPct}%` }}
-            onPointerDown={onDown}
-            onPointerMove={onMove}
-            onPointerUp={onUp}
-          >
-            {majorSecs.map((t) => (
-              <div key={`grid${t}`} className="tl-grid" style={{ left: `${pctOf(t * 1000)}%` }} />
-            ))}
-
-            <div className="tl-ruler">
-              {minorSecs.map((t) => (
-                <div
-                  key={`min${t}`}
-                  className="tl-tickmark minor"
-                  style={{ left: `${pctOf(t * 1000)}%` }}
-                />
-              ))}
+          <div className="tl-track-shell" style={{ width: `${trackWidthPct}%` }}>
+            <div
+              ref={trackRef}
+              className={`tl-track${trim ? " has-trim" : ""}`}
+              onPointerDown={onDown}
+              onPointerMove={onMove}
+              onPointerUp={onUp}
+            >
               {majorSecs.map((t) => (
-                <div
-                  key={`maj${t}`}
-                  className="tl-tickmark major"
-                  style={{ left: `${pctOf(t * 1000)}%` }}
-                >
-                  <span className="tl-rlabel">{fmt(t * 1000)}</span>
-                </div>
+                <div key={`grid${t}`} className="tl-grid" style={{ left: `${pctOf(t * 1000)}%` }} />
               ))}
-            </div>
 
-            <div className="tl-lane">{mouseRows.map((r) => renderRow(r, "mouse"))}</div>
-            <div className="tl-lane">{keyRows.map((r) => renderRow(r, "keys"))}</div>
-
-            {perceptionTicks && perceptionTicks.length > 0 && (
-              <div className="tl-lane">
-                {perceptionTicks.map((t, i) => (
-                  <TimelineTooltip
-                    key={`p${i}`}
-                    color="var(--studio-accent)"
-                    label={t.label}
-                    time={fmtPrecise(t.ms)}
+              <div className="tl-ruler">
+                {minorSecs.map((t) => (
+                  <div
+                    key={`min${t}`}
+                    className="tl-tickmark minor"
+                    style={{ left: `${pctOf(t * 1000)}%` }}
+                  />
+                ))}
+                {majorSecs.map((t) => (
+                  <div
+                    key={`maj${t}`}
+                    className="tl-tickmark major"
+                    style={{ left: `${pctOf(t * 1000)}%` }}
                   >
-                    <button
-                      type="button"
-                      className="tl-marker tl-tick"
-                      style={{
-                        left: `${pctOf(t.ms)}%`,
-                        background: "var(--studio-accent)",
-                        cursor: "pointer",
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSeekSeconds(t.ms / 1000);
-                      }}
-                      onPointerDown={(e) => e.stopPropagation()}
-                    />
-                  </TimelineTooltip>
+                    <span className="tl-rlabel">{fmt(t * 1000)}</span>
+                  </div>
                 ))}
               </div>
-            )}
 
-            {loop && (
+              <div className="tl-lane">{mouseRows.map((r) => renderRow(r, "mouse"))}</div>
+              <div className="tl-lane">{keyRows.map((r) => renderRow(r, "keys"))}</div>
+
+              {perceptionTicks && perceptionTicks.length > 0 && (
+                <div className="tl-lane">
+                  {perceptionTicks.map((t, i) => (
+                    <TimelineTooltip
+                      key={`p${i}`}
+                      color="var(--studio-accent)"
+                      label={t.label}
+                      time={fmtPrecise(t.ms)}
+                    >
+                      <button
+                        type="button"
+                        className="tl-marker tl-tick"
+                        style={{
+                          left: `${pctOf(t.ms)}%`,
+                          marginLeft: tickEdgeOffset(t.ms),
+                          background: "var(--studio-accent)",
+                          cursor: "pointer",
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSeekSeconds(t.ms / 1000);
+                        }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                      />
+                    </TimelineTooltip>
+                  ))}
+                </div>
+              )}
+
+              {loop && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    bottom: 0,
+                    left: `${pctOf(loop.a)}%`,
+                    width: `${pctOf(loop.b - loop.a)}%`,
+                    background: "var(--studio-accent-soft)",
+                    border: "1px solid var(--studio-accent-border)",
+                    borderRadius: 4,
+                    zIndex: 4,
+                    pointerEvents: "none",
+                  }}
+                />
+              )}
+              {trim && (
+                <>
+                  <div className="tl-clip-bed" />
+                  <div
+                    className="tl-clip-region"
+                    style={{
+                      left: `${pctOf(trim.a)}%`,
+                      right: `${100 - pctOf(trim.b)}%`,
+                    }}
+                  />
+                  <div
+                    className="tl-clip-meta-overlay"
+                    style={{
+                      left: `${pctOf(trim.a)}%`,
+                      right: `${100 - pctOf(trim.b)}%`,
+                    }}
+                  >
+                    <div className="tl-clip-meta">
+                      <span className="tl-clip-name">Clip</span>
+                      <span className="tl-clip-details">
+                        <span>{fmtClipDuration(trim.b - trim.a)}</span>
+                        <span className="tl-clip-rate">
+                          <Gauge size={12} strokeWidth={1.8} /> {fmtRate(clipRate)}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="tl-trim-handle start"
+                    style={{
+                      left: `${pctOf(trim.a)}%`,
+                      transform: "translateX(-100%)",
+                    }}
+                    aria-label={`Trim start at ${fmtPrecise(trim.a)}`}
+                    title="Drag to set the start"
+                    onPointerDown={onTrimDown("start")}
+                    onPointerMove={onTrimMove}
+                    onPointerUp={onTrimUp}
+                    onPointerCancel={onTrimUp}
+                    onKeyDown={onTrimKeyDown("start")}
+                  />
+                  <button
+                    type="button"
+                    className="tl-trim-handle end"
+                    style={{
+                      left: `${pctOf(trim.b)}%`,
+                    }}
+                    aria-label={`Trim end at ${fmtPrecise(trim.b)}`}
+                    title="Drag to set the end"
+                    onPointerDown={onTrimDown("end")}
+                    onPointerMove={onTrimMove}
+                    onPointerUp={onTrimUp}
+                    onPointerCancel={onTrimUp}
+                    onKeyDown={onTrimKeyDown("end")}
+                  />
+                </>
+              )}
               <div
+                className="tl-playhead"
                 style={{
-                  position: "absolute",
-                  top: 0,
-                  bottom: 0,
-                  left: `${pctOf(loop.a)}%`,
-                  width: `${pctOf(loop.b - loop.a)}%`,
-                  background: "var(--studio-accent-soft)",
-                  border: "1px solid var(--studio-accent-border)",
-                  borderRadius: 4,
-                  zIndex: 4,
-                  pointerEvents: "none",
+                  left: `${pctOf(visiblePlayMs)}%`,
+                  marginLeft: playheadOffsetPx,
                 }}
               />
-            )}
-            {trim && (
-              <>
-                <div className="tl-clip-bed" />
-                <div
-                  className="tl-clip-region"
-                  style={{ left: `${pctOf(trim.a)}%`, width: `${pctOf(trim.b - trim.a)}%` }}
-                />
-                <div
-                  className="tl-clip-meta-overlay"
-                  style={{ left: `${pctOf(trim.a)}%`, width: `${pctOf(trim.b - trim.a)}%` }}
-                >
-                  <div className="tl-clip-meta">
-                    <span className="tl-clip-name">Clip</span>
-                    <span className="tl-clip-details">
-                      <span>{fmtClipDuration(trim.b - trim.a)}</span>
-                      <span className="tl-clip-rate">
-                        <Gauge size={12} strokeWidth={1.8} /> {fmtRate(clipRate)}
-                      </span>
-                    </span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="tl-trim-handle start"
-                  style={{
-                    left: `${pctOf(trim.a)}%`,
-                  }}
-                  aria-label={`Trim start at ${fmtPrecise(trim.a)}`}
-                  title="Drag to set the start"
-                  onPointerDown={onTrimDown("start")}
-                  onPointerMove={onTrimMove}
-                  onPointerUp={onTrimUp}
-                  onPointerCancel={onTrimUp}
-                  onKeyDown={onTrimKeyDown("start")}
-                />
-                <button
-                  type="button"
-                  className="tl-trim-handle end"
-                  style={{
-                    left: `${pctOf(trim.b)}%`,
-                    transform: "translateX(-100%)",
-                  }}
-                  aria-label={`Trim end at ${fmtPrecise(trim.b)}`}
-                  title="Drag to set the end"
-                  onPointerDown={onTrimDown("end")}
-                  onPointerMove={onTrimMove}
-                  onPointerUp={onTrimUp}
-                  onPointerCancel={onTrimUp}
-                  onKeyDown={onTrimKeyDown("end")}
-                />
-              </>
-            )}
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                bottom: 0,
-                left: `${pctOf(playMs)}%`,
-                width: 2,
-                marginLeft: -1,
-                background: "var(--timeline-playhead)",
-                boxShadow: "0 0 4px rgb(0 0 0 / 38%)",
-                zIndex: 9,
-                pointerEvents: "none",
-              }}
-            />
+            </div>
           </div>
         </div>
 

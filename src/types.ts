@@ -7,6 +7,7 @@ export enum RecordingStatus {
 
 export enum InputEventType {
   KeyPress = "KeyPress",
+  KeyRepeat = "KeyRepeat",
   KeyRelease = "KeyRelease",
   KeyCombo = "KeyCombo",
   ButtonPress = "ButtonPress",
@@ -18,6 +19,7 @@ export enum InputEventType {
 
 export type InputEvent =
   | { type: InputEventType.KeyPress; key: string; timestamp: number }
+  | { type: InputEventType.KeyRepeat; key: string; timestamp: number }
   | { type: InputEventType.KeyRelease; key: string; timestamp: number }
   | {
       type: InputEventType.KeyCombo;

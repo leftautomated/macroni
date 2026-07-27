@@ -43,6 +43,13 @@ export function getEventDetails(event: InputEvent): EventDetails {
         value: event.key,
         detail: "",
       };
+    case InputEventType.KeyRepeat:
+      return {
+        icon: <Keyboard className="h-3 w-3" />,
+        action: "Key Repeat",
+        value: event.key,
+        detail: "",
+      };
     case InputEventType.KeyRelease:
       return {
         icon: <Keyboard className="h-3 w-3" />,
@@ -165,11 +172,70 @@ export type EventRow =
       endIndex: number;
       key: string;
       timestamp: number;
+      durationMs: number;
+      repeatCount: number;
     };
 
 export function groupEvents(events: InputEvent[]): EventRow[] {
+  const keyRowsByStart = new Map<number, Extract<EventRow, { kind: "keystroke" }>>();
+  const consumedKeyEvents = new Set<number>();
+  const activeKeys = new Map<
+    string,
+    { startIndex: number; timestamp: number; repeatCount: number; eventIndexes: number[] }
+  >();
+
+  events.forEach((event, index) => {
+    if (event.type === InputEventType.KeyPress) {
+      const active = activeKeys.get(event.key);
+      if (active) {
+        // Recordings made before KeyRepeat existed stored autorepeat as another
+        // KeyPress. Infer it from the already-down key for compatibility.
+        active.repeatCount += 1;
+        active.eventIndexes.push(index);
+      } else {
+        activeKeys.set(event.key, {
+          startIndex: index,
+          timestamp: event.timestamp,
+          repeatCount: 0,
+          eventIndexes: [index],
+        });
+      }
+    } else if (event.type === InputEventType.KeyRepeat) {
+      const active = activeKeys.get(event.key);
+      if (active) {
+        active.repeatCount += 1;
+        active.eventIndexes.push(index);
+      }
+    } else if (event.type === InputEventType.KeyRelease) {
+      const active = activeKeys.get(event.key);
+      if (active) {
+        keyRowsByStart.set(active.startIndex, {
+          kind: "keystroke",
+          startIndex: active.startIndex,
+          endIndex: index,
+          key: event.key,
+          timestamp: active.timestamp,
+          durationMs: Math.max(0, event.timestamp - active.timestamp),
+          repeatCount: active.repeatCount,
+        });
+        active.eventIndexes.forEach((eventIndex) => {
+          consumedKeyEvents.add(eventIndex);
+        });
+        consumedKeyEvents.add(index);
+        activeKeys.delete(event.key);
+      }
+    }
+  });
+
   const rows: EventRow[] = [];
   events.forEach((event, index) => {
+    const keyRow = keyRowsByStart.get(index);
+    if (keyRow) {
+      rows.push(keyRow);
+      return;
+    }
+    if (consumedKeyEvents.has(index)) return;
+
     const last = rows[rows.length - 1];
     if (event.type === InputEventType.ButtonRelease) {
       const prev2 = rows[rows.length - 2];
@@ -208,23 +274,6 @@ export function groupEvents(events: InputEvent[]): EventRow[] {
           moveCount: last.count,
           timestamp: prev2.event.timestamp,
         });
-      } else {
-        rows.push({ kind: "event", index, event });
-      }
-    } else if (event.type === InputEventType.KeyRelease) {
-      if (
-        last?.kind === "event" &&
-        last.event.type === InputEventType.KeyPress &&
-        last.event.key === event.key
-      ) {
-        // Adjacent press+release of the same key → a keystroke.
-        rows[rows.length - 1] = {
-          kind: "keystroke",
-          startIndex: last.index,
-          endIndex: index,
-          key: event.key,
-          timestamp: last.event.timestamp,
-        };
       } else {
         rows.push({ kind: "event", index, event });
       }

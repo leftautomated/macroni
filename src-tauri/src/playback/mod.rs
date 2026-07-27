@@ -3,6 +3,8 @@
 //! and `Emitter` port.
 
 pub mod engine;
+#[cfg(target_os = "macos")]
+mod macos;
 pub mod plan;
 pub mod ports;
 

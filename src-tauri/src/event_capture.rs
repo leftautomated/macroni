@@ -19,6 +19,7 @@ use crate::types::InputEvent;
 const MOUSE_SAMPLE_INTERVAL_MS: i64 = 8;
 
 pub struct EventCapture {
+    pressed_keys: HashSet<Key>,
     pressed_modifiers: HashSet<Key>,
     last_mouse_position: Option<(f64, f64)>,
     last_mouse_sample: Option<(f64, f64, i64)>,
@@ -27,6 +28,7 @@ pub struct EventCapture {
 impl EventCapture {
     pub fn new() -> Self {
         Self {
+            pressed_keys: HashSet::new(),
             pressed_modifiers: HashSet::new(),
             last_mouse_position: None,
             last_mouse_sample: None,
@@ -40,48 +42,58 @@ impl EventCapture {
     /// known location is still a valid starting point. The sampling clock is
     /// reset so the first movement in the next session is always captured.
     pub fn reset(&mut self) {
+        self.pressed_keys.clear();
         self.pressed_modifiers.clear();
         self.last_mouse_sample = None;
     }
 
     /// Convert a single rdev event into 0, 1, or 2 `InputEvent`s.
-    /// A key press with active modifiers produces both a `KeyPress` and a
-    /// `KeyCombo` event. A mouse-move without any button held emits nothing
-    /// (drag filter).
+    /// The first key-down produces `KeyPress`; subsequent downs before release
+    /// produce `KeyRepeat`. A first press with active modifiers also produces a
+    /// `KeyCombo` annotation.
     pub fn on_rdev_event(&mut self, event_type: EventType, timestamp_ms: i64) -> Vec<InputEvent> {
         let mut out = Vec::new();
         match event_type {
             EventType::KeyPress(key) => {
+                let is_repeat = !self.pressed_keys.insert(key);
                 if is_modifier_key(key) {
                     self.pressed_modifiers.insert(key);
                 }
                 let key_str = key_to_string(key);
-                out.push(InputEvent::KeyPress {
-                    key: key_str.clone(),
-                    timestamp: timestamp_ms,
-                });
-                if !is_modifier_key(key) {
-                    if let Some(recognized_char) =
-                        get_character_with_modifiers(key, &self.pressed_modifiers)
-                    {
-                        // pressed_modifiers is populated exclusively by
-                        // is_modifier_key-true keys, so every entry is already
-                        // a modifier — no redundant filter needed here.
-                        let modifiers: Vec<String> = self
-                            .pressed_modifiers
-                            .iter()
-                            .map(|k| key_to_string(*k))
-                            .collect();
-                        out.push(InputEvent::KeyCombo {
-                            char: recognized_char,
-                            key: key_str,
-                            modifiers,
-                            timestamp: timestamp_ms,
-                        });
+                if is_repeat {
+                    out.push(InputEvent::KeyRepeat {
+                        key: key_str,
+                        timestamp: timestamp_ms,
+                    });
+                } else {
+                    out.push(InputEvent::KeyPress {
+                        key: key_str.clone(),
+                        timestamp: timestamp_ms,
+                    });
+                    if !is_modifier_key(key) {
+                        if let Some(recognized_char) =
+                            get_character_with_modifiers(key, &self.pressed_modifiers)
+                        {
+                            // pressed_modifiers is populated exclusively by
+                            // is_modifier_key-true keys, so every entry is already
+                            // a modifier — no redundant filter needed here.
+                            let modifiers: Vec<String> = self
+                                .pressed_modifiers
+                                .iter()
+                                .map(|k| key_to_string(*k))
+                                .collect();
+                            out.push(InputEvent::KeyCombo {
+                                char: recognized_char,
+                                key: key_str,
+                                modifiers,
+                                timestamp: timestamp_ms,
+                            });
+                        }
                     }
                 }
             }
             EventType::KeyRelease(key) => {
+                self.pressed_keys.remove(&key);
                 if is_modifier_key(key) {
                     self.pressed_modifiers.remove(&key);
                 }
@@ -178,6 +190,34 @@ mod tests {
         let out = cap.on_rdev_event(EventType::KeyRelease(Key::KeyA), ts());
         assert_eq!(out.len(), 1);
         assert!(matches!(&out[0], InputEvent::KeyRelease { key, .. } if key == "A"));
+    }
+
+    #[test]
+    fn repeated_key_down_emits_key_repeat_without_duplicate_combo() {
+        let mut cap = EventCapture::new();
+        cap.on_rdev_event(EventType::KeyPress(Key::MetaLeft), ts());
+        cap.on_rdev_event(EventType::KeyPress(Key::KeyA), ts() + 1);
+
+        let out = cap.on_rdev_event(EventType::KeyPress(Key::KeyA), ts() + 500);
+
+        assert!(matches!(
+            out.as_slice(),
+            [InputEvent::KeyRepeat { key, .. }] if key == "A"
+        ));
+    }
+
+    #[test]
+    fn key_down_after_release_is_a_new_press() {
+        let mut cap = EventCapture::new();
+        cap.on_rdev_event(EventType::KeyPress(Key::KeyA), ts());
+        cap.on_rdev_event(EventType::KeyRelease(Key::KeyA), ts() + 1);
+
+        let out = cap.on_rdev_event(EventType::KeyPress(Key::KeyA), ts() + 2);
+
+        assert!(matches!(
+            out.as_slice(),
+            [InputEvent::KeyPress { key, .. }] if key == "A"
+        ));
     }
 
     #[test]

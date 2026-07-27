@@ -412,9 +412,11 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
         <input
           type="range"
           className="sp-slider"
-          style={{
-            background: `linear-gradient(to right, var(--studio-accent-fill) ${speedFrac * 100}%, var(--studio-control) ${speedFrac * 100}%)`,
-          }}
+          style={
+            {
+              "--sp-slider-progress": `${speedFrac * 100}%`,
+            } as React.CSSProperties
+          }
           min={SPEED_MIN}
           max={SPEED_MAX}
           step={SPEED_STEP}
@@ -495,10 +497,15 @@ export const StudioPlayer = forwardRef<StudioPlayerHandle, StudioPlayerProps>(fu
           .sp-play:hover { background:var(--studio-accent-soft); border-color:var(--studio-accent-border); color:var(--studio-accent); }
           .sp-text { font-size:12px; font-variant-numeric: tabular-nums; color:var(--studio-text-muted); }
           .sp-time { font-size:13px; font-variant-numeric: tabular-nums; color:var(--studio-text-muted); }
-          .sp-slider { -webkit-appearance:none; appearance:none; width:84px; height:6px; border:1px solid transparent; border-radius:3px; background:var(--studio-control); cursor:pointer; outline:none; }
-          .sp-slider:focus-visible { border-color:var(--studio-accent); }
-          .sp-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:12px; height:12px; border-radius:50%; background:var(--studio-accent-fill); cursor:pointer; transition: background 120ms ease; }
+          .sp-slider { -webkit-appearance:none; appearance:none; width:84px; height:12px; margin:0; border:0; background:transparent; cursor:pointer; outline:none; }
+          .sp-slider:focus-visible { outline:1px solid var(--studio-accent); outline-offset:3px; border-radius:999px; }
+          .sp-slider::-webkit-slider-runnable-track { height:4px; border-radius:999px; background:linear-gradient(to right, var(--studio-accent-fill) var(--sp-slider-progress), var(--studio-border-strong) var(--sp-slider-progress)); }
+          .sp-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:12px; height:12px; margin-top:-4px; border:0; border-radius:50%; background:var(--studio-accent-fill); cursor:pointer; transition: background 120ms ease; }
           .sp-slider::-webkit-slider-thumb:hover { background:var(--studio-accent-fill-hover); }
+          .sp-slider::-moz-range-track { height:4px; border:0; border-radius:999px; background:var(--studio-border-strong); }
+          .sp-slider::-moz-range-progress { height:4px; border-radius:999px; background:var(--studio-accent-fill); }
+          .sp-slider::-moz-range-thumb { width:12px; height:12px; border:0; border-radius:50%; background:var(--studio-accent-fill); cursor:pointer; transition:background 120ms ease; }
+          .sp-slider::-moz-range-thumb:hover { background:var(--studio-accent-fill-hover); }
           .sp-replay { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--studio-accent-border); background:var(--studio-accent-soft); color:var(--studio-accent); border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; transition: background 120ms ease, border-color 120ms ease; }
           .sp-replay:hover { background:color-mix(in oklch, var(--studio-accent) 20%, transparent); border-color:var(--studio-accent); }
           .sp-layer { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(255,255,255,0.14); background:rgba(15,15,20,0.72); color:rgba(255,255,255,0.45); border-radius:999px; padding:3px 10px; font-size:11px; font-weight:600; cursor:pointer; transition: color 120ms ease, border-color 120ms ease; }

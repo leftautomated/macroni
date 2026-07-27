@@ -327,7 +327,7 @@ describe("MacroEditor", () => {
     expect(container.querySelectorAll(".rc-root")).toHaveLength(0);
     const copy = container.textContent?.toLowerCase() ?? "";
     expect(copy).not.toContain("no rules");
-    expect(copy).not.toContain("no nodes");
+    expect(copy).not.toContain("nodes");
     expect(copy).not.toContain("nothing here");
   });
 

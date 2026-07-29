@@ -1,0 +1,89 @@
+name: Promote release
+run-name: Promote ${{ inputs.source_ref }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Stable v-prefixed draft tag to publish
+        required: true
+        type: string
+      confirm_publish:
+        description: Publish this release permanently
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: promote-${{ inputs.source_ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  promote:
+    name: Verify, publish, and project
+    if: ${{ inputs.confirm_publish }}
+    runs-on: ubuntu-22.04
+    environment: release-promotion
+    permissions:
+      contents: write
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      SOURCE_REF: ${{ inputs.source_ref }}
+    steps:
+      - name: Check out release host
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Inspect release state
+        id: release
+        run: |
+          RELEASE=$(gh api \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/$GITHUB_REPOSITORY/releases/tags/$SOURCE_REF")
+          echo "draft=$(jq -r '.draft' <<< "$RELEASE")" >> "$GITHUB_OUTPUT"
+          test "$(jq -r '.prerelease' <<< "$RELEASE")" = "false" || {
+            echo "Prereleases are not supported." >&2
+            exit 1
+          }
+
+      - name: Reassemble and verify draft
+        if: steps.release.outputs.draft == 'true'
+        run: node scripts/finalize-release.mjs "$SOURCE_REF"
+
+      - name: Publish immutable release
+        if: steps.release.outputs.draft == 'true'
+        run: gh release edit "$SOURCE_REF" --draft=false --latest
+
+      - name: Project published release into Convex
+        env:
+          INGEST_TOKEN: ${{ secrets.RELEASE_INGEST_TOKEN }}
+          INGEST_URL: ${{ vars.CONVEX_RELEASE_INGEST_URL }}
+        run: |
+          test -n "$INGEST_TOKEN" || {
+            echo "RELEASE_INGEST_TOKEN is not configured." >&2
+            exit 1
+          }
+          test -n "$INGEST_URL" || {
+            echo "CONVEX_RELEASE_INGEST_URL is not configured." >&2
+            exit 1
+          }
+          curl --fail-with-body \
+            --retry 3 \
+            --retry-all-errors \
+            --header "Authorization: Bearer $INGEST_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "{\"tag\":\"$SOURCE_REF\"}" \
+            "$INGEST_URL"
+
+      - name: Summarize promotion
+        run: |
+          {
+            echo "## Stable release published"
+            echo
+            echo "- Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$SOURCE_REF"
+            echo "- Convex projection: updated"
+            echo "- Channel: stable"
+          } >> "$GITHUB_STEP_SUMMARY"

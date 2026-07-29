@@ -97,7 +97,9 @@ jobs:
       # NASM is required by openh264-sys2 (H.264 encoder native assembly)
       - name: Install NASM (macOS)
         if: matrix.platform == 'macos-latest'
-        run: brew install nasm
+        run: |
+          brew untap aws/tap 2>/dev/null || true
+          brew install nasm
 
       - name: Install NASM (Windows)
         if: matrix.platform == 'windows-latest'

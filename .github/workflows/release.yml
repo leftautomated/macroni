@@ -21,21 +21,25 @@ jobs:
           - platform: macos-latest
             target: aarch64-apple-darwin
             label: macOS-arm64
+            assetNamePattern: macroni-v[version]-macos-arm64[setup][ext]
             bundleArgs: ""
             signingArgs: ""
           - platform: macos-latest
             target: x86_64-apple-darwin
             label: macOS-x64
+            assetNamePattern: macroni-v[version]-macos-x64[setup][ext]
             bundleArgs: ""
             signingArgs: ""
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             label: Windows-x64
+            assetNamePattern: macroni-v[version]-windows-x64[setup][ext]
             bundleArgs: ""
             signingArgs: "--config src-tauri/tauri.windows-signing.conf.json"
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             label: Linux-x64
+            assetNamePattern: macroni-v[version]-linux-x64[setup][ext]
             bundleArgs: "--bundles deb,appimage"
             signingArgs: ""
 
@@ -102,6 +106,10 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Render release notes
+        id: release_notes
+        run: node scripts/render-release-notes.mjs "${{ inputs.source_ref }}" --github-output
 
       - name: Sign in to Azure
         if: matrix.platform == 'windows-latest'
@@ -198,9 +206,10 @@ jobs:
           releaseCommitish: main
           tagName: ${{ inputs.source_ref || github.ref_name }}
           releaseName: Macroni ${{ inputs.source_ref || github.ref_name }}
-          releaseBody: "See assets below for downloads."
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: true
           prerelease: ${{ contains(inputs.source_ref || github.ref_name, '-') }}
+          releaseAssetNamePattern: ${{ matrix.assetNamePattern }}
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
           updaterJsonPreferNsis: true

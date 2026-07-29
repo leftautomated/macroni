@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Private source tag or commit to release
+        description: V-prefixed private source tag to release
         required: true
         type: string
 

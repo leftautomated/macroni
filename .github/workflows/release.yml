@@ -1,0 +1,220 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Private source tag or commit to release
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            label: macOS-arm64
+            bundleArgs: ""
+            signingArgs: ""
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            label: macOS-x64
+            bundleArgs: ""
+            signingArgs: ""
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: Windows-x64
+            bundleArgs: ""
+            signingArgs: "--config src-tauri/tauri.windows-signing.conf.json"
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            label: Linux-x64
+            bundleArgs: "--bundles deb,appimage"
+            signingArgs: ""
+
+    runs-on: ${{ matrix.platform }}
+    environment: release
+    steps:
+      - name: Check out private source
+        uses: actions/checkout@v4
+        with:
+          repository: leftautomated/macroni-source
+          ref: ${{ inputs.source_ref || github.ref_name }}
+          ssh-key: ${{ secrets.MACRONI_SOURCE_DEPLOY_KEY }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux native dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libx11-dev \
+            libxdo-dev \
+            libxi-dev \
+            libxtst-dev \
+            nasm \
+            pkg-config \
+            wget
+
+      # NASM is required by openh264-sys2 (H.264 encoder native assembly)
+      - name: Install NASM (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: brew install nasm
+
+      - name: Install NASM (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: ilammy/setup-nasm@v1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sign in to Azure
+        if: matrix.platform == 'windows-latest'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Azure Artifact Signing module
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: Install-Module -Name ArtifactSigning -RequiredVersion 0.1.8 -Scope CurrentUser -Repository PSGallery -Force
+
+      # Fail fast (before the ~6 min compile) if the pieces the bundler-spawned
+      # sign script needs aren't in place — and with a readable error, unlike
+      # the bundler's opaque "failed to run pwsh".
+      - name: Signing preflight
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+        run: |
+          foreach ($name in 'AZURE_ARTIFACT_SIGNING_ENDPOINT','AZURE_ARTIFACT_SIGNING_ACCOUNT','AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Variable '$name' is empty. Is it set on the 'release' environment, and does the job declare 'environment: release'?"
+            }
+          }
+          Import-Module ArtifactSigning -RequiredVersion 0.1.8 -ErrorAction Stop
+          az account show --output none
+          Write-Host "Signing preflight OK"
+
+      - name: Updater signing preflight
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "TAURI_SIGNING_PRIVATE_KEY is empty" >&2; exit 1; }
+          test -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" || { echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is empty" >&2; exit 1; }
+
+      - name: Make clang_rt discoverable (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          RT=$(find /Applications/Xcode*.app /Library/Developer/CommandLineTools \
+                 -name 'libclang_rt.osx.a' 2>/dev/null | head -1)
+          if [ -n "$RT" ]; then
+            echo "clang_rt found: $RT"
+            echo "LIBRARY_PATH=$(dirname "$RT"):${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          else
+            echo "::warning::libclang_rt.osx.a not found on the runner"
+          fi
+
+      - name: Import Apple certificate
+        if: matrix.platform == 'macos-latest'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$CERTIFICATE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          owner: leftautomated
+          repo: macroni-releases
+          releaseCommitish: main
+          tagName: ${{ inputs.source_ref || github.ref_name }}
+          releaseName: Macroni ${{ inputs.source_ref || github.ref_name }}
+          releaseBody: "See assets below for downloads."
+          releaseDraft: true
+          prerelease: ${{ contains(inputs.source_ref || github.ref_name, '-') }}
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+          updaterJsonPreferNsis: true
+          args: --target ${{ matrix.target }} ${{ matrix.bundleArgs }} ${{ matrix.signingArgs }}
+
+      # The bundler swallows the sign script's output; the script writes a
+      # transcript to RUNNER_TEMP so failures are diagnosable here.
+      - name: Print signing log
+        if: always() && matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'sign-windows.log'
+          if (Test-Path $log) { Get-Content $log } else { Write-Host 'No signing log was produced.' }
+
+      - name: Verify Windows signatures
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: ./scripts/verify-windows-signatures.ps1

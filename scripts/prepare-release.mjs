@@ -105,7 +105,7 @@ if (release && !release.draft) {
 const releaseProperties = {
   tag_name: tag,
   target_commitish: 'main',
-  name: `Macroni ${tag}`,
+  name: `Macroni ${tag} Beta`,
   body,
   draft: true,
   prerelease: false,

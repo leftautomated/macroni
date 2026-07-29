@@ -148,6 +148,8 @@ if (latestAsset) {
 
 const assetByName = new Map(buildAssets.map((asset) => [asset.name, asset]))
 const prefix = `macroni-v${version}`
+const publishedAssetBaseUrl =
+  `https://github.com/${owner}/${repo}/releases/download/${tag}`
 
 async function updateEntry(bundleName, signatureName) {
   const bundle = assetByName.get(bundleName)
@@ -167,7 +169,10 @@ async function updateEntry(bundleName, signatureName) {
 
   return {
     signature: signatureText,
-    url: bundle.browser_download_url,
+    // Draft releases expose temporary `untagged-*` browser URLs. Updater
+    // metadata is immutable after promotion, so always write the canonical
+    // published tag URL before the release leaves draft state.
+    url: `${publishedAssetBaseUrl}/${bundle.name}`,
   }
 }
 

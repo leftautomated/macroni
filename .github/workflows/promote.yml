@@ -77,12 +77,25 @@ jobs:
             echo "CONVEX_RELEASE_INGEST_URL is not configured." >&2
             exit 1
           }
+          gh api \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/$GITHUB_REPOSITORY/releases/tags/$SOURCE_REF" \
+            > release.json
+          gh release download "$SOURCE_REF" \
+            --pattern latest.json \
+            --dir release-projection
+          jq -n \
+            --arg tag "$SOURCE_REF" \
+            --slurpfile release release.json \
+            --slurpfile metadata release-projection/latest.json \
+            '{tag: $tag, release: $release[0], metadata: $metadata[0]}' \
+            > release-projection.json
           curl --fail-with-body \
             --retry 3 \
             --retry-all-errors \
             --header "Authorization: Bearer $INGEST_TOKEN" \
             --header "Content-Type: application/json" \
-            --data "{\"tag\":\"$SOURCE_REF\"}" \
+            --data-binary @release-projection.json \
             "$INGEST_URL"
 
       - name: Summarize promotion

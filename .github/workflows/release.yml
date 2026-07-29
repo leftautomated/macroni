@@ -43,19 +43,19 @@ jobs:
     environment: release
     steps:
       - name: Check out private source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: leftautomated/macroni-source
           ref: ${{ inputs.source_ref || github.ref_name }}
           ssh-key: ${{ secrets.MACRONI_SOURCE_DEPLOY_KEY }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -97,7 +97,8 @@ jobs:
 
       - name: Install NASM (Windows)
         if: matrix.platform == 'windows-latest'
-        uses: ilammy/setup-nasm@v1
+        shell: pwsh
+        run: choco install nasm --yes --no-progress
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

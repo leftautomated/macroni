@@ -40,9 +40,16 @@ jobs:
       - name: Inspect release state
         id: release
         run: |
-          RELEASE=$(gh api \
+          RELEASE=$(gh api --paginate \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/$GITHUB_REPOSITORY/releases/tags/$SOURCE_REF")
+            "/repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+            jq -s --arg tag "$SOURCE_REF" \
+              'map(.[]) | map(select(.tag_name == $tag)) |
+              if length == 1 then .[0] else empty end')
+          test -n "$RELEASE" || {
+            echo "Could not resolve exactly one release for $SOURCE_REF." >&2
+            exit 1
+          }
           echo "draft=$(jq -r '.draft' <<< "$RELEASE")" >> "$GITHUB_OUTPUT"
           test "$(jq -r '.prerelease' <<< "$RELEASE")" = "false" || {
             echo "Prereleases are not supported." >&2

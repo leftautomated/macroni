@@ -11,7 +11,7 @@ The application source is maintained privately.
 The manually dispatched `Validate source` workflow checks an exact private
 source commit before it can be tagged for release. It runs frontend lint,
 typecheck, tests and coverage; Rust formatting, Clippy, tests, coverage and
-mutation testing across five deterministic shards; and the test suite on
+mutation testing across five deterministic Linux shards; and the test suite on
 macOS, Windows, and Linux. Keeping
 these release gates in this public repository avoids consuming private
 repository Actions minutes without exposing the source or its read-only deploy

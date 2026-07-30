@@ -1,0 +1,264 @@
+name: Validate source
+run-name: Validate source ${{ inputs.source_sha }} (${{ inputs.request_id }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact private source commit to validate
+        required: true
+        type: string
+      request_id:
+        description: Unique dispatch correlation ID
+        required: true
+        type: string
+
+concurrency:
+  group: validate-source-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  frontend:
+    name: Frontend quality
+    runs-on: ubuntu-22.04
+    environment: release
+    steps:
+      - name: Check out private source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: leftautomated/macroni-source
+          ref: ${{ inputs.source_sha }}
+          ssh-key: ${{ secrets.MACRONI_SOURCE_DEPLOY_KEY }}
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate release metadata
+        run: pnpm release:validate
+
+      - name: TypeScript typecheck
+        run: pnpm typecheck
+
+      - name: Biome lint and format check
+        run: pnpm lint
+
+      - name: Frontend coverage gate
+        run: pnpm test:coverage
+
+  rust-lint:
+    name: Rust quality
+    runs-on: macos-latest
+    environment: release
+    steps:
+      - name: Check out private source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: leftautomated/macroni-source
+          ref: ${{ inputs.source_sha }}
+          ssh-key: ${{ secrets.MACRONI_SOURCE_DEPLOY_KEY }}
+          persist-credentials: false
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install NASM
+        run: brew install nasm
+
+      - name: Rust format check
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Clippy with warnings denied
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: Test (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - macos-latest
+          - windows-latest
+          - ubuntu-22.04
+    runs-on: ${{ matrix.platform }}
+    environment: release
+    steps:
+      - name: Check out private source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: leftautomated/macroni-source
+          ref: ${{ inputs.source_sha }}
+          ssh-key: ${{ secrets.MACRONI_SOURCE_DEPLOY_KEY }}
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Install Linux native dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libx11-dev \
+            libxdo-dev \
+            libxi-dev \
+            libxtst-dev \
+            nasm \
+            pkg-config \
+            wget
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install NASM on macOS
+        if: matrix.platform == 'macos-latest'
+        run: brew install nasm
+
+      - name: Install NASM on Windows
+        if: matrix.platform == 'windows-latest'
+        uses: ilammy/setup-nasm@e77cc62a22a374a4d0668286007cc3e3b4c17760 # v1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Make clang_rt discoverable
+        if: matrix.platform == 'macos-latest'
+        run: |
+          RT=$(find /Applications/Xcode*.app /Library/Developer/CommandLineTools \
+                 -name 'libclang_rt.osx.a' 2>/dev/null | head -1)
+          if [ -n "$RT" ]; then
+            echo "LIBRARY_PATH=$(dirname "$RT"):${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Run frontend tests
+        run: pnpm test
+
+  rust-coverage:
+    name: Rust coverage
+    runs-on: macos-latest
+    environment: release
+    steps:
+      - name: Check out private source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: leftautomated/macroni-source
+          ref: ${{ inputs.source_sha }}
+          ssh-key: ${{ secrets.MACRONI_SOURCE_DEPLOY_KEY }}
+          persist-credentials: false
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: llvm-tools-preview
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install NASM
+        run: brew install nasm
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@065d6a08a14e61e89fb0a4c10eecdbdef39c7d8e # v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Make clang_rt discoverable
+        run: |
+          RT=$(find /Applications/Xcode*.app /Library/Developer/CommandLineTools \
+                 -name 'libclang_rt.osx.a' 2>/dev/null | head -1)
+          if [ -n "$RT" ]; then
+            echo "LIBRARY_PATH=$(dirname "$RT"):${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Rust coverage gate
+        working-directory: src-tauri
+        run: cargo llvm-cov --ignore-filename-regex '(permissions|ocr_macos|space_watch|probe|power)\.rs$' --fail-under-lines 44 --summary-only
+
+  mutation:
+    name: Mutation
+    runs-on: macos-latest
+    environment: release
+    steps:
+      - name: Check out private source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: leftautomated/macroni-source
+          ref: ${{ inputs.source_sha }}
+          ssh-key: ${{ secrets.MACRONI_SOURCE_DEPLOY_KEY }}
+          persist-credentials: false
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install NASM
+        run: brew install nasm
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@065d6a08a14e61e89fb0a4c10eecdbdef39c7d8e # v2
+        with:
+          tool: cargo-mutants
+
+      - name: Make clang_rt discoverable
+        run: |
+          RT=$(find /Applications/Xcode*.app /Library/Developer/CommandLineTools \
+                 -name 'libclang_rt.osx.a' 2>/dev/null | head -1)
+          if [ -n "$RT" ]; then
+            echo "LIBRARY_PATH=$(dirname "$RT"):${LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Mutation gate
+        working-directory: src-tauri
+        run: cargo mutants --no-shuffle

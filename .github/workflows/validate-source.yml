@@ -231,11 +231,11 @@ jobs:
       fail-fast: false
       matrix:
         shard:
+          - 0/5
           - 1/5
           - 2/5
           - 3/5
           - 4/5
-          - 5/5
     steps:
       - name: Check out private source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
